@@ -1,0 +1,10 @@
+/target
+.idea/
+.claude/
+# macOS Finder metadata.
+.DS_Store
+
+# Python (the checker prototype).
+__pycache__/
+*.pyc
+.venv/
