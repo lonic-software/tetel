@@ -78,6 +78,26 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Mint a fact from the pending observation buffer, or revise an
+    /// existing fact's note.
+    ///
+    /// There is no flag here for supplying a fact's extent or captured
+    /// output directly — those come only from a preceding `tetel look`
+    /// or `tetel run`.
+    Fact {
+        /// The fact's note: literal text, `-` for stdin, or `@file`.
+        /// Required to mint a fact; also how a `--revise`'s new note is
+        /// given.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        note: Option<String>,
+        /// Revise this fact's note instead of minting a new fact.
+        #[arg(long, value_name = "ID")]
+        revise: Option<String>,
+        /// Required with `--revise`: why the note is changing. Literal
+        /// text, `-` for stdin, or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        why: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -185,6 +205,65 @@ fn main() -> ExitCode {
                 Err(e) => {
                     eprintln!("tetel: {e}");
                     ExitCode::from(1)
+                }
+            }
+        }
+        Command::Fact { note, revise, why } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            if let Err(e) = tetel::session::ensure(&session_dir) {
+                eprintln!("tetel: could not create session state: {e}");
+                return ExitCode::from(1);
+            }
+            let resolved_note = match &note {
+                Some(raw) => match tetel::session::resolve_text_value(raw) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        eprintln!("tetel: error reading --note: {e}");
+                        return ExitCode::from(1);
+                    }
+                },
+                None => None,
+            };
+            if let Some(id) = revise {
+                let Some(why) = why else {
+                    eprintln!("tetel: fact --revise requires --why");
+                    return ExitCode::from(1);
+                };
+                let resolved_why = match tetel::session::resolve_text_value(&why) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("tetel: error reading --why: {e}");
+                        return ExitCode::from(1);
+                    }
+                };
+                let Some(resolved_note) = resolved_note else {
+                    eprintln!("tetel: fact --revise requires --note (the new note text)");
+                    return ExitCode::from(1);
+                };
+                match tetel::facts::revise(&session_dir, &id, &resolved_note, &resolved_why) {
+                    Ok(()) => {
+                        println!("{id} revised.");
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                }
+            } else {
+                let Some(resolved_note) = resolved_note else {
+                    eprintln!("tetel: fact requires --note");
+                    return ExitCode::from(1);
+                };
+                match tetel::facts::mint(&session_dir, &resolved_note) {
+                    Ok(fact) => {
+                        println!("{} minted.", fact.id);
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
                 }
             }
         }
