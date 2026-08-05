@@ -10,14 +10,23 @@ evidence**.
 
 **Prevention at authoring time, not detection afterwards.**
 
-A linter reads a finished document and reports what is wrong with it. Tetel is meant to make certain
-things *impossible to write down*:
+A linter reads a finished document and reports what is wrong with it. Tetel aims earlier — but the
+promise has to be stated at the right strength, because the file is plain markdown and nothing stops
+anyone typing anything into it. Three layers, and only two of them are enforceable:
 
-- You do not type a number. You run a command, and the tool records what it returned.
-- You do not declare a claim's scope wider than what you actually opened.
-- A contract clause with no named falsifier does not save.
+- **Format-level prevention is real.** A claim's scope is a set of things you name, not a sentence, so
+  a scope ranging wider than what you opened is a set comparison rather than a judgement call. A
+  required field cannot be omitted — the document does not parse.
+- **Numbers are held by re-execution, not by provenance.** You *can* type a value instead of running
+  the command. It buys nothing: the checker re-runs the command, and a disagreement is a loud failure
+  a human resolves. Whether the author or the checker executed it was never the property that
+  mattered.
+- **Wrong-but-green evidence is not addressed, and never will be.** A command can run cleanly and
+  fail to establish what its author believed. That residue is human-owed permanently, and the job is
+  to keep it visible rather than to shrink it.
 
-The mental model is **a lab notebook that will not let you write down a result you did not measure.**
+The mental model is **a lab notebook whose every recorded result gets re-measured, and which says so
+loudly when the measurement stops agreeing.**
 
 The reason this matters more than better checking: a refutation that arrives *while* a design is being
 authored changes the design. The same refutation arriving afterwards produces a finding that gets
@@ -33,8 +42,9 @@ Three pieces, each doing what it is good at:
 2. **A checker** — re-runs stored commands and fails loudly on a mismatch. Constraint queries
    (does a claim's scope exceed what was opened? does anything still depend on this?) run against a
    derived index, never a checked-in database.
-3. **An MCP server** — the write path mints rows from actual executions, and the query path answers
-   dependency questions cheaply. **The read path stays the file.**
+3. **An MCP server** — the write path mints rows from actual executions, which removes the
+   transcription step but is not where the guarantee lives; the query path answers dependency
+   questions cheaply. **The read path stays the file.**
 
 One rule generates the format: **each fact has exactly one home, and everything else points at it.**
 There is no metadata section. Dependency is derived from citations already present in the prose rather
@@ -85,11 +95,11 @@ Hungarian *tétel*: a **line item in a ledger**, and a **proposition** in logic.
 ledger entries that are propositions, so the word already names the central object rather than
 describing it by analogy. Short, unambiguous to pronounce, and free of prior meaning in English.
 
-## Open decisions
+## Decisions
 
-- **Licence.** Not chosen. Deliberately left open rather than guessed at.
-- **Implementation language.** Not chosen. The checker prototype that motivated this is Python; the
-  sibling projects are Rust.
+- **Licence — MIT**, matching [pult](https://github.com/lonic-software/pult). Tetel is a free tool.
+- **Implementation language — Rust**, matching pult. The checker prototype that motivated this is
+  Python; it stays a prototype.
 
 ## Status
 
@@ -97,3 +107,7 @@ Design intent only — no code, no format specification, nothing piloted. **The 
 be small enough to throw away**, and the kill condition should be registered before it is written: if
 the next two real documents yield only findings an existing lint would have surfaced anyway, it did
 not earn its keep.
+
+## Licence
+
+MIT. See [`LICENSE`](LICENSE).
