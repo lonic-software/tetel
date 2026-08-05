@@ -6,6 +6,7 @@
 pub mod brief;
 pub mod checks;
 pub mod citations;
+pub mod evidence;
 pub mod ledger;
 pub mod model;
 pub mod parse;
@@ -61,4 +62,16 @@ pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)> {
         brief::render_text(&display_path, &items)
     });
     Ok((code, out))
+}
+
+/// Runs `record` against a file on disk: validates `input_json` (a single
+/// grounding result, shaped as described in `evidence.rs`) against the
+/// memo's own evidence ledger, and if it is well-formed and its claim id
+/// is known, appends exactly one line to `<memo>.evidence.jsonl`. Never a
+/// partial write.
+pub fn record_file(path: &Path, input_json: &str) -> std::io::Result<Result<(), evidence::RecordError>> {
+    let source = std::fs::read_to_string(path)?;
+    let doc = parse::parse_document(&source);
+    let ledger = ledger::import(&doc.body);
+    Ok(evidence::record(path, &ledger.claims, input_json))
 }
