@@ -66,9 +66,11 @@ overpressure firing — the mark cannot exist without the test having been fired
 - **Never paraphrase.** If a tool returns a clause, it returns the clause's prose. The moment the
   server summarises, every downstream reader inherits the tool's reading of the document instead of
   the document — silently.
-- **Prose stays hand-written.** Facts may be captured and interpolated; arguments may not be
-  generated. A format that constrains what a design can express constrains what can be argued about
-  it, and the strongest refutations on record came from readers engaging prose with full generality.
+- **Prose is never generated from fields.** Facts may be captured and interpolated; arguments may not
+  be assembled out of structure. A format that constrains what a design can express constrains what
+  can be argued about it, and the strongest refutations on record came from readers engaging prose
+  with full generality. Whoever writes it — person or agent — writes the argument themselves; the
+  typing was never the point.
 
 ## What it will not solve, stated up front
 
