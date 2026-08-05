@@ -82,3 +82,21 @@ fn brief_reports_malformed_ledger_rows_without_dropping_them() {
     // The well-formed sibling row must still come through.
     assert!(out.contains("id: M-2"), "a bad row must not sink the whole import:\n{out}");
 }
+
+#[test]
+fn brief_still_lists_a_claim_grounded_only_by_ingested_evidence() {
+    // ledger_attested_grounded.md's only claim (A-1) already has a
+    // recorded, attested-derived evidence record on disk (see its sibling
+    // `.evidence.jsonl`, used by check_ledger_cli.rs's own test on this
+    // fixture). Ingestion enrolls a claim in the independent-grounding
+    // loop; it does not excuse it — `brief` must keep listing it exactly
+    // as if nothing had been recorded yet, until a witnessed grounding
+    // lands.
+    let (code, out) = run_brief("ledger_attested_grounded.md");
+    assert_eq!(code, 0, "output was:\n{out}");
+    assert!(out.contains("id: A-1"), "output was:\n{out}");
+    assert!(
+        out.contains("proposition: `lib` exposes the check/brief/record entry points"),
+        "output was:\n{out}"
+    );
+}

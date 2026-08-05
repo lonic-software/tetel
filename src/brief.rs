@@ -15,6 +15,13 @@ pub struct BriefItem {
     pub pin: Option<String>,
 }
 
+/// Every ledger claim, unconditionally — including one already grounded,
+/// and including one grounded only by ingested (attested-derived)
+/// evidence. Ingestion enrolls a claim in the independent-grounding loop;
+/// it does not excuse it, so nothing here may drop a claim from the brief
+/// on account of what its evidence ledger already holds. A claim leaves
+/// this list only by leaving the ledger itself — never by having been
+/// reported on.
 pub fn build(claims: &[Claim]) -> Vec<BriefItem> {
     claims
         .iter()
