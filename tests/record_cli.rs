@@ -71,7 +71,7 @@ fn appends_a_well_formed_record_from_stdin() {
     let sandbox = Sandbox::new("ledger_check.md", "wellformed");
     let (code, _out, err) = record_via_stdin(
         &sandbox.memo,
-        r#"{"claim":"L-1","pass":"agent-a","verdict":"supports","note":"Opened `foo` in full."}"#,
+        r#"{"claim":"L-1","pass":"agent-a","verdict":"supports","reported_kind":"observed","source":"src/foo.rs","note":"Opened `foo` in full."}"#,
     );
     assert_eq!(code, 0, "stderr:\n{err}");
     let contents = std::fs::read_to_string(sandbox.evidence_path()).unwrap();
@@ -82,6 +82,8 @@ fn appends_a_well_formed_record_from_stdin() {
     assert!(parsed["subject"][0]["digest"]["sha256"].is_string());
     assert_eq!(parsed["predicate"]["verdict"], "supports");
     assert_eq!(parsed["predicate"]["pass"], "agent-a");
+    assert_eq!(parsed["predicate"]["reported_kind"], "observed");
+    assert_eq!(parsed["predicate"]["source"], "src/foo.rs");
     assert_eq!(parsed["predicate"]["note"], "Opened `foo` in full.");
 }
 
@@ -89,7 +91,11 @@ fn appends_a_well_formed_record_from_stdin() {
 fn appends_a_well_formed_record_from_an_input_file() {
     let sandbox = Sandbox::new("ledger_check.md", "inputfile");
     let input_path = sandbox.dir.join("input.json");
-    std::fs::write(&input_path, r#"{"claim":"L-2","pass":"agent-b","verdict":"qualifies","note":"partial"}"#).unwrap();
+    std::fs::write(
+        &input_path,
+        r#"{"claim":"L-2","pass":"agent-b","verdict":"qualifies","reported_kind":"reading","source":"src/foo.rs","note":"partial"}"#,
+    )
+    .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_tetel"))
         .arg("record")
         .arg(&sandbox.memo)
@@ -111,6 +117,8 @@ fn a_note_with_backticks_and_embedded_newlines_survives_byte_exact() {
         "claim": "L-1",
         "pass": "agent-c",
         "verdict": "supports",
+        "reported_kind": "attested",
+        "source": "proc:agent-c-session",
         "note": note,
     })
     .to_string();
@@ -130,7 +138,7 @@ fn refuses_an_unknown_claim_id_and_writes_nothing() {
     let sandbox = Sandbox::new("ledger_check.md", "unknownclaim");
     let (code, _out, err) = record_via_stdin(
         &sandbox.memo,
-        r#"{"claim":"GHOST","pass":"agent-a","verdict":"supports"}"#,
+        r#"{"claim":"GHOST","pass":"agent-a","verdict":"supports","reported_kind":"observed","source":"src/foo.rs"}"#,
     );
     assert_ne!(code, 0, "an unknown claim id must be refused");
     assert!(err.contains("unknown claim id"), "stderr was:\n{err}");
@@ -158,11 +166,17 @@ fn refuses_malformed_json_and_writes_nothing() {
 #[test]
 fn a_second_append_never_rewrites_the_first_record() {
     let sandbox = Sandbox::new("ledger_check.md", "appendonly");
-    let (code1, _, err1) = record_via_stdin(&sandbox.memo, r#"{"claim":"L-1","pass":"agent-a","verdict":"supports"}"#);
+    let (code1, _, err1) = record_via_stdin(
+        &sandbox.memo,
+        r#"{"claim":"L-1","pass":"agent-a","verdict":"supports","reported_kind":"observed","source":"src/foo.rs"}"#,
+    );
     assert_eq!(code1, 0, "stderr:\n{err1}");
     let first_contents = std::fs::read_to_string(sandbox.evidence_path()).unwrap();
 
-    let (code2, _, err2) = record_via_stdin(&sandbox.memo, r#"{"claim":"L-2","pass":"agent-b","verdict":"refutes"}"#);
+    let (code2, _, err2) = record_via_stdin(
+        &sandbox.memo,
+        r#"{"claim":"L-2","pass":"agent-b","verdict":"refutes","reported_kind":"attested","source":"proc:agent-b-session"}"#,
+    );
     assert_eq!(code2, 0, "stderr:\n{err2}");
     let second_contents = std::fs::read_to_string(sandbox.evidence_path()).unwrap();
 
