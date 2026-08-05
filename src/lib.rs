@@ -1,8 +1,9 @@
 //! `tetel` — a checker for markdown design documents whose factual claims
-//! carry executable evidence. This is the first slice: `tetel check <file>`
-//! only. It never writes a file, never executes a command from the
-//! document, and makes no network calls.
+//! carry executable evidence. It never writes a file itself outside of
+//! `tetel record`'s own append-only evidence log, never executes a
+//! command from the document, and makes no network calls.
 
+pub mod brief;
 pub mod checks;
 pub mod citations;
 pub mod ledger;
@@ -26,4 +27,38 @@ pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
 pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     let source = std::fs::read_to_string(path)?;
     Ok(check_str(&path.display().to_string(), &source))
+}
+
+/// Runs `brief` against a file on disk: every claim in its evidence
+/// ledger, id and proposition only, scope withheld. Returns `(exit_code,
+/// output)`; a memo with no evidence ledger at all uses [`EXIT_NO_ROWS`].
+pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)> {
+    let source = std::fs::read_to_string(path)?;
+    let doc = parse::parse_document(&source);
+    let ledger = ledger::import(&doc.body);
+    let display_path = path.display().to_string();
+
+    if ledger.claims.is_empty() && ledger.errors.is_empty() {
+        return Ok((
+            EXIT_NO_ROWS,
+            format!("no evidence ledger found in {display_path} — nothing to brief.\n"),
+        ));
+    }
+
+    let mut out = String::new();
+    let code = if ledger.errors.is_empty() { EXIT_CLEAN } else { EXIT_CHECK_FAILED };
+    if !ledger.errors.is_empty() {
+        out.push_str(&format!("ledger import errors in {display_path} (never silently dropped):\n"));
+        for e in &ledger.errors {
+            out.push_str(&format!("  - line {}: {}\n", e.line, e.message));
+        }
+        out.push('\n');
+    }
+    let items = brief::build(&ledger.claims);
+    out.push_str(&if json {
+        brief::render_json(&items)
+    } else {
+        brief::render_text(&display_path, &items)
+    });
+    Ok((code, out))
 }

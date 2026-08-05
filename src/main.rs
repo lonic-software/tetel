@@ -21,6 +21,19 @@ enum Command {
         /// The markdown file to check.
         file: PathBuf,
     },
+    /// Emit the grounding brief for a memo's evidence ledger: every
+    /// claim's id and proposition, byte-identical to the source, with
+    /// domain/extent withheld so an independent pass can't see what the
+    /// author declared the claim ranges over.
+    ///
+    /// Read-only: never writes to the memo.
+    Brief {
+        /// The memo to brief.
+        memo: PathBuf,
+        /// Emit machine-readable JSON instead of the human-readable form.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -33,6 +46,16 @@ fn main() -> ExitCode {
             }
             Err(e) => {
                 eprintln!("tetel: error reading {}: {e}", file.display());
+                ExitCode::from(1)
+            }
+        },
+        Command::Brief { memo, json } => match tetel::brief_file(&memo, json) {
+            Ok((code, out)) => {
+                print!("{out}");
+                ExitCode::from(code as u8)
+            }
+            Err(e) => {
+                eprintln!("tetel: error reading {}: {e}", memo.display());
                 ExitCode::from(1)
             }
         },
