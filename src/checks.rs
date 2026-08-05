@@ -14,6 +14,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::citations::{
     abutting_context, citation_ids_in, normalize_literal, scan_citations, AbuttingContext, Citation,
 };
+use crate::evidence::{EvidenceRecord, Verdict};
+use crate::ledger::Claim;
 use crate::model::{Designator, Kind, Row, Status};
 use crate::parse::Document;
 
@@ -46,6 +48,24 @@ pub struct Findings {
     pub human_owed_rows: Vec<(String, String, String)>,
     /// IDs of every RUN row, for the class-level correspondence line.
     pub run_row_ids: Vec<String>,
+
+    // --- the grounding brief/record/check slice ---------------------
+    /// How many claims the memo's evidence ledger table(s) carried, valid
+    /// or not — distinguishes "no ledger in this file" from "a ledger
+    /// with zero rows" for the report's early-exit guard.
+    pub ledger_claims_found: usize,
+    /// Formatted `line N: message` — ledger rows that could not be
+    /// parsed at all (wrong cell count, empty id, duplicate id). Never
+    /// silently dropped.
+    pub ledger_errors: Vec<String>,
+    /// A ledger claim with no evidence record at all: `(id, proposition)`.
+    /// Human-owed — absence of evidence is not itself a failure.
+    pub ungrounded_claims: Vec<(String, String)>,
+    /// Formatted failures: two evidence records for one claim disagreeing
+    /// on verdict, or a verdict contradicting the author's own Status
+    /// cell. A machine failure — an unresolved contradiction, the same
+    /// shape as the unsettled-citation check.
+    pub verdict_disagreements: Vec<String>,
 }
 
 impl Findings {
@@ -55,6 +75,8 @@ impl Findings {
             || !self.abutting_failures.is_empty()
             || !self.unsettled_failures.is_empty()
             || !self.cascade_failures.is_empty()
+            || !self.ledger_errors.is_empty()
+            || !self.verdict_disagreements.is_empty()
     }
 }
 
@@ -332,7 +354,92 @@ pub fn analyze(doc: &Document) -> Findings {
         defined_uncited,
         human_owed_rows,
         run_row_ids,
+        ledger_claims_found: 0,
+        ledger_errors: Vec::new(),
+        ungrounded_claims: Vec::new(),
+        verdict_disagreements: Vec::new(),
     }
+}
+
+/// The author's own verdict, read off a ledger `Status` cell's leading
+/// bolded keyword — high-confidence only. A `Status` cell is free prose
+/// ("**DISCHARGED BY A RUN, and narrowed.**", "**CITED, NOT
+/// RE-OBSERVED.**"...), and guessing a verdict out of every shape it can
+/// take would mean fabricating disagreements the author never stated.
+/// This only ever fires on the two unambiguous keywords the corpus's own
+/// `tetel` row grammar already treats as opposites (`VERIFIED`/
+/// `REFUTED`); anything else — including `OWED`-shaped or qualified
+/// prose — is left unclassified rather than guessed at, mirroring
+/// citations.rs's own Abutting-vs-Candidate confidence split.
+fn author_status_verdict(status_cell: &str) -> Option<Verdict> {
+    let verified = status_cell.find("VERIFIED");
+    let refuted = status_cell.find("REFUTED");
+    match (verified, refuted) {
+        (Some(v), Some(r)) => Some(if v < r { Verdict::Supports } else { Verdict::Refutes }),
+        (Some(_), None) => Some(Verdict::Supports),
+        (None, Some(_)) => Some(Verdict::Refutes),
+        (None, None) => None,
+    }
+}
+
+/// The two new checks this slice adds, run independently of the five
+/// `tetel`-row checks above: a claim with no evidence record at all
+/// (human-owed — absence isn't a failure), and two verdicts that
+/// contradict each other, whether that's two grounding passes disagreeing
+/// or a pass contradicting the author's own `Status` cell (a machine
+/// failure — an unresolved contradiction).
+pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> (Vec<(String, String)>, Vec<String>) {
+    let mut ungrounded = Vec::new();
+    let mut disagreements = Vec::new();
+
+    for claim in claims {
+        let records: Vec<&EvidenceRecord> = evidence.iter().filter(|e| e.claim_id == claim.id).collect();
+        if records.is_empty() {
+            ungrounded.push((claim.id.clone(), claim.proposition.clone()));
+            continue;
+        }
+
+        for pair in records.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            if a.verdict != b.verdict {
+                disagreements.push(format!(
+                    "{} — {}\n      pass {} => {} — {}\n      pass {} => {} — {}",
+                    claim.id,
+                    claim.proposition,
+                    a.pass,
+                    a.verdict,
+                    a.note.as_deref().unwrap_or("(no note)"),
+                    b.pass,
+                    b.verdict,
+                    b.note.as_deref().unwrap_or("(no note)"),
+                ));
+            }
+        }
+
+        if let Some(author_verdict) = author_status_verdict(&claim.status) {
+            for record in &records {
+                let contradicts = matches!(
+                    (author_verdict, record.verdict),
+                    (Verdict::Supports, Verdict::Refutes) | (Verdict::Refutes, Verdict::Supports)
+                );
+                if contradicts {
+                    disagreements.push(format!(
+                        "{} — {}\n      pass {} => {} — {}\n      pass {} => {} — {}",
+                        claim.id,
+                        claim.proposition,
+                        "author (Status cell)",
+                        author_verdict,
+                        claim.status,
+                        record.pass,
+                        record.verdict,
+                        record.note.as_deref().unwrap_or("(no note)"),
+                    ));
+                }
+            }
+        }
+    }
+
+    (ungrounded, disagreements)
 }
 
 #[cfg(test)]

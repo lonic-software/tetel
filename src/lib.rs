@@ -16,18 +16,44 @@ use std::path::Path;
 
 pub use report::{EXIT_CHECK_FAILED, EXIT_CLEAN, EXIT_NO_ROWS};
 
-/// Runs `check` against already-loaded source text. `display_path` is used
-/// only in the no-rows-found message.
+/// Runs `check`'s five `tetel`-row checks against already-loaded source
+/// text, with no evidence-ledger awareness (there is no file path to load
+/// `<memo>.evidence.jsonl` from). `display_path` is used only in the
+/// no-rows-found message. Kept for testing the row-grammar checks against
+/// bare strings; the CLI always goes through [`check_file`].
 pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
     let doc = parse::parse_document(source);
-    let findings = checks::analyze(&doc);
+    let mut findings = checks::analyze(&doc);
+    let ledger = ledger::import(&doc.body);
+    findings.ledger_claims_found = ledger.claims.len();
+    findings.ledger_errors = ledger.errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect();
     report::render(display_path, &doc, &findings)
 }
 
-/// Runs `check` against a file on disk.
+/// Runs `check` against a file on disk: the five `tetel`-row checks, plus
+/// the two ledger checks (ungrounded claims, verdict disagreement) against
+/// whatever evidence has been recorded in `<file>.evidence.jsonl`, if it
+/// exists.
 pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     let source = std::fs::read_to_string(path)?;
-    Ok(check_str(&path.display().to_string(), &source))
+    let doc = parse::parse_document(&source);
+    let mut findings = checks::analyze(&doc);
+
+    let ledger = ledger::import(&doc.body);
+    let (evidence_records, evidence_errors) = evidence::load(path)?;
+    let (ungrounded, disagreements) = checks::analyze_ledger(&ledger.claims, &evidence_records);
+
+    findings.ledger_claims_found = ledger.claims.len();
+    findings.ledger_errors = ledger
+        .errors
+        .iter()
+        .map(|e| format!("line {}: {}", e.line, e.message))
+        .chain(evidence_errors)
+        .collect();
+    findings.ungrounded_claims = ungrounded;
+    findings.verdict_disagreements = disagreements;
+
+    Ok(report::render(&path.display().to_string(), &doc, &findings))
 }
 
 /// Runs `brief` against a file on disk: every claim in its evidence

@@ -21,7 +21,7 @@ const NON_COVERAGE: &[&str] = &[
 ];
 
 pub fn render(display_path: &str, doc: &Document, findings: &Findings) -> (i32, String) {
-    if doc.row_groups_found == 0 {
+    if doc.row_groups_found == 0 && findings.ledger_claims_found == 0 {
         let msg = format!(
             "no tetel rows found in {display_path} — out of scope, nothing was checked. \
 This is a distinct state from a clean run, not a weaker way of spelling it (exit {EXIT_NO_ROWS}).\n"
@@ -37,9 +37,11 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.subset_failures.len()
         + findings.abutting_failures.len()
         + findings.unsettled_failures.len()
-        + findings.cascade_failures.len();
-    let scope =
-        "grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades";
+        + findings.cascade_failures.len()
+        + findings.ledger_errors.len()
+        + findings.verdict_disagreements.len();
+    let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
+dependency cascades, evidence-ledger import, verdict disagreement";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -59,6 +61,12 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         for e in &findings.cascade_failures {
             out.push_str(&format!("  - [cascade] {e}\n"));
         }
+        for e in &findings.ledger_errors {
+            out.push_str(&format!("  - [ledger] {e}\n"));
+        }
+        for e in &findings.verdict_disagreements {
+            out.push_str(&format!("  - [verdict-disagreement] {e}\n"));
+        }
     } else {
         out.push_str(&format!("machine-checked: clean — {scope}\n"));
     }
@@ -75,8 +83,8 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
     out.push_str(
         "human-owed: every READING/OBSERVED/ATTESTED row, every row whose domain or extent \
 contains a proc:/external designator, the RUN command\u{2194}proposition correspondence, \
-cited-but-undefined and defined-but-uncited ids, and tetel's own standing non-coverage \u{2014} \
-none of this is settled by a passing check\n",
+cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, and tetel's own \
+standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
     for (id, kind_status, claim) in &findings.human_owed_rows {
         out.push_str(&format!("  - {id} [{kind_status}]: {claim}\n"));
@@ -101,6 +109,11 @@ none of this is settled by a passing check\n",
     for (id, claim) in &findings.defined_uncited {
         out.push_str(&format!(
             "  - {id}: defined but never cited; default disposition is delete, not hunting for a citation — {claim}\n"
+        ));
+    }
+    for (id, proposition) in &findings.ungrounded_claims {
+        out.push_str(&format!(
+            "  - {id}: ungrounded — no evidence record on file — {proposition}\n"
         ));
     }
     for item in NON_COVERAGE {
