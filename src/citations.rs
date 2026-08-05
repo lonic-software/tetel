@@ -14,40 +14,64 @@ pub struct Citation {
     pub stance_refuted: bool,
 }
 
+/// Scan one line for `[ID]` / `[!ID]` citations, returning each match's
+/// byte offset of `[`, id, and refuted-stance flag. Shared by
+/// `scan_citations` (body prose, where a line number is tracked) and
+/// `citation_ids_in` (a row's own field text, where only the cited ids
+/// matter, not a position to display).
+fn scan_line(line: &str) -> Vec<(usize, String, bool)> {
+    let mut out = Vec::new();
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            let mut j = i + 1;
+            let stance = j < bytes.len() && bytes[j] == b'!';
+            if stance {
+                j += 1;
+            }
+            let id_start = j;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'-')
+            {
+                j += 1;
+            }
+            if j > id_start && j < bytes.len() && bytes[j] == b']' {
+                out.push((i, line[id_start..j].to_string(), stance));
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 pub fn scan_citations(body: &[String]) -> Vec<Citation> {
     let mut out = Vec::new();
     for (idx, line) in body.iter().enumerate() {
         let line_no = idx + 1;
-        let bytes = line.as_bytes();
-        let mut i = 0usize;
-        while i < bytes.len() {
-            if bytes[i] == b'[' {
-                let mut j = i + 1;
-                let stance = j < bytes.len() && bytes[j] == b'!';
-                if stance {
-                    j += 1;
-                }
-                let id_start = j;
-                while j < bytes.len()
-                    && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'-')
-                {
-                    j += 1;
-                }
-                if j > id_start && j < bytes.len() && bytes[j] == b']' {
-                    out.push(Citation {
-                        line: line_no,
-                        col: i,
-                        id: line[id_start..j].to_string(),
-                        stance_refuted: stance,
-                    });
-                    i = j + 1;
-                    continue;
-                }
-            }
-            i += 1;
+        for (col, id, stance_refuted) in scan_line(line) {
+            out.push(Citation {
+                line: line_no,
+                col,
+                id,
+                stance_refuted,
+            });
         }
     }
     out
+}
+
+/// The citation ids (and their refuted-stance flags) found anywhere in an
+/// arbitrary string — used for a row's own free-text fields (`claim`,
+/// `note`), where only *which* rows are cited matters, not a line/column
+/// to display. Feeds the row→row edges of the dependency-cascade check.
+pub fn citation_ids_in(text: &str) -> Vec<(String, bool)> {
+    scan_line(text)
+        .into_iter()
+        .map(|(_, id, stance)| (id, stance))
+        .collect()
 }
 
 /// What was found immediately before a citation, for check 3.
