@@ -10,7 +10,10 @@ pub mod evidence;
 pub mod ledger;
 pub mod model;
 pub mod parse;
+pub mod pending;
 pub mod report;
+pub mod session;
+pub mod worldstate;
 
 use std::path::Path;
 
