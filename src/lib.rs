@@ -9,6 +9,7 @@ pub mod citations;
 pub mod evidence;
 pub mod ledger;
 pub mod model;
+pub mod observe;
 pub mod parse;
 pub mod pending;
 pub mod report;

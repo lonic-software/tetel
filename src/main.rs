@@ -8,6 +8,12 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "tetel", version, about)]
 struct Cli {
+    /// Which authoring session's state to use (see `tetel::session` for
+    /// where that state lives). Irrelevant to `check`/`brief`/`record`,
+    /// which read a memo already on disk instead.
+    #[arg(long, global = true, default_value = "default")]
+    session: String,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -49,6 +55,28 @@ enum Command {
         /// Read the record from this file instead of stdin.
         #[arg(long)]
         input: Option<PathBuf>,
+    },
+
+    // --- authoring commands -----------------------------------------
+    /// Open a file (recording it into the pending observation buffer),
+    /// or search a file/directory with `--grep`.
+    Look {
+        /// The file to open (plain form), or the file/directory to
+        /// search when `--grep` is given.
+        path: Option<String>,
+        /// A 1-based inclusive line range, `A:B`. Only valid without
+        /// `--grep`.
+        #[arg(long, value_name = "A:B", conflicts_with = "grep")]
+        lines: Option<String>,
+        /// Search `path` for `pattern` instead of opening it.
+        #[arg(long, value_name = "PATTERN")]
+        grep: Option<String>,
+    },
+    /// Execute a command, printing and recording its combined output.
+    Run {
+        /// The command and its arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
     },
 }
 
@@ -102,5 +130,71 @@ fn main() -> ExitCode {
                 }
             }
         }
+
+        Command::Look { path, lines, grep } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            if let Err(e) = tetel::session::ensure(&session_dir) {
+                eprintln!("tetel: could not create session state: {e}");
+                return ExitCode::from(1);
+            }
+            let result = if let Some(pattern) = grep {
+                let Some(root) = path else {
+                    eprintln!("tetel: `look --grep <pattern>` requires a path-or-dir");
+                    return ExitCode::from(1);
+                };
+                tetel::observe::look_grep(&session_dir, &pattern, &root)
+            } else {
+                let Some(path) = path else {
+                    eprintln!("tetel: usage: tetel look <path> [--lines A:B] | tetel look --grep <pattern> <path-or-dir>");
+                    return ExitCode::from(1);
+                };
+                let parsed_lines = match lines {
+                    Some(spec) => match parse_lines(&spec) {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            eprintln!("tetel: invalid --lines {spec:?}: {e}");
+                            return ExitCode::from(1);
+                        }
+                    },
+                    None => None,
+                };
+                tetel::observe::look_path(&session_dir, &path, parsed_lines)
+            };
+            match result {
+                Ok(outcome) => {
+                    print!("{}", outcome.printed);
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Run { command } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            if let Err(e) = tetel::session::ensure(&session_dir) {
+                eprintln!("tetel: could not create session state: {e}");
+                return ExitCode::from(1);
+            }
+            match tetel::observe::run_command(&session_dir, &command) {
+                Ok(outcome) => {
+                    print!("{}", outcome.printed);
+                    ExitCode::from(outcome.exit_code.clamp(0, 255) as u8)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
     }
+}
+
+/// Parse a `--lines A:B` value into a 1-based inclusive `(start, end)`.
+fn parse_lines(spec: &str) -> Result<(usize, usize), String> {
+    let (a, b) = spec.split_once(':').ok_or_else(|| "expected `A:B`".to_string())?;
+    let a: usize = a.trim().parse().map_err(|_| format!("`{a}` is not a number"))?;
+    let b: usize = b.trim().parse().map_err(|_| format!("`{b}` is not a number"))?;
+    Ok((a, b))
 }
