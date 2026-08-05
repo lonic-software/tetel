@@ -41,7 +41,8 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
 
     let ledger = ledger::import(&doc.body);
     let (evidence_records, evidence_errors) = evidence::load(path)?;
-    let (ungrounded, disagreements) = checks::analyze_ledger(&ledger.claims, &evidence_records);
+    let (ungrounded, attested_grounded, disagreements) =
+        checks::analyze_ledger(&ledger.claims, &evidence_records);
 
     findings.ledger_claims_found = ledger.claims.len();
     findings.ledger_errors = ledger
@@ -51,6 +52,8 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         .chain(evidence_errors)
         .collect();
     findings.ungrounded_claims = ungrounded;
+    findings.attested_grounded_claims = attested_grounded;
+    findings.unresolved_evidence_sources = checks::unresolved_evidence_sources(&ledger.claims, &evidence_records);
     findings.verdict_disagreements = disagreements;
 
     Ok(report::render(&path.display().to_string(), &doc, &findings))

@@ -83,7 +83,8 @@ dependency cascades, evidence-ledger import, verdict disagreement";
     out.push_str(
         "human-owed: every READING/OBSERVED/ATTESTED row, every row whose domain or extent \
 contains a proc:/external designator, the RUN command\u{2194}proposition correspondence, \
-cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, and tetel's own \
+cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
+by attested (ingested) evidence, evidence sources that do not resolve, and tetel's own \
 standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
     for (id, kind_status, claim) in &findings.human_owed_rows {
@@ -115,6 +116,15 @@ standing non-coverage \u{2014} none of this is settled by a passing check\n",
         out.push_str(&format!(
             "  - {id}: ungrounded — no evidence record on file — {proposition}\n"
         ));
+    }
+    for (id, proposition) in &findings.attested_grounded_claims {
+        out.push_str(&format!(
+            "  - {id}: grounded only by attested evidence — someone looked, off-instrument; \
+distinct from no evidence at all, but never enough on its own to move past vouched — {proposition}\n"
+        ));
+    }
+    for line in &findings.unresolved_evidence_sources {
+        out.push_str(&format!("  - {line}\n"));
     }
     for item in NON_COVERAGE {
         out.push_str(&format!("  - tetel does not catch: {item}\n"));

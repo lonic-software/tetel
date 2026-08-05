@@ -10,11 +10,12 @@
 //! citation of an unsettled row is caught exactly once.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 use crate::citations::{
     abutting_context, citation_ids_in, normalize_literal, scan_citations, AbuttingContext, Citation,
 };
-use crate::evidence::{EvidenceRecord, Verdict};
+use crate::evidence::{EvidenceRecord, Source, Verdict};
 use crate::ledger::Claim;
 use crate::model::{Designator, Kind, Row, Status};
 use crate::parse::Document;
@@ -61,6 +62,22 @@ pub struct Findings {
     /// A ledger claim with no evidence record at all: `(id, proposition)`.
     /// Human-owed — absence of evidence is not itself a failure.
     pub ungrounded_claims: Vec<(String, String)>,
+    /// A ledger claim grounded, but only by evidence that derives to
+    /// [`Kind::Attested`] for standing — today, that's *every* grounded
+    /// claim, since ingestion (`tetel record`) is the only write path and
+    /// every ingested record derives to `Attested` regardless of what it
+    /// claims (see `evidence::EvidenceRecord::derived_kind`). Distinct
+    /// from `ungrounded_claims`: this is "someone looked, off-instrument",
+    /// not "nobody looked". `(id, proposition)`, human-owed, never a
+    /// failure — it stops being the whole list only once a witnessed
+    /// grounding exists to sit beside ingested ones.
+    pub attested_grounded_claims: Vec<(String, String)>,
+    /// One line per evidence record whose `source` is a path that does not
+    /// resolve on disk. Human-owed, never a failure — mirrors the
+    /// non-failing disposition of `cited_undefined`, one line per record
+    /// (not aggregated into a bracketed list) since each names a distinct
+    /// claim and path.
+    pub unresolved_evidence_sources: Vec<String>,
     /// Formatted failures: two evidence records for one claim disagreeing
     /// on verdict, or a verdict contradicting the author's own Status
     /// cell. A machine failure — an unresolved contradiction, the same
@@ -357,6 +374,8 @@ pub fn analyze(doc: &Document) -> Findings {
         ledger_claims_found: 0,
         ledger_errors: Vec::new(),
         ungrounded_claims: Vec::new(),
+        attested_grounded_claims: Vec::new(),
+        unresolved_evidence_sources: Vec::new(),
         verdict_disagreements: Vec::new(),
     }
 }
@@ -382,14 +401,21 @@ fn author_status_verdict(status_cell: &str) -> Option<Verdict> {
     }
 }
 
-/// The two new checks this slice adds, run independently of the five
-/// `tetel`-row checks above: a claim with no evidence record at all
-/// (human-owed — absence isn't a failure), and two verdicts that
-/// contradict each other, whether that's two grounding passes disagreeing
-/// or a pass contradicting the author's own `Status` cell (a machine
-/// failure — an unresolved contradiction).
-pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> (Vec<(String, String)>, Vec<String>) {
+/// `(ungrounded, attested_grounded, disagreements)` — see [`analyze_ledger`].
+type LedgerFindings = (Vec<(String, String)>, Vec<(String, String)>, Vec<String>);
+
+/// The checks this slice and the grounding-provenance slice on top of it
+/// add, run independently of the five `tetel`-row checks above: a claim
+/// with no evidence record at all (human-owed — absence isn't a failure);
+/// a claim grounded only by evidence that derives to `Attested` standing
+/// (human-owed, and distinct from the first — someone looked,
+/// off-instrument); and two verdicts that contradict each other, whether
+/// that's two grounding passes disagreeing or a pass contradicting the
+/// author's own `Status` cell (a machine failure — an unresolved
+/// contradiction).
+pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFindings {
     let mut ungrounded = Vec::new();
+    let mut attested_grounded = Vec::new();
     let mut disagreements = Vec::new();
 
     for claim in claims {
@@ -397,6 +423,17 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> (Vec<(St
         if records.is_empty() {
             ungrounded.push((claim.id.clone(), claim.proposition.clone()));
             continue;
+        }
+
+        // Distinct from "ungrounded": at least one record exists, and
+        // every one of them derives to `Attested` for standing purposes.
+        // Today that's unconditionally true — ingestion is the only write
+        // path, and `derived_kind` never returns anything else for an
+        // ingested record — but the check is written against
+        // `derived_kind`, not against "has any evidence", so it keeps
+        // working once a witnessed grounding can also land here.
+        if records.iter().all(|r| r.derived_kind() == Kind::Attested) {
+            attested_grounded.push((claim.id.clone(), claim.proposition.clone()));
         }
 
         for pair in records.windows(2) {
@@ -439,7 +476,40 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> (Vec<(St
         }
     }
 
-    (ungrounded, disagreements)
+    (ungrounded, attested_grounded, disagreements)
+}
+
+/// One line per evidence record whose `source` designator is a path that
+/// does not resolve on disk. A `proc:` source is never checked here — it
+/// names a transcript, not a file, so there is nothing on disk to resolve
+/// and its absence is not this check's business.
+///
+/// Non-failing, human-owed, mirroring `cited_undefined`'s disposition:
+/// fabricating an attested fact should require fabricating a preserved
+/// artifact, but a *missing* artifact is residue for a human to chase, not
+/// grounds to redden the run — the same reasoning that keeps an undefined
+/// citation out of the machine-checked partition.
+///
+/// Resolved against the current working directory — the same resolution a
+/// path given on the command line gets. There is no existing convention in
+/// this crate for resolving a designator against the memo's own directory
+/// instead; `domain`/`extent` designators are never resolved against the
+/// filesystem at all.
+pub fn unresolved_evidence_sources(claims: &[Claim], evidence: &[EvidenceRecord]) -> Vec<String> {
+    let propositions: HashMap<&str, &str> = claims.iter().map(|c| (c.id.as_str(), c.proposition.as_str())).collect();
+    let mut out = Vec::new();
+    for record in evidence {
+        if let Some(Source::Path(path)) = Source::parse(&record.source) {
+            if !Path::new(&path).exists() {
+                let proposition = propositions.get(record.claim_id.as_str()).copied().unwrap_or("");
+                out.push(format!(
+                    "{}: evidence source `{}` does not resolve — {}",
+                    record.claim_id, path, proposition
+                ));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
