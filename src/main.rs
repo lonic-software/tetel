@@ -98,6 +98,27 @@ enum Command {
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
+    /// Assert a claim resting on one or more facts, or revise/withdraw
+    /// an existing claim.
+    Claim {
+        /// The claim's proposition: literal text, `-` for stdin, or
+        /// `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        prop: Option<String>,
+        /// Comma-separated fact ids the claim rests on.
+        #[arg(long, value_name = "F1,F3")]
+        from: Option<String>,
+        /// Revise this claim instead of creating a new one.
+        #[arg(long, value_name = "ID")]
+        revise: Option<String>,
+        /// Withdraw this claim instead of creating a new one.
+        #[arg(long, value_name = "ID")]
+        withdraw: Option<String>,
+        /// Required with `--revise`/`--withdraw`: why. Literal text,
+        /// `-` for stdin, or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        why: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -264,6 +285,101 @@ fn main() -> ExitCode {
                         eprintln!("tetel: {e}");
                         ExitCode::from(1)
                     }
+                }
+            }
+        }
+        Command::Claim { prop, from, revise, withdraw, why } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            if let Err(e) = tetel::session::ensure(&session_dir) {
+                eprintln!("tetel: could not create session state: {e}");
+                return ExitCode::from(1);
+            }
+            let resolve = |raw: &str| -> Result<String, ExitCode> {
+                tetel::session::resolve_text_value(raw).map_err(|e| {
+                    eprintln!("tetel: error reading text: {e}");
+                    ExitCode::from(1)
+                })
+            };
+
+            if let Some(id) = withdraw {
+                let Some(why) = why else {
+                    eprintln!("tetel: claim --withdraw requires --why");
+                    return ExitCode::from(1);
+                };
+                let why = match resolve(&why) {
+                    Ok(s) => s,
+                    Err(code) => return code,
+                };
+                return match tetel::claims::withdraw(&session_dir, &id, &why) {
+                    Ok(()) => {
+                        println!("{id} withdrawn.");
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                };
+            }
+
+            if let Some(id) = revise {
+                let Some(why) = why else {
+                    eprintln!("tetel: claim --revise requires --why");
+                    return ExitCode::from(1);
+                };
+                let why = match resolve(&why) {
+                    Ok(s) => s,
+                    Err(code) => return code,
+                };
+                let new_prop = match &prop {
+                    Some(raw) => match resolve(raw) {
+                        Ok(s) => Some(s),
+                        Err(code) => return code,
+                    },
+                    None => None,
+                };
+                return match tetel::claims::revise(&session_dir, &id, new_prop.as_deref(), from.as_deref(), &why) {
+                    Ok(()) => {
+                        println!("{id} revised.");
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                };
+            }
+
+            let Some(prop) = prop else {
+                eprintln!("tetel: claim requires --prop");
+                return ExitCode::from(1);
+            };
+            let prop = match resolve(&prop) {
+                Ok(s) => s,
+                Err(code) => return code,
+            };
+            let Some(from) = from else {
+                eprintln!("tetel: claim requires --from");
+                return ExitCode::from(1);
+            };
+            match tetel::claims::create(&session_dir, &prop, &from) {
+                Ok(outcome) => {
+                    println!(
+                        "OVERLAP REPORT (facts sharing a designator with {from}, excluding those cited):"
+                    );
+                    if outcome.overlap.is_empty() {
+                        println!("  (none)");
+                    } else {
+                        for (id, note) in &outcome.overlap {
+                            println!("  {id}: {note}");
+                        }
+                    }
+                    println!("{} created (overlap report showed {} fact(s)).", outcome.claim.id, outcome.overlap.len());
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
                 }
             }
         }

@@ -6,6 +6,7 @@
 pub mod brief;
 pub mod checks;
 pub mod citations;
+pub mod claims;
 pub mod evidence;
 pub mod facts;
 pub mod ledger;
