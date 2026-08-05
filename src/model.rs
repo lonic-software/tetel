@@ -177,7 +177,8 @@ pub struct Row {
     #[allow(dead_code)] // not compared against anything in this slice
     pub date: Option<String>,
     pub status: Status,
-    #[allow(dead_code)] // free prose, not read by any check
+    /// Read by the dependency-cascade check (row→row citation edges),
+    /// alongside `claim`; otherwise free prose.
     pub note: Option<String>,
 }
 

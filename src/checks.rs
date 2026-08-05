@@ -1,9 +1,19 @@
-//! Runs the four reddening checks plus the report-only observations
+//! Runs the five reddening checks plus the report-only observations
 //! (cited-but-undefined, defined-but-uncited) against a parsed [`Document`].
+//!
+//! Check 5 (the dependency-propagation cascade) shares its citation
+//! syntax with check 4 but not its scope: check 4 owns direct, hop-1
+//! prose citations of an unsettled row. Check 5 owns everything check 4
+//! cannot see — row→row citation edges (found inside a row's own
+//! `claim`/`note` fields, at any hop, including hop 1) and any citation,
+//! prose or row, reached transitively at hop ≥ 2. Between them every
+//! citation of an unsettled row is caught exactly once.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::citations::{abutting_context, normalize_literal, scan_citations, AbuttingContext};
+use crate::citations::{
+    abutting_context, citation_ids_in, normalize_literal, scan_citations, AbuttingContext, Citation,
+};
 use crate::model::{Designator, Kind, Row, Status};
 use crate::parse::Document;
 
@@ -23,6 +33,11 @@ pub struct Findings {
     pub abutting_candidates: Vec<String>,
     /// Formatted failures — check 4.
     pub unsettled_failures: Vec<String>,
+    /// Formatted failures — check 5. One entry per unsettled root that
+    /// has at least one qualifying dependent, each entry a multi-line
+    /// block naming every dependent under that root (grouped, not one
+    /// finding per dependent — see the module doc comment).
+    pub cascade_failures: Vec<String>,
     /// IDs cited in prose with no matching row.
     pub cited_undefined: Vec<String>,
     /// Rows never cited anywhere: `(id, claim)`.
@@ -39,6 +54,7 @@ impl Findings {
             || !self.subset_failures.is_empty()
             || !self.abutting_failures.is_empty()
             || !self.unsettled_failures.is_empty()
+            || !self.cascade_failures.is_empty()
     }
 }
 
@@ -172,6 +188,113 @@ pub fn analyze(doc: &Document) -> Findings {
         }
     }
 
+    // Check 5 — dependency-propagation cascade. Two edge sources feed a
+    // shared graph: prose→row (`citations`, already scanned above) and
+    // row→row (a row's own `claim`/`note` fields, scanned here — the
+    // load-bearing new source). A self-citation is never a dependency
+    // edge. A citation of an id with no matching row is folded into
+    // `cited_undefined`, exactly like an undefined prose citation — same
+    // non-failing disposition, same reason: nothing here validates a
+    // free-text field's content beyond field-name well-formedness, and
+    // treating this case differently from the identical prose case would
+    // need its own justification this slice doesn't have. See the report
+    // for the fuller argument.
+    let mut row_citers: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+    for row in &doc.rows {
+        let mut seen: HashSet<String> = HashSet::new();
+        let fields = std::iter::once(row.claim.as_str()).chain(row.note.as_deref());
+        for field_text in fields {
+            for (id, _stance) in citation_ids_in(field_text) {
+                if id == row.id {
+                    continue; // self-citation is not a dependency
+                }
+                if rows_by_id.contains_key(id.as_str()) {
+                    cited_ids.insert(id.clone());
+                    if seen.insert(id.clone()) {
+                        row_citers
+                            .entry(id.clone())
+                            .or_default()
+                            .push((row.id.clone(), row.line));
+                    }
+                } else {
+                    cited_ids.insert(id.clone());
+                    if !cited_undefined.contains(&id) {
+                        cited_undefined.push(id.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Reverse index: which prose citations name a given row id — reused
+    // from the citations already scanned for checks 3 and 4.
+    let mut prose_citers: HashMap<&str, Vec<&Citation>> = HashMap::new();
+    for cit in &citations {
+        prose_citers.entry(cit.id.as_str()).or_default().push(cit);
+    }
+
+    // BFS, one root at a time, over the reverse graph (who cites this
+    // id) starting at each unsettled row. `visited` seeds with the root
+    // itself so a citation cycle back to the root terminates instead of
+    // looping, and so the root is never reported as its own dependent.
+    // Row hits are kept at every hop (row→row edges are never covered by
+    // check 4, at any distance); prose hits only ever arrive at hop ≥ 2
+    // here, because a root's own direct prose citers — hop 1 — are
+    // deliberately never looked up: that's exactly what check 4 already
+    // reports, so this loop must not rediscover it.
+    let mut cascade_failures = Vec::new();
+    for root in doc.rows.iter().filter(|r| r.status.is_unsettled()) {
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(root.id.clone());
+        let mut queue: VecDeque<(String, usize, String)> = VecDeque::new();
+        for (citer_id, _line) in row_citers.get(&root.id).cloned().unwrap_or_default() {
+            if visited.insert(citer_id.clone()) {
+                queue.push_back((citer_id, 1, root.id.clone()));
+            }
+        }
+
+        let mut lines: Vec<(usize, String)> = Vec::new();
+        while let Some((id, hop, cites)) = queue.pop_front() {
+            let line = rows_by_id.get(id.as_str()).map(|r| r.line).unwrap_or(0);
+            lines.push((hop, format!("hop {hop} [row] {id} (line {line}): cites {cites}")));
+
+            if let Some(citers) = prose_citers.get(id.as_str()) {
+                for cit in citers {
+                    lines.push((
+                        hop + 1,
+                        format!("hop {} [prose] line {}: cites {}", hop + 1, cit.line, id),
+                    ));
+                }
+            }
+            if let Some(further) = row_citers.get(&id) {
+                for (next_id, _next_line) in further {
+                    if visited.insert(next_id.clone()) {
+                        queue.push_back((next_id.clone(), hop + 1, id.clone()));
+                    }
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            continue;
+        }
+        lines.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        let dependents = lines.len();
+        let body = lines
+            .iter()
+            .map(|(_, s)| format!("      {s}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        cascade_failures.push(format!(
+            "root {} ({}) — {} dependent{}:\n{}",
+            root.id,
+            root.status,
+            dependents,
+            if dependents == 1 { "" } else { "s" },
+            body
+        ));
+    }
+
     let mut defined_uncited = Vec::new();
     let mut human_owed_rows = Vec::new();
     let mut run_row_ids = Vec::new();
@@ -204,6 +327,7 @@ pub fn analyze(doc: &Document) -> Findings {
         abutting_failures,
         abutting_candidates,
         unsettled_failures,
+        cascade_failures,
         cited_undefined,
         defined_uncited,
         human_owed_rows,

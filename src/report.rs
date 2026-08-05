@@ -36,8 +36,10 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
     let total_failures = findings.grammar_errors.len()
         + findings.subset_failures.len()
         + findings.abutting_failures.len()
-        + findings.unsettled_failures.len();
-    let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations";
+        + findings.unsettled_failures.len()
+        + findings.cascade_failures.len();
+    let scope =
+        "grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -53,6 +55,9 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         }
         for e in &findings.unsettled_failures {
             out.push_str(&format!("  - [unsettled-citation] {e}\n"));
+        }
+        for e in &findings.cascade_failures {
+            out.push_str(&format!("  - [cascade] {e}\n"));
         }
     } else {
         out.push_str(&format!("machine-checked: clean — {scope}\n"));

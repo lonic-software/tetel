@@ -175,6 +175,109 @@ fn unsettled_citation_check_passes_with_stance_marker() {
 }
 
 #[test]
+fn cascade_check_catches_a_two_hop_dependent() {
+    // Prose cites MID-1 (settled, VERIFIED); MID-1's own note cites
+    // DIRECT-1 (OWED). Check 4 sees only the direct bare citation of
+    // DIRECT-1 on line 3 and reports that. Nothing before this feature
+    // would notice that the prose citation of MID-1 on line 5 rests on
+    // an unsettled row two hops away — that's this check's job.
+    let (code, out) = run_check("cascade_two_hop_fail.md");
+    assert_eq!(code, 1, "a two-hop cascade off an OWED root must redden:\n{out}");
+    assert!(out.contains("[unsettled-citation]"), "the direct hop-1 citation is still check 4's job:\n{out}");
+    assert!(out.contains("[cascade]"), "output was:\n{out}");
+    assert!(out.contains("root DIRECT-1 (OWED)"), "output was:\n{out}");
+    assert!(
+        out.contains("hop 1 [row] MID-1 (line 18): cites DIRECT-1"),
+        "the row->row edge must be reported at hop 1:\n{out}"
+    );
+    assert!(
+        out.contains("hop 2 [prose] line 5: cites MID-1"),
+        "the transitive prose dependent must be reported at hop 2:\n{out}"
+    );
+    // The cascade must not re-report DIRECT-1's own hop-1 prose citation
+    // (line 3) — that would duplicate check 4's finding.
+    assert!(
+        !out.contains("[prose] line 3: cites DIRECT-1"),
+        "the cascade must not duplicate check 4's direct hop-1 finding:\n{out}"
+    );
+}
+
+#[test]
+fn cascade_check_catches_a_row_to_row_edge_that_check_4_never_sees() {
+    // R-ROOT is REFUTED and is never cited from prose at all, so check 4
+    // has nothing to report. R-DEP's own note cites R-ROOT directly —
+    // only the new check notices R-DEP quietly depends on a refuted row.
+    let (code, out) = run_check("cascade_row_edge_fail.md");
+    assert_eq!(code, 1, "a row->row edge off a REFUTED root must redden:\n{out}");
+    assert!(
+        !out.contains("[unsettled-citation]"),
+        "no prose citation exists here, so check 4 must stay silent:\n{out}"
+    );
+    assert!(out.contains("root R-ROOT (REFUTED)"), "output was:\n{out}");
+    assert!(
+        out.contains("hop 1 [row] R-DEP (line 16): cites R-ROOT"),
+        "output was:\n{out}"
+    );
+}
+
+#[test]
+fn cascade_check_terminates_on_a_citation_cycle() {
+    // CYC-A (REFUTED) and CYC-B (VERIFIED) cite each other by id in
+    // their own notes. A naive recursive walk would recurse forever; the
+    // BFS's visited set must stop it after CYC-B's single hop-1 hit, and
+    // must never re-report CYC-A as its own dependent.
+    let (code, out) = run_check("cascade_cycle_fail.md");
+    assert_eq!(code, 1, "a REFUTED row in a citation cycle must still redden:\n{out}");
+    assert_eq!(
+        out.matches("  - [cascade] root").count(),
+        1,
+        "the cycle must terminate in exactly one cascade group, not loop:\n{out}"
+    );
+    assert!(
+        out.contains("hop 1 [row] CYC-B (line 17): cites CYC-A"),
+        "output was:\n{out}"
+    );
+    assert!(
+        !out.contains("cites CYC-B"),
+        "the cycle must not report CYC-A as a dependent of itself:\n{out}"
+    );
+}
+
+#[test]
+fn cascade_check_ignores_self_citation() {
+    // SC-1's own note names its own id and nothing else cites it. A row
+    // must never count as a dependent of itself.
+    let (code, out) = run_check("cascade_self_citation_pass.md");
+    assert_eq!(code, 0, "a self-citing OWED row with no other citer must stay clean:\n{out}");
+    assert!(out.contains("machine-checked: clean"), "output was:\n{out}");
+    assert!(!out.contains("[cascade]"), "output was:\n{out}");
+}
+
+#[test]
+fn cascade_check_treats_a_dangling_row_field_citation_as_informational() {
+    // DG-1's note cites GHOST-9, which is never defined anywhere. This
+    // must land in the same non-failing "cited but undefined" list a
+    // dangling prose citation already lands in, not as a new failure
+    // category.
+    let (code, out) = run_check("cascade_dangling_pass.md");
+    assert_eq!(code, 0, "a dangling row-field citation must never fail the run:\n{out}");
+    assert!(out.contains("machine-checked: clean"), "output was:\n{out}");
+    assert!(out.contains("cited but undefined"), "output was:\n{out}");
+    assert!(out.contains("GHOST-9"), "output was:\n{out}");
+}
+
+#[test]
+fn cascade_check_stays_clean_when_nothing_is_unsettled() {
+    // OK-B's note cites OK-A via a real row->row edge, but both rows are
+    // VERIFIED. Propagation only starts from an unsettled root, so this
+    // must stay fully clean.
+    let (code, out) = run_check("cascade_nothing_unsettled_pass.md");
+    assert_eq!(code, 0, "a row->row edge between two settled rows must never redden:\n{out}");
+    assert!(out.contains("machine-checked: clean"), "output was:\n{out}");
+    assert!(!out.contains("[cascade]"), "output was:\n{out}");
+}
+
+#[test]
 fn output_never_prints_a_standalone_document_level_verdict() {
     // Every run — pass, fail, or mixed — must show two scoped partitions
     // and nothing that reads as a bare document-wide verdict word.
@@ -184,6 +287,7 @@ fn output_never_prints_a_standalone_document_level_verdict() {
         "subset_fail.md",
         "abutting_fail.md",
         "unsettled_fail.md",
+        "cascade_two_hop_fail.md",
         "demo.md",
     ] {
         let (_, out) = run_check(name);
