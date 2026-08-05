@@ -16,6 +16,7 @@ pub mod observe;
 pub mod parse;
 pub mod pending;
 pub mod prose;
+pub mod query;
 pub mod report;
 pub mod session;
 pub mod worldstate;

@@ -150,6 +150,24 @@ enum Command {
     /// Assemble the session's current prose into markdown on stdout.
     /// The only authoring command that produces the finished document.
     Render,
+    /// Plain, greppable, read-only inspection of facts, claims, prose,
+    /// and dependency links. Never refuses.
+    Query {
+        #[command(subcommand)]
+        what: QueryCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum QueryCommand {
+    /// List every fact.
+    Facts,
+    /// List every claim.
+    Claims,
+    /// List every prose block, in document order.
+    Prose,
+    /// What a fact or claim id rests on and is cited by.
+    Deps { id: String },
 }
 
 fn main() -> ExitCode {
@@ -503,6 +521,25 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("tetel: error rendering: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Query { what } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            let result = match what {
+                QueryCommand::Facts => tetel::query::facts_text(&session_dir),
+                QueryCommand::Claims => tetel::query::claims_text(&session_dir),
+                QueryCommand::Prose => tetel::query::prose_text(&session_dir),
+                QueryCommand::Deps { id } => tetel::query::deps_text(&session_dir, &id),
+            };
+            match result {
+                Ok(out) => {
+                    print!("{out}");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: error querying: {e}");
                     ExitCode::from(1)
                 }
             }
