@@ -119,6 +119,37 @@ enum Command {
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
+    /// Append a paragraph or heading block to the document's prose, or
+    /// revise an existing block.
+    ///
+    /// The block's own text has no flag: give it with `--text`, or omit
+    /// `--text` to read it from stdin (the default).
+    Prose {
+        /// The paragraph's text: literal text, `-` for stdin, or
+        /// `@file`. Omit to read from stdin.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        text: Option<String>,
+        /// Mint a heading instead of a paragraph, at `--level`'s depth.
+        /// Literal text, `-` for stdin, or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        heading: Option<String>,
+        /// The heading's markdown depth, 1..=6. Required with `--heading`.
+        #[arg(long)]
+        level: Option<u8>,
+        /// Comma-separated claim ids this paragraph cites.
+        #[arg(long, value_name = "C1,C4")]
+        cite: Option<String>,
+        /// Revise this block's text instead of creating a new one.
+        #[arg(long, value_name = "ID")]
+        revise: Option<String>,
+        /// Required with `--revise`: why. Literal text, `-` for stdin,
+        /// or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        why: Option<String>,
+    },
+    /// Assemble the session's current prose into markdown on stdout.
+    /// The only authoring command that produces the finished document.
+    Render,
 }
 
 fn main() -> ExitCode {
@@ -379,6 +410,99 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Prose { text, heading, level, cite, revise, why } => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            if let Err(e) = tetel::session::ensure(&session_dir) {
+                eprintln!("tetel: could not create session state: {e}");
+                return ExitCode::from(1);
+            }
+
+            if let Some(id) = revise {
+                let Some(why) = why else {
+                    eprintln!("tetel: prose --revise requires --why");
+                    return ExitCode::from(1);
+                };
+                let why = match tetel::session::resolve_text_value(&why) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("tetel: error reading --why: {e}");
+                        return ExitCode::from(1);
+                    }
+                };
+                let new_text = match tetel::session::resolve_text_or_stdin(text.as_deref()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("tetel: error reading new text: {e}");
+                        return ExitCode::from(1);
+                    }
+                };
+                return match tetel::prose::revise(&session_dir, &id, &new_text, &why) {
+                    Ok(()) => {
+                        println!("{id} revised.");
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                };
+            }
+
+            if let Some(heading_raw) = heading {
+                let Some(level) = level else {
+                    eprintln!("tetel: prose --heading requires --level");
+                    return ExitCode::from(1);
+                };
+                let heading_text = match tetel::session::resolve_text_value(&heading_raw) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("tetel: error reading --heading: {e}");
+                        return ExitCode::from(1);
+                    }
+                };
+                return match tetel::prose::create(&session_dir, &heading_text, None, Some(level)) {
+                    Ok(block) => {
+                        println!("{} appended.", block.id);
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                };
+            }
+
+            let body = match tetel::session::resolve_text_or_stdin(text.as_deref()) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("tetel: error reading prose text: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            match tetel::prose::create(&session_dir, &body, cite.as_deref(), None) {
+                Ok(block) => {
+                    println!("{} appended.", block.id);
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Render => {
+            let session_dir = tetel::session::session_dir(&cli.session);
+            match tetel::compose::render(&session_dir) {
+                Ok(out) => {
+                    print!("{out}");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: error rendering: {e}");
                     ExitCode::from(1)
                 }
             }
