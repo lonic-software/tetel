@@ -72,10 +72,63 @@ pub fn render_json(items: &[BriefItem]) -> String {
     serde_json::to_string_pretty(&json_items).expect("brief items are plain strings and always serialize")
 }
 
+/// The authoring rhythm brief — handed to whoever (person or agent) is
+/// about to write a document with `tetel look`/`run`/`fact`/`claim`/
+/// `prose`/`render`. This is the highest-evidence instruction this
+/// project has: run twice against the same task and the same tool,
+/// differing only in whether this text was given, it produced
+/// interleaved composition and a claim revision triggered by writing
+/// prose in one arm, and strict front-to-back transcription (gather
+/// every fact, then every claim, then all the prose) in the other.
+///
+/// Adapted from the harness prototype's own working brief to name this
+/// crate's actual subcommands, and to drop the two features that
+/// prototype supported but this port does not (`--before` prose
+/// insertion, `tmove` reordering — see `prose.rs`). Self-contained: it
+/// names no other document, repository, or path.
+pub const AUTHORING_BRIEF: &str = "\
+# Working brief — writing with tetel
+
+Write the document using tetel's authoring commands: `look`, `run`, `fact`,
+`claim`, `prose`, `render`.
+
+## The rhythm — this is how the tool is meant to be used
+
+Do not gather all your facts, then write all your claims, then write all
+your prose. Work in passes, and let the document grow alongside the
+evidence:
+
+- As soon as a claim exists that you can say something about, write that
+  prose then — do not defer it to a writing phase at the end.
+- When writing prose makes you realise a claim is imprecise, wrong, or
+  needs a qualification, revise the claim (`tetel claim --revise`) and
+  then revise the prose that cites it (`tetel prose --revise`).
+- When you find you need evidence you do not have, go and get it —
+  `tetel look`/`tetel run`/`tetel fact` mid-way through writing is normal
+  and expected, not a failure of planning.
+
+A run in which nothing is revised and prose is written only after the
+last claim means the tool was used as a transcription buffer. That is a
+legitimate outcome to report if it is what genuinely happened — but do
+not aim for it.
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ledger;
+
+    #[test]
+    fn authoring_brief_is_self_contained() {
+        // This text ships in a public repository; it must never point at
+        // a private planning repo, a path inside one, or any path at
+        // all — a public reader has none of those to resolve.
+        assert!(!AUTHORING_BRIEF.contains("lonic-planning"));
+        assert!(!AUTHORING_BRIEF.contains("/Users/"));
+        assert!(!AUTHORING_BRIEF.contains("/Volumes/"));
+        assert!(!AUTHORING_BRIEF.contains("harness"));
+        assert!(AUTHORING_BRIEF.contains("tetel claim --revise"));
+    }
 
     #[test]
     fn briefed_proposition_is_byte_identical_to_the_source_cell() {

@@ -35,11 +35,17 @@ enum Command {
     ///
     /// Read-only: never writes to the memo.
     Brief {
-        /// The memo to brief.
-        memo: PathBuf,
+        /// The memo to brief. Omit when `--authoring` is given.
+        memo: Option<PathBuf>,
         /// Emit machine-readable JSON instead of the human-readable form.
         #[arg(long)]
         json: bool,
+        /// Emit the authoring rhythm brief instead of a grounding brief
+        /// for a memo — the instructions handed to whoever is about to
+        /// write a document with `tetel look`/`run`/`fact`/`claim`/
+        /// `prose`/`render`. Takes no memo.
+        #[arg(long)]
+        authoring: bool,
     },
     /// Ingest one grounding result and append it to
     /// `<memo>.evidence.jsonl`.
@@ -183,16 +189,26 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Command::Brief { memo, json } => match tetel::brief_file(&memo, json) {
-            Ok((code, out)) => {
-                print!("{out}");
-                ExitCode::from(code as u8)
+        Command::Brief { memo, json, authoring } => {
+            if authoring {
+                print!("{}", tetel::brief::AUTHORING_BRIEF);
+                return ExitCode::from(0);
             }
-            Err(e) => {
-                eprintln!("tetel: error reading {}: {e}", memo.display());
-                ExitCode::from(1)
+            let Some(memo) = memo else {
+                eprintln!("tetel: `brief` requires a memo, or `--authoring`");
+                return ExitCode::from(1);
+            };
+            match tetel::brief_file(&memo, json) {
+                Ok((code, out)) => {
+                    print!("{out}");
+                    ExitCode::from(code as u8)
+                }
+                Err(e) => {
+                    eprintln!("tetel: error reading {}: {e}", memo.display());
+                    ExitCode::from(1)
+                }
             }
-        },
+        }
         Command::Record { memo, input } => {
             let input_json = match &input {
                 Some(path) => std::fs::read_to_string(path),
