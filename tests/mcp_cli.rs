@@ -350,3 +350,118 @@ async fn revising_a_note_into_an_overreach_is_reported_too() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// The witnessed path must exist over MCP, not only on the CLI.
+///
+/// K1's first grounding pass ran over the CLI because that is what its
+/// prompt gave it, and its fact notes came back with every apostrophe
+/// stripped — the shell-quoting damage this server exists to prevent. An
+/// agent that can reach only `record`'s ingested path over MCP is an
+/// agent that cannot produce witnessed evidence without a shell, which
+/// would put the two properties in opposition.
+#[tokio::test]
+async fn record_from_fact_is_reachable_over_mcp_with_text_a_shell_would_damage() {
+    let sb = Sandbox::new("record-from-fact");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    let client = sb.connect().await;
+
+    let call = |tool: &'static str, a: serde_json::Value| {
+        let c = &client;
+        async move {
+            c.call_tool(CallToolRequestParams::new(tool).with_arguments(args(a)))
+                .await
+                .unwrap_or_else(|e| panic!("{tool} must succeed: {e}"))
+        }
+    };
+
+    call("look", serde_json::json!({"workspace": "w", "path": "alpha.rs"})).await;
+    call("fact", serde_json::json!({"workspace": "w", "note": "alpha.rs defines alpha()"})).await;
+    call(
+        "claim",
+        serde_json::json!({"workspace": "w", "proposition": "alpha.rs defines alpha()", "cites": "F1"}),
+    )
+    .await;
+    call("prose", serde_json::json!({"workspace": "w", "text": "Defines alpha().", "cites": "C1"})).await;
+
+    let memo = sb.dir.join("memo.md");
+    call(
+        "render",
+        serde_json::json!({"workspace": "w", "out": memo.to_str().unwrap()}),
+    )
+    .await;
+
+    // The note carries exactly what the CLI run lost: apostrophes in
+    // possessives, plus backticks and an embedded newline.
+    let note = "the parcel's own tree_hash, not `known_complete`'s\nsecond line";
+    let result = call(
+        "record",
+        serde_json::json!({
+            "memo": memo.to_str().unwrap(),
+            "workspace": "w",
+            "from_fact": "F1",
+            "claim": "C1",
+            "verdict": "qualifies",
+            "note": note,
+        }),
+    )
+    .await;
+
+    let out = result.structured_content.expect("record must carry structured_content");
+    assert_eq!(out["witnessed"], true, "got: {out}");
+    assert!(out["pass"].as_str().is_some_and(|p| !p.is_empty()), "got: {out}");
+
+    // Byte-exact through the whole path: MCP -> record -> jsonl.
+    let raw = std::fs::read_to_string(sb.dir.join("memo.md.evidence.jsonl")).unwrap();
+    let rec: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+    assert_eq!(rec["predicate"]["note"].as_str().unwrap(), note);
+    assert_eq!(rec["predicateType"], tetel::evidence::CAPTURED_PREDICATE_TYPE);
+    // And the extent came from the fact, not from any field a caller sent.
+    assert_eq!(rec["predicate"]["extent"][0], "alpha.rs");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// A bare `qualifies` is refused over MCP too, as a structured refusal
+/// rather than a protocol error.
+#[tokio::test]
+async fn a_qualifies_with_no_note_is_refused_over_mcp() {
+    let sb = Sandbox::new("mcp-bare-qualifies");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    let client = sb.connect().await;
+
+    for (tool, a) in [
+        ("look", serde_json::json!({"workspace": "w", "path": "alpha.rs"})),
+        ("fact", serde_json::json!({"workspace": "w", "note": "alpha.rs defines alpha()"})),
+        ("claim", serde_json::json!({"workspace": "w", "proposition": "alpha.rs defines alpha()", "cites": "F1"})),
+        ("prose", serde_json::json!({"workspace": "w", "text": "Defines alpha().", "cites": "C1"})),
+    ] {
+        client.call_tool(CallToolRequestParams::new(tool).with_arguments(args(a))).await.unwrap();
+    }
+    let memo = sb.dir.join("memo.md");
+    client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(
+            serde_json::json!({"workspace": "w", "out": memo.to_str().unwrap()}),
+        )))
+        .await
+        .unwrap();
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("record").with_arguments(args(serde_json::json!({
+            "memo": memo.to_str().unwrap(),
+            "workspace": "w",
+            "from_fact": "F1",
+            "claim": "C1",
+            "verdict": "qualifies",
+        }))))
+        .await
+        .expect("the call must succeed at the protocol level");
+
+    assert_eq!(result.is_error, Some(true), "a bare qualifies must be a tool-level refusal");
+    let s = result.structured_content.as_ref().expect("structured refusal");
+    assert!(
+        s["guidance"].as_str().unwrap_or("").contains("needs a `note`"),
+        "guidance was: {s}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}

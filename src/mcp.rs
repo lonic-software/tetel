@@ -311,7 +311,42 @@ struct RecordParams {
     /// `extent`/`note`/`pin`. Given as a JSON object directly — MCP is
     /// JSON end to end, so there is no reason to make this a
     /// JSON-encoded string a caller has to escape into.
-    input: serde_json::Value,
+    ///
+    /// This is the **ingested** path: `extent` and `source` are typed by
+    /// you, so the tool witnessed the report and not the act, and the
+    /// record caps at attested standing. Prefer `from_fact` below for
+    /// anything you observed yourself through this server.
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+    /// Ground `claim` on a fact **this workspace captured** — the
+    /// witnessed path. The extent is copied from the fact, where
+    /// `look`/`run` captured it, and there is no field here by which you
+    /// could supply one; that absence is what separates this from
+    /// `input`. The record carries the workspace's identity, so `check`
+    /// can recompute whether a grounding pass rested on its own
+    /// observations or inherited someone else's.
+    ///
+    /// Requires `workspace`, `claim` and `verdict`.
+    #[serde(default)]
+    from_fact: Option<String>,
+    /// The workspace whose fact is being cited. Required with `from_fact`.
+    #[serde(default)]
+    workspace: Option<String>,
+    /// Which claim is being grounded. Required with `from_fact`.
+    #[serde(default)]
+    claim: Option<String>,
+    /// `supports` | `refutes` | `qualifies`. Required with `from_fact`.
+    ///
+    /// `qualifies` means the proposition holds only under a condition it
+    /// does not state, or that you could not establish it from what you
+    /// were given — and it requires `note` saying which. Where you cannot
+    /// establish something, that is the correct answer, not a charitable
+    /// `supports`.
+    #[serde(default)]
+    verdict: Option<String>,
+    /// Why, in your words. Required when `verdict` is `qualifies`.
+    #[serde(default)]
+    note: Option<String>,
 }
 
 /// The MCP server: authoring (`look`/`run`/`fact`/`claim`/`prose`/
@@ -558,16 +593,71 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Ingest one grounding result and append it to the memo's evidence log. Refuses an unknown claim id, an invalid/missing verdict, or malformed input, and never performs a partial write.")]
+    #[tool(description = "Append one grounding result to the memo's evidence log. Two paths: `from_fact` (witnessed — the extent is copied from a fact this workspace captured and cannot be typed, and the record carries the workspace identity so `check` can recompute whether a pass grounded its own observations) or `input` (ingested — extent and source typed by you, capped at attested standing). Prefer `from_fact` for anything you observed through this server. Refuses an unknown claim id, an invalid verdict, a `qualifies` with no note, or malformed input, and never performs a partial write.")]
     async fn record(&self, Parameters(p): Parameters<RecordParams>) -> Result<CallToolResult, ErrorData> {
-        let input_json = p.input.to_string();
-        match crate::record_file(Path::new(&p.memo), &input_json) {
-            Ok(Ok(())) => Ok(CallToolResult::structured(json!({"recorded": true}))),
-            Ok(Err(e)) => Ok(CallToolResult::structured_error(json!({
+        let refused = |e: crate::evidence::RecordError| {
+            Ok(CallToolResult::structured_error(json!({
                 "error": "refused",
                 "command": "record",
                 "guidance": e.to_string(),
+            })))
+        };
+
+        if let Some(fact_id) = p.from_fact {
+            let (Some(ws), Some(claim), Some(verdict_raw)) = (p.workspace, p.claim, p.verdict)
+            else {
+                return Ok(CallToolResult::structured_error(json!({
+                    "error": "refused",
+                    "command": "record",
+                    "guidance": "`from_fact` needs `workspace`, `claim` and `verdict`",
+                })));
+            };
+            let Some(verdict) = crate::evidence::Verdict::parse(verdict_raw.trim()) else {
+                return Ok(CallToolResult::structured_error(json!({
+                    "error": "refused",
+                    "command": "record",
+                    "guidance": format!(
+                        "invalid `verdict` {verdict_raw:?}; expected supports, refutes or qualifies"
+                    ),
+                })));
+            };
+            let dir = open_workspace(&ws)?;
+            return match crate::record_from_fact_file(
+                Path::new(&p.memo),
+                &dir,
+                &claim,
+                verdict,
+                &fact_id,
+                p.note,
+            ) {
+                Ok(Ok(identity)) => Ok(CallToolResult::structured(json!({
+                    "recorded": true,
+                    "witnessed": true,
+                    "claim": claim,
+                    "from_fact": fact_id,
+                    "pass": identity,
+                }))),
+                Ok(Err(e)) => refused(e),
+                Err(e) => {
+                    Err(ErrorData::internal_error(format!("error reading {}: {e}", p.memo), None))
+                }
+            };
+        }
+
+        let Some(input) = p.input else {
+            return Ok(CallToolResult::structured_error(json!({
+                "error": "refused",
+                "command": "record",
+                "guidance": "give either `from_fact` (witnessed: extent copied from a fact this \
+workspace captured) or `input` (ingested: extent typed by you)",
+            })));
+        };
+        match crate::record_file(Path::new(&p.memo), &input.to_string()) {
+            Ok(Ok(())) => Ok(CallToolResult::structured(json!({
+                "recorded": true,
+                "witnessed": false,
             }))),
+            Ok(Err(e)) => refused(e),
             Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", p.memo), None)),
         }
     }
