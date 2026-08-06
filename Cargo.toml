@@ -21,3 +21,4 @@ rmcp = { version = "3.1", features = ["transport-io"] }
 
 [dev-dependencies]
 rmcp = { version = "3.1", features = ["client", "transport-child-process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
