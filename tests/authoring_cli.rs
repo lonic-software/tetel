@@ -609,3 +609,35 @@ fn a_missing_snapshot_is_reported_only_when_the_memo_cites_something() {
         "a memo citing nothing owes no snapshot:\n{combined2}"
     );
 }
+
+/// A fact cited from prose must resolve in the rendered document. Before
+/// the facts table existed, `render` emitted `*cites: C2, F5*` while no
+/// fact appeared anywhere in the output, so every such citation reported
+/// as `cited but undefined` — the renderer emitting an id the checker had
+/// no table to resolve it in.
+#[test]
+fn a_fact_cited_from_prose_resolves_in_the_rendered_document() {
+    let sb = Sandbox::new("facts-table");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1,F1"], "The file begins with alpha.");
+
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let rendered = std::fs::read_to_string(&memo).unwrap();
+    assert!(rendered.contains("## Facts"), "render should carry a facts table:\n{rendered}");
+    assert!(rendered.contains("Extent (captured)"), "extents belong in the document:\n{rendered}");
+    // The extent is rendered as its repo-relative label, never the
+    // absolute machine-local path a committed document must not carry.
+    assert!(!rendered.contains("/Users/"), "no absolute paths in a rendered doc:\n{rendered}");
+
+    let (_code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(
+        !combined.contains("cited but undefined"),
+        "a cited fact must resolve; report was:\n{combined}"
+    );
+}

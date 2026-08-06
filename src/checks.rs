@@ -189,6 +189,11 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
     // fabricate a value this crate has no basis for. See the report for
     // which checks were affected and why each was left to not apply.
     let ledger_by_id: HashMap<&str, &Claim> = ledger_claims.iter().map(|c| (c.id.as_str(), c)).collect();
+    // A third place an id can be defined: the rendered facts table.
+    // Prose can cite a fact directly, and before the document carried
+    // one, every such citation reported as undefined — the renderer
+    // emitting an id the checker had no table to resolve it in.
+    let fact_ids = crate::ledger::facts_table_ids(&doc.body);
 
     // Check 2 — domain ⊆ extent, enumerated rows only.
     let mut subset_failures = Vec::new();
@@ -231,7 +236,10 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
                 // but checks 3 and 4 have nothing to run against it (see
                 // `ledger_by_id`'s doc comment above), so nothing further
                 // happens for this arm either way.
-                if !ledger_by_id.contains_key(cit.id.as_str()) && !cited_undefined.contains(&cit.id) {
+                if !ledger_by_id.contains_key(cit.id.as_str())
+                    && !fact_ids.contains(&cit.id)
+                    && !cited_undefined.contains(&cit.id)
+                {
                     cited_undefined.push(cit.id.clone());
                 }
             }

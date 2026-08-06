@@ -35,6 +35,35 @@ pub struct Citation {
     pub stance_refuted: bool,
 }
 
+/// Whether a bracketed token has the shape of an id this system mints or
+/// a corpus ledger uses: starts with an uppercase ASCII letter, and
+/// contains a digit or a hyphen. `F5`, `C1`, `P1`, `S3-L17`, `E-4`,
+/// `X-6`, `R-ROOT`, `CYC-A` all qualify.
+///
+/// Without this, bracketed Rust in a note is read as a citation. A real
+/// note in the FORK-94 memo quotes `base_tree_hashes: &[String]`, and
+/// `check` duly reported `cited but undefined: [String]`. Slice and
+/// generic syntax is ordinary content in a document about code, and a
+/// checker that cannot tell it from a citation generates noise precisely
+/// where the prose is most technical.
+///
+/// Both halves of the rule are load-bearing, and a first attempt using
+/// only "contains a digit" was wrong — it rejected `R-ROOT` and `CYC-A`,
+/// real ids in this crate's own fixtures. The hyphen is the stronger
+/// signal of the two, because a hyphen cannot appear in a Rust
+/// identifier at all, so no type name can collide with it. The
+/// uppercase-start half rules out `[u8]` and `[i32]`, which do carry
+/// digits.
+///
+/// What still gets through: a bracketed CamelCase name containing a
+/// digit, like `[Utf8Error]`. Narrow enough to accept; a citation scheme
+/// wanting bare `[Foo]` to resolve would have to revisit this, and none
+/// exists here.
+fn is_citation_shaped(id: &str) -> bool {
+    id.starts_with(|c: char| c.is_ascii_uppercase())
+        && id.bytes().any(|b| b.is_ascii_digit() || b == b'-')
+}
+
 /// Scan one line for `[ID]` / `[!ID]` citations, returning each match's
 /// byte offset of `[`, id, and refuted-stance flag. Shared by
 /// `scan_citations` (body prose, where a line number is tracked) and
@@ -61,9 +90,12 @@ fn scan_line(line: &str) -> Vec<(usize, String, bool)> {
                 j += 1;
             }
             if j > id_start && j < bytes.len() && bytes[j] == b']' {
-                out.push((i, line[id_start..j].to_string(), stance));
-                i = j + 1;
-                continue;
+                let id = &line[id_start..j];
+                if is_citation_shaped(id) {
+                    out.push((i, id.to_string(), stance));
+                    i = j + 1;
+                    continue;
+                }
             }
         }
         i += 1;
@@ -341,6 +373,30 @@ mod tests {
 
     /// The inline form keeps working exactly as before, including its
     /// refuted stance — the trailer scan is additive, not a replacement.
+    /// Bracketed Rust in a note is content, not a citation. This fired
+    /// for real: a FORK-94 fact quotes `base_tree_hashes: &[String]`,
+    /// and check reported `cited but undefined: [String]`.
+    #[test]
+    fn bracketed_type_names_are_not_citations() {
+        for line in ["base_tree_hashes: &[String]", "takes &[u8]", "a Vec<[T]> here", "&[i32]"] {
+            assert!(
+                scan_citations(&[line.to_string()]).is_empty(),
+                "should not scan as a citation: {line}"
+            );
+        }
+    }
+
+    /// Ids without digits are real — this crate's own fixtures use them —
+    /// and a first attempt at the rule above rejected them.
+    #[test]
+    fn hyphenated_ids_without_digits_still_scan() {
+        let ids: Vec<String> = scan_citations(&["see [R-ROOT] and [CYC-A]".to_string()])
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["R-ROOT", "CYC-A"]);
+    }
+
     #[test]
     fn inline_bracket_citations_still_scan_with_stance() {
         let cits = scan_citations(&["grounded in [C1] but [!C2] was refuted".to_string()]);

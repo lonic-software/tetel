@@ -156,6 +156,45 @@ fn find_stated_pin(section_lines: &[&str]) -> Option<String> {
     best
 }
 
+/// The header `compose::render_facts` writes. Matched exactly, the same
+/// way the evidence-ledger headers above are, so neither table can be
+/// mistaken for the other or for an unrelated table in the prose.
+const FACTS_HEADER: [&str; 4] = ["ID", "Note", "Extent (captured)", "Rests under"];
+
+/// The ids defined by a rendered facts table.
+///
+/// Prose may cite a fact (`*cites: C2, F5*`), so the citation check needs
+/// to know which fact ids the document itself defines — otherwise every
+/// fact citation reports as `cited but undefined`, which is exactly what
+/// happened on the first real memo before the facts table existed.
+///
+/// Only ids are returned. A fact's note and extent are for a reader; no
+/// check in this crate grades them from the rendered table, because the
+/// authoritative copy is the workspace snapshot, and re-deriving facts
+/// from prose would create a second source that could disagree with it.
+pub fn facts_table_ids(body: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < body.len() {
+        if !is_table_row(&body[i]) || split_row_cells(&body[i]) != FACTS_HEADER {
+            i += 1;
+            continue;
+        }
+        // Skip the header and its separator, then take ids until the
+        // table ends.
+        i += 2;
+        while i < body.len() && is_table_row(&body[i]) {
+            if let Some(id) = split_row_cells(&body[i]).first() {
+                if !id.is_empty() && !out.contains(id) {
+                    out.push(id.clone());
+                }
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
 pub fn import(body: &[String]) -> LedgerImport {
     let mut claims = Vec::new();
     let mut errors = Vec::new();

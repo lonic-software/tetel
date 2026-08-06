@@ -48,8 +48,88 @@ pub fn render(workspace_dir: &Path) -> io::Result<String> {
             }
         }
     }
-    out.push_str(&render_ledger(&claims::load_all(workspace_dir)?));
+    let claim_list = claims::load_all(workspace_dir)?;
+    out.push_str(&render_ledger(&claim_list));
+    out.push_str(&render_facts(
+        &crate::facts::load_all(workspace_dir)?,
+        &claim_list,
+    ));
     Ok(out)
+}
+
+/// Appends a facts table after the evidence ledger.
+///
+/// # Why the document has to carry this
+///
+/// Before it did, `prose --cites` accepted fact ids as readily as claim
+/// ids and `render` wrote them into the document, but no fact appeared
+/// anywhere in the output — so `tetel check` reported `cited but
+/// undefined: [F5]` on the first real memo, correctly, and would have on
+/// every memo that ever cited a fact from prose.
+///
+/// The deeper reason is what a reader loses without it. A fact's captured
+/// extent is the one field in this system no author can type, and reading
+/// notes against extents is where review value has actually shown up —
+/// the FORK-94 review's sharpest finding was a note concluding about a
+/// file its extent never covered. Without this table that comparison is
+/// possible only by opening the workspace, which a reviewer of a
+/// committed document does not have.
+///
+/// # What is deliberately not here
+///
+/// The `key` is an absolute machine-local path; the `label` is
+/// repo-relative. Only the label is rendered — a committed document
+/// should not carry `/Users/<someone>/...`, and the label is what a
+/// reader can act on anyway.
+///
+/// Captured output is not rendered either. It is unbounded (a `run` can
+/// capture megabytes), it is in the snapshot for anyone who needs it, and
+/// a document that inlined it would bury the prose it exists to support.
+fn render_facts(facts: &[crate::facts::Fact], claims: &[claims::Claim]) -> String {
+    if facts.is_empty() {
+        return String::new();
+    }
+    // Which claims rest on each fact — so a reader landing on `F5` from
+    // prose can see what was built on it without scanning every row.
+    let cited_by = |id: &str| -> String {
+        let names: Vec<&str> = claims
+            .iter()
+            .filter(|c| !c.withdrawn && c.from.iter().any(|f| f == id))
+            .map(|c| c.id.as_str())
+            .collect();
+        if names.is_empty() {
+            "—".to_string()
+        } else {
+            names.join(", ")
+        }
+    };
+
+    let mut out = String::new();
+    out.push_str("\n## Facts\n\n");
+    out.push_str(
+        "Observations recorded with `tetel look`/`tetel run`, then minted with `tetel fact`. \
+Extent is captured by the tool and cannot be typed by an author; the note is written. Where \
+a note names a location the extent does not cover, `tetel check` says so — reading those two \
+columns against each other is the point of this table.\n\n",
+    );
+    out.push_str("| ID | Note | Extent (captured) | Rests under |\n");
+    out.push_str("|---|---|---|---|\n");
+    for f in facts {
+        let extent = f
+            .extent
+            .iter()
+            .map(|e| e.label.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        out.push_str(&format!(
+            "| {} | {} | {} | {} |\n",
+            ledger_cell(&f.id),
+            ledger_cell(&f.note),
+            ledger_cell(&extent),
+            cited_by(&f.id),
+        ));
+    }
+    out
 }
 
 /// Escape a claim proposition for safe embedding in one evidence-ledger
