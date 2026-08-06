@@ -61,6 +61,26 @@ enum Command {
         /// Read the record from this file instead of stdin.
         #[arg(long)]
         input: Option<PathBuf>,
+        /// Ground `--claim` on a fact this workspace captured, instead of
+        /// ingesting a reported result from stdin.
+        ///
+        /// The extent is copied from the fact, where `look`/`run` captured
+        /// it and no flag can type it. The record carries this workspace's
+        /// identity, so `check` can recompute whether a grounding pass
+        /// rested on its own observations or inherited someone else's —
+        /// which is what the `pass` field cannot establish, being a string
+        /// validated only for being non-empty.
+        #[arg(long, value_name = "F1")]
+        from_fact: Option<String>,
+        /// Required with `--from-fact`: which claim is being grounded.
+        #[arg(long, value_name = "C1")]
+        claim: Option<String>,
+        /// Required with `--from-fact`: supports | refutes | qualifies.
+        #[arg(long, value_name = "VERDICT")]
+        verdict: Option<String>,
+        /// Optional note. Literal text, `-` for stdin, or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        note: Option<String>,
     },
 
     // --- authoring commands -----------------------------------------
@@ -253,7 +273,50 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Record { memo, input } => {
+        Command::Record { memo, input, from_fact, claim, verdict, note } => {
+            if let Some(fact_id) = from_fact {
+                let (Some(claim_id), Some(verdict_raw)) = (claim, verdict) else {
+                    eprintln!("tetel: refused: --from-fact needs --claim and --verdict");
+                    return ExitCode::from(1);
+                };
+                let Some(v) = tetel::evidence::Verdict::parse(verdict_raw.trim()) else {
+                    eprintln!(
+                        "tetel: refused: invalid --verdict {verdict_raw:?}; expected supports, refutes or qualifies"
+                    );
+                    return ExitCode::from(1);
+                };
+                let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("tetel: could not create workspace state: {e}");
+                        return ExitCode::from(1);
+                    }
+                };
+                let note = match note.as_deref().map(tetel::workspace::resolve_text_value) {
+                    Some(Ok(s)) => Some(s),
+                    Some(Err(e)) => {
+                        eprintln!("tetel: error reading --note: {e}");
+                        return ExitCode::from(1);
+                    }
+                    None => None,
+                };
+                match tetel::record_from_fact_file(
+                    &memo, &workspace_dir, &claim_id, v, &fact_id, note,
+                ) {
+                    Ok(Ok(id)) => {
+                        println!("{claim_id} grounded on {fact_id} (witnessed, workspace {id}).");
+                        return ExitCode::from(0);
+                    }
+                    Ok(Err(e)) => {
+                        eprintln!("tetel: refused: {e}");
+                        return ExitCode::from(1);
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: error: {e}");
+                        return ExitCode::from(1);
+                    }
+                }
+            }
             let input_json = match &input {
                 Some(path) => std::fs::read_to_string(path),
                 None => {

@@ -98,6 +98,60 @@ pub fn ensure(dir: &Path) -> io::Result<()> {
     fs::create_dir_all(dir)
 }
 
+/// A workspace's identity: a stable id and the moment it was created.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Identity {
+    pub id: String,
+    /// Unix seconds at creation. What makes "this pass began after the
+    /// brief was issued" a checkable claim rather than an asserted one.
+    pub born: u64,
+}
+
+/// Read this workspace's identity, creating it on first use.
+///
+/// # Why identity is per-workspace and not per-session
+///
+/// The obvious unit is a session — the agent that made the observation.
+/// It is the wrong one here. This corpus's dominant pattern is multi-day
+/// continuation of one authoring effort, and keying identity to a session
+/// would make every continuation *second-hand to its own earlier work* —
+/// the tool fighting the way the work actually happens, which is the
+/// condition under which annotation systems get abandoned.
+///
+/// A workspace is already the isolation unit: ids are workspace-relative
+/// and collide freely across workspaces, and no cross-workspace citation
+/// mechanism exists in the authoring path at all. So an author continuing
+/// their own workspace tomorrow changes nothing, and an independent
+/// grounding pass is simply *defined* as a fresh workspace. The property
+/// that has to be checkable — "these grounds were captured by this pass,
+/// not inherited from the author's" — falls out of where the facts live.
+///
+/// Written once and never rewritten: a workspace that already has an
+/// identity keeps it, so nothing can quietly re-date a pass.
+pub fn identity(workspace_dir: &Path) -> io::Result<Identity> {
+    let path = workspace_dir.join("identity.json");
+    if let Ok(raw) = fs::read_to_string(&path) {
+        if let Ok(id) = serde_json::from_str::<Identity>(&raw) {
+            return Ok(id);
+        }
+    }
+    let born = now_unix();
+    // Uniqueness, not unpredictability: this names a workspace, it does
+    // not authenticate one. Nothing here resists a determined forger with
+    // write access to the state directory, and nothing claims to.
+    let seed = format!(
+        "{}|{}|{}|{}",
+        workspace_dir.display(),
+        born,
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)
+    );
+    let id = crate::evidence::sha256_hex(&seed)[..16].to_string();
+    let identity = Identity { id, born };
+    fs::write(&path, serde_json::to_string(&identity)?)?;
+    Ok(identity)
+}
+
 /// One workspace on disk, with enough shape to tell which is which.
 ///
 /// The counts are what an author actually needs to recognise a workspace

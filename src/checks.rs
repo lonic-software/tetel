@@ -111,6 +111,11 @@ pub struct Findings {
     /// level rather than once per claim; see
     /// [`claims_without_declared_scope`] for why that changed.
     pub ledger_has_no_scope_columns: bool,
+    /// One line per grounded claim describing how its evidence stands:
+    /// witnessed (extent captured by this tool, in a named workspace) or
+    /// ingested (extent typed by a caller). Human-owed, printed item by
+    /// item, never a failure — see [`grounding_provenance`].
+    pub grounding_provenance: Vec<String>,
 }
 
 impl Findings {
@@ -482,6 +487,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         cites_something: false,
         notes_outside_extent: Vec::new(),
         ledger_has_no_scope_columns: false,
+        grounding_provenance: Vec::new(),
     }
 }
 
@@ -648,6 +654,62 @@ pub fn claims_without_declared_scope(claims: &[Claim]) -> Vec<(String, String)> 
         })
         .map(|c| (c.id.clone(), c.proposition.clone()))
         .collect()
+}
+
+/// How each grounded claim's evidence stands, one line per claim.
+///
+/// # Why this is printed rather than checked
+///
+/// A grounding pass declares its own independence today: `pass` is a free
+/// string in `record`'s JSON, validated only for being non-empty. So
+/// "this claim was independently grounded" is an assertion nothing can
+/// contradict, on a mechanism whose entire measured value (78% → 33%)
+/// comes from independence being real.
+///
+/// A witnessed record fixes the checkable half. Its extent was copied
+/// from a fact this tool captured, and it carries the identity of the
+/// workspace that captured it — so whether a pass grounded claims in its
+/// *own* observations is recomputable rather than claimed.
+///
+/// # What it still cannot establish, said out loud
+///
+/// That the grounding agent saw only the brief. Nothing in a record can
+/// show that: it is a property of the sandbox the agent was handed, and
+/// stays owed to a run protocol. This prints what it knows and names what
+/// it does not, rather than letting a witnessed record read as a stronger
+/// guarantee than it is.
+pub fn grounding_provenance(claims: &[Claim], evidence: &[EvidenceRecord]) -> Vec<String> {
+    let mut out = Vec::new();
+    for claim in claims {
+        let records: Vec<&EvidenceRecord> =
+            evidence.iter().filter(|e| e.claim_id == claim.id).collect();
+        if records.is_empty() {
+            continue;
+        }
+        let witnessed: Vec<&&EvidenceRecord> = records.iter().filter(|r| r.witnessed).collect();
+        if witnessed.is_empty() {
+            out.push(format!(
+                "{}: grounded, all {} record(s) ingested — extent typed by the reporter, not captured by this tool; `pass` is whatever the reporter wrote",
+                claim.id,
+                records.len()
+            ));
+        } else {
+            let passes: Vec<&str> = {
+                let mut p: Vec<&str> = witnessed.iter().map(|r| r.pass.as_str()).collect();
+                p.sort_unstable();
+                p.dedup();
+                p
+            };
+            out.push(format!(
+                "{}: grounded, {} of {} record(s) witnessed — extent captured by this tool in workspace(s) {}. That the grounding pass saw only the brief is not shown by any record and remains owed to the run protocol",
+                claim.id,
+                witnessed.len(),
+                records.len(),
+                passes.join(", ")
+            ));
+        }
+    }
+    out
 }
 
 /// Whether the memo's ledger is a tetel-authored one, whose format has no

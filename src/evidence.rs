@@ -43,6 +43,18 @@ pub const STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 /// exists to carry.
 pub const INGESTED_PREDICATE_TYPE: &str = "https://github.com/lonic-software/tetel/grounding-result/v1";
 
+/// The predicate type for **witnessed** evidence: a record minted from a
+/// fact this tool captured itself, via `record --from-fact`.
+///
+/// This is the type the comment above reserved. Its extent is copied from
+/// the fact's captured extent and there is deliberately no path by which
+/// a caller supplies one — that absence is the whole distinction. A
+/// record of this type also carries the identity of the workspace whose
+/// observation it rests on, which is what turns "this pass was
+/// independent" from a string someone typed into a property `check`
+/// recomputes.
+pub const CAPTURED_PREDICATE_TYPE: &str = "https://github.com/lonic-software/tetel/captured-fact/v1";
+
 /// The only values a reporter may state for `reported_kind` — what kind of
 /// act they say this was. Carried verbatim as data (see [`Predicate`] and
 /// [`EvidenceRecord`]); never paraphrased, never normalised. Validated
@@ -206,6 +218,12 @@ pub struct EvidenceRecord {
     pub pin: Option<String>,
     #[allow(dead_code)] // carried for fidelity; no check reasons over it yet
     pub timestamp: u64,
+    /// True when this record's predicate type is
+    /// [`CAPTURED_PREDICATE_TYPE`] — its extent was copied from a fact
+    /// this tool captured, not typed by a caller. The one bit that
+    /// separates "the tool witnessed the act" from "the tool witnessed
+    /// someone saying the act happened".
+    pub witnessed: bool,
 }
 
 impl EvidenceRecord {
@@ -222,7 +240,14 @@ impl EvidenceRecord {
     /// whole job is to make sure a reported `run` can't sneak past that
     /// cap by claiming a stronger kind than the tool ever saw for itself.
     pub fn derived_kind(&self) -> Kind {
-        Kind::Attested
+        if self.witnessed {
+            // The extent came from a fact this tool captured itself, so
+            // the act is one it saw. `Run` is the strongest standing this
+            // crate has, and this is the only path that can reach it.
+            Kind::Run
+        } else {
+            Kind::Attested
+        }
     }
 }
 
@@ -260,6 +285,81 @@ fn build_statement(claim: &Claim, input: &RecordInput, verdict: Verdict) -> Stat
             timestamp: now_unix(),
         },
     }
+}
+
+/// Append one **witnessed** evidence record: a grounding verdict resting
+/// on a fact this tool captured itself.
+///
+/// # What makes this different from `record`
+///
+/// [`record`] ingests a report. Its `extent` and `source` are typed by the
+/// caller, which is exactly why every ingested record derives to
+/// [`Kind::Attested`] — the tool witnessed the saying, never the act.
+///
+/// Here the extent is *copied from the fact*, where it was captured by
+/// `look`/`run` and could not be typed (see `facts.rs`). There is no
+/// parameter by which a caller supplies one. The record carries the
+/// identity of the workspace the fact lives in, so `check` can recompute
+/// whether a pass grounded its claims in its own observations or inherited
+/// someone else's — replacing a `pass` string that today is validated only
+/// for being non-empty.
+///
+/// # What this does not establish
+///
+/// That the grounding agent's context contained only the brief. Nothing
+/// in a record can show that; it is a property of the sandbox the agent
+/// was handed, and stays owed to a run protocol. What this makes checkable
+/// is narrower and worth having on its own: these grounds were captured
+/// here, by this pass, after it began.
+pub fn record_from_fact(
+    memo: &Path,
+    claims: &[Claim],
+    claim_id: &str,
+    verdict: Verdict,
+    fact: &crate::facts::Fact,
+    identity: &crate::workspace::Identity,
+    note: Option<String>,
+) -> Result<(), RecordError> {
+    let claim = claims
+        .iter()
+        .find(|c| c.id == claim_id)
+        .ok_or_else(|| RecordError::UnknownClaim(claim_id.to_string()))?;
+
+    let statement = Statement {
+        type_: STATEMENT_TYPE.to_string(),
+        subject: vec![Subject {
+            name: claim.id.clone(),
+            digest: DigestSet {
+                sha256: sha256_hex(&claim.proposition),
+            },
+        }],
+        predicate_type: CAPTURED_PREDICATE_TYPE.to_string(),
+        predicate: Predicate {
+            verdict: verdict.to_string(),
+            // The pass *is* the workspace. Not a name someone chose.
+            pass: identity.id.clone(),
+            // Witnessed by this tool, not reported to it.
+            reported_kind: "run".to_string(),
+            // `proc:` names the act rather than a file, because what was
+            // observed is the fact — which is preserved in the workspace
+            // and, once shipped, in the memo's snapshot beside it.
+            source: format!("proc:workspace-{}", identity.id),
+            extent: fact.extent.iter().map(|e| e.label.clone()).collect(),
+            note,
+            pin: Some(fact.pin.clone()),
+            timestamp: now_unix(),
+        },
+    };
+
+    let line = serde_json::to_string(&statement)
+        .map_err(|e| RecordError::Io(format!("could not serialize record: {e}")))?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(evidence_path(memo))
+        .map_err(|e| RecordError::Io(e.to_string()))?;
+    writeln!(file, "{line}").map_err(|e| RecordError::Io(e.to_string()))?;
+    Ok(())
 }
 
 /// The path `tetel` reads and appends evidence at, derived from the memo's
@@ -388,6 +488,14 @@ fn parse_line(line: &str) -> Result<EvidenceRecord, String> {
     if Source::parse(&statement.predicate.source).is_none() {
         return Err(format!("missing or malformed `source` `{}`", statement.predicate.source));
     }
+    // Named explicitly rather than accepted by omission: an unrecognised
+    // predicate type must not quietly read back as ingested, which is the
+    // weaker standing and would silently downgrade a witnessed record.
+    if statement.predicate_type != INGESTED_PREDICATE_TYPE
+        && statement.predicate_type != CAPTURED_PREDICATE_TYPE
+    {
+        return Err(format!("unrecognised `predicateType` `{}`", statement.predicate_type));
+    }
     Ok(EvidenceRecord {
         claim_id: subject.name.clone(),
         verdict,
@@ -398,6 +506,7 @@ fn parse_line(line: &str) -> Result<EvidenceRecord, String> {
         note: statement.predicate.note.clone(),
         pin: statement.predicate.pin.clone(),
         timestamp: statement.predicate.timestamp,
+        witnessed: statement.predicate_type == CAPTURED_PREDICATE_TYPE,
     })
 }
 

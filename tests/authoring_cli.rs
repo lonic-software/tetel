@@ -704,3 +704,100 @@ fn review_names_a_cited_fact_rather_than_dropping_it() {
     let (_code, out, _err) = sb.run(&["review"]);
     assert!(out.contains("cites F1: not a claim in this workspace"), "got:\n{out}");
 }
+
+/// The witnessed path: a grounding pass rests a verdict on a fact it
+/// captured itself, and the record carries the identity of the workspace
+/// that captured it. This is what makes "this pass was independent" a
+/// property `check` recomputes rather than a string someone typed —
+/// `pass` is validated only for being non-empty on the ingested path.
+#[test]
+fn record_from_fact_mints_a_witnessed_record_carrying_workspace_identity() {
+    let sb = Sandbox::new("from-fact");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+
+    // The author writes a memo.
+    sb.run(&["--workspace", "author", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["--workspace", "author", "claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["--workspace", "author", "prose", "--cites", "C1"], "The file defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+
+    // The grounding pass is a *fresh workspace* making its own
+    // observation — that is what "independent" means structurally here.
+    sb.run(&["--workspace", "grounder", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "grounder", "fact", "--note", "read independently"]);
+    let (code, out, err) = sb.run(&[
+        "--workspace", "grounder", "record", memo.to_str().unwrap(),
+        "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
+    ]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("witnessed, workspace"), "got: {out}");
+
+    let raw = std::fs::read_to_string(sb.dir.join("memo.md.evidence.jsonl")).unwrap();
+    let rec: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+    assert_eq!(rec["predicateType"], tetel::evidence::CAPTURED_PREDICATE_TYPE);
+
+    // The extent was copied from the grounder's own fact, not typed —
+    // there is no flag by which a caller could supply one.
+    assert_eq!(rec["predicate"]["extent"][0], "alpha.rs");
+    // The pass is the workspace identity, not a name someone chose.
+    let pass = rec["predicate"]["pass"].as_str().unwrap();
+    assert!(!pass.is_empty() && pass != "grounder", "pass must be the identity, got: {pass}");
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("1 of 1 record(s) witnessed"), "got:\n{combined}");
+    assert!(
+        combined.contains("remains owed to the run protocol"),
+        "what a record cannot establish must be said, not implied:\n{combined}"
+    );
+}
+
+/// A witnessed record and an ingested one for the same claim must remain
+/// distinguishable — the whole point of separate predicate types.
+#[test]
+fn witnessed_and_ingested_records_are_counted_apart() {
+    let sb = Sandbox::new("witnessed-vs-ingested");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["--workspace", "a", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "a", "fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["--workspace", "a", "claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["--workspace", "a", "prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["--workspace", "a", "render", "--out", memo.to_str().unwrap()]);
+
+    sb.run(&["--workspace", "a", "record", memo.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run_stdin(
+        &["record", memo.to_str().unwrap()],
+        r#"{"claim":"C1","pass":"i-said-so","verdict":"supports","reported_kind":"run","source":"proc:someone","extent":["whatever I typed"]}"#,
+    );
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("1 of 2 record(s) witnessed"), "got:\n{combined}");
+}
+
+/// An ingested-only claim must say so plainly: its extent was typed by
+/// the reporter, and its `pass` is whatever the reporter wrote.
+#[test]
+fn an_ingested_only_claim_is_named_as_such() {
+    let sb = Sandbox::new("ingested-only");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["--workspace", "a", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "a", "fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["--workspace", "a", "claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["--workspace", "a", "prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["--workspace", "a", "render", "--out", memo.to_str().unwrap()]);
+    sb.run_stdin(
+        &["record", memo.to_str().unwrap()],
+        r#"{"claim":"C1","pass":"whatever","verdict":"supports","reported_kind":"run","source":"proc:someone","extent":["typed"]}"#,
+    );
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("all 1 record(s) ingested"), "got:\n{combined}");
+    assert!(combined.contains("not captured by this tool"), "got:\n{combined}");
+}

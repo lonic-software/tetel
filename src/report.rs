@@ -113,6 +113,9 @@ by attested (ingested) evidence, evidence sources that do not resolve, ledger cl
 declared scope at all, facts whose note names a location outside their own captured extent, \
 and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
+    for line in &findings.grounding_provenance {
+        out.push_str(&format!("  - {line}\n"));
+    }
     for o in &findings.notes_outside_extent {
         out.push_str(&format!(
             "  - {}: its note names {}, which this fact's extent does not cover (extent: {}) — \

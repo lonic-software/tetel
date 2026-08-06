@@ -69,6 +69,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     findings.unresolved_evidence_sources = checks::unresolved_evidence_sources(&ledger.claims, &evidence_records);
     findings.no_scope_claims = checks::claims_without_declared_scope(&ledger.claims);
     findings.ledger_has_no_scope_columns = checks::ledger_has_no_scope_columns(&ledger.claims);
+    findings.grounding_provenance = checks::grounding_provenance(&ledger.claims, &evidence_records);
     findings.verdict_disagreements = disagreements;
     // Provenance is graded against the same bytes every other check saw,
     // never a re-read of the file.
@@ -123,11 +124,46 @@ pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)> {
     Ok((code, out))
 }
 
+/// Grounds a claim on a fact this workspace captured, appending one
+/// witnessed record to `<memo>.evidence.jsonl`. Returns the workspace
+/// identity the record now carries.
+///
+/// The extent is copied from the fact, never taken from a caller — see
+/// [`evidence::record_from_fact`] for why that absence is the whole
+/// distinction between this path and [`record_file`].
+pub fn record_from_fact_file(
+    memo: &Path,
+    workspace_dir: &Path,
+    claim_id: &str,
+    verdict: evidence::Verdict,
+    fact_id: &str,
+    note: Option<String>,
+) -> std::io::Result<Result<String, evidence::RecordError>> {
+    let source = std::fs::read_to_string(memo)?;
+    let doc = parse::parse_document(&source);
+    let ledger = ledger::import(&doc.body);
+
+    let facts = facts::load_all(workspace_dir)?;
+    let Some(fact) = facts.iter().find(|f| f.id == fact_id) else {
+        return Ok(Err(evidence::RecordError::MalformedRecord(format!(
+            "no fact `{fact_id}` in this workspace; try `tetel query facts`"
+        ))));
+    };
+    let identity = workspace::identity(workspace_dir)?;
+    Ok(
+        evidence::record_from_fact(memo, &ledger.claims, claim_id, verdict, fact, &identity, note)
+            .map(|()| identity.id),
+    )
+}
+
 /// Runs `record` against a file on disk: validates `input_json` (a single
 /// grounding result, shaped as described in `evidence.rs`) against the
 /// memo's own evidence ledger, and if it is well-formed and its claim id
 /// is known, appends exactly one line to `<memo>.evidence.jsonl`. Never a
 /// partial write.
+///
+/// This is the *ingested* path: extent and source are typed by the caller.
+/// See [`record_from_fact_file`] for the witnessed one.
 pub fn record_file(path: &Path, input_json: &str) -> std::io::Result<Result<(), evidence::RecordError>> {
     let source = std::fs::read_to_string(path)?;
     let doc = parse::parse_document(&source);
