@@ -68,13 +68,19 @@ use std::path::{Path, PathBuf};
 /// `pending.json` is included even though `render` never reads it: a
 /// non-empty buffer at snapshot time is a fact about how the document was
 /// finished, and silently dropping it would hide it.
-const SNAPSHOT_FILES: [&str; 6] = [
+const SNAPSHOT_FILES: [&str; 7] = [
     "facts.jsonl",
     "claims.jsonl",
     "prose.jsonl",
     "counters.json",
     "pending.json",
     "refusals.log",
+    // Without this, `check` cannot tell who authored the memo, and so
+    // cannot tell an author grounding their own claims from an
+    // independent pass grounding them. That is the distinction the whole
+    // mechanism exists for — 78% scope-equal self-grounded against 33%
+    // independent — and it was invisible until this file shipped.
+    "identity.json",
 ];
 
 /// A memo's snapshot directory: `<memo>.tetel`, sitting next to it —

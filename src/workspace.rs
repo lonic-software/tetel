@@ -107,6 +107,13 @@ pub struct Identity {
     pub born: u64,
 }
 
+/// Read an existing identity without creating one — for a snapshot
+/// directory, where creating one would invent an author.
+pub fn identity_of(dir: &Path) -> Option<String> {
+    let raw = fs::read_to_string(dir.join("identity.json")).ok()?;
+    serde_json::from_str::<Identity>(&raw).ok().map(|i| i.id)
+}
+
 /// Read this workspace's identity, creating it on first use.
 ///
 /// # Why identity is per-workspace and not per-session

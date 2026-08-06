@@ -678,7 +678,11 @@ pub fn claims_without_declared_scope(claims: &[Claim]) -> Vec<(String, String)> 
 /// stays owed to a run protocol. This prints what it knows and names what
 /// it does not, rather than letting a witnessed record read as a stronger
 /// guarantee than it is.
-pub fn grounding_provenance(claims: &[Claim], evidence: &[EvidenceRecord]) -> Vec<String> {
+pub fn grounding_provenance(
+    claims: &[Claim],
+    evidence: &[EvidenceRecord],
+    authoring_identity: Option<&str>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for claim in claims {
         let records: Vec<&EvidenceRecord> =
@@ -700,12 +704,50 @@ pub fn grounding_provenance(claims: &[Claim], evidence: &[EvidenceRecord]) -> Ve
                 p.dedup();
                 p
             };
+            // The distinction the whole mechanism exists for. A claim
+            // grounded in the same workspace that authored it was graded
+            // by the author against their own reading — the arrangement
+            // measured at 78% scope-equal, no better than hand-authored
+            // rows. Independence is what moved that to 33%. A check that
+            // could not tell the two apart would be reporting the wrong
+            // thing confidently, which is worse than reporting nothing.
+            let standing = match authoring_identity {
+                None => "no snapshot beside this memo, so whether the grounding workspace is also \
+the authoring one cannot be determined from here"
+                    .to_string(),
+                Some(author) => {
+                    // Counted separately rather than collapsed to a
+                    // single verdict: a claim can carry both a
+                    // self-grounded record and an independent one, and
+                    // saying only "self-grounded" there would hide a real
+                    // independent pass, while saying only "independently
+                    // grounded" would hide that the author also graded
+                    // their own work.
+                    let by_author = passes.iter().filter(|p| **p == author).count();
+                    let by_others = passes.len() - by_author;
+                    match (by_author, by_others) {
+                        (0, _) => "independently grounded: no grounding workspace here is the one \
+that authored this memo"
+                            .to_string(),
+                        (_, 0) => "SELF-GROUNDED: the only workspace that graded this claim is the \
+one that authored the memo, so no independent pass has run on it. The author's own reading is the \
+arrangement measured at 78% scope-equal; independence is what moved that to 33%"
+                            .to_string(),
+                        (a, o) => format!(
+                            "MIXED: {a} grounding workspace(s) authored this memo and {o} did not \
+— read the self-grounded record(s) as the author's own reading, not as independent confirmation"
+                        ),
+                    }
+                }
+            };
             out.push(format!(
-                "{}: grounded, {} of {} record(s) witnessed — extent captured by this tool in workspace(s) {}. That the grounding pass saw only the brief is not shown by any record and remains owed to the run protocol",
+                "{}: grounded, {} of {} record(s) witnessed in workspace(s) {} — {}. That the \
+grounding pass saw only the brief is not shown by any record and remains owed to the run protocol",
                 claim.id,
                 witnessed.len(),
                 records.len(),
-                passes.join(", ")
+                passes.join(", "),
+                standing
             ));
         }
     }

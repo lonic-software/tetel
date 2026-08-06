@@ -801,3 +801,90 @@ fn an_ingested_only_claim_is_named_as_such() {
     assert!(combined.contains("all 1 record(s) ingested"), "got:\n{combined}");
     assert!(combined.contains("not captured by this tool"), "got:\n{combined}");
 }
+
+/// Author a memo in `author`, returning its path. Shared by the
+/// self-versus-independent grounding tests below.
+fn memo_authored_by(sb: &Sandbox) -> PathBuf {
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["--workspace", "author", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["--workspace", "author", "claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["--workspace", "author", "prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+    memo
+}
+
+/// The distinction the mechanism exists for. An author grounding their own
+/// claims is the arrangement measured at 78% scope-equal — no better than
+/// hand-authored rows. Independence is what moved that to 33%. A check
+/// that reported both the same way would be confidently wrong, so the
+/// snapshot ships the authoring workspace's identity to make them
+/// distinguishable.
+#[test]
+fn an_author_grounding_their_own_claim_is_reported_as_self_grounded() {
+    let sb = Sandbox::new("self-ground");
+    let memo = memo_authored_by(&sb);
+
+    sb.run(&["--workspace", "author", "record", memo.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("SELF-GROUNDED"), "got:\n{combined}");
+    assert!(combined.contains("no independent pass has run"), "got:\n{combined}");
+}
+
+#[test]
+fn a_fresh_workspace_grounding_the_claim_is_reported_as_independent() {
+    let sb = Sandbox::new("independent-ground");
+    let memo = memo_authored_by(&sb);
+
+    sb.run(&["--workspace", "grounder", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "grounder", "fact", "--note", "read independently"]);
+    sb.run(&["--workspace", "grounder", "record", memo.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("independently grounded"), "got:\n{combined}");
+    assert!(!combined.contains("SELF-GROUNDED"), "got:\n{combined}");
+}
+
+/// Both at once must report both. Collapsing to one verdict would either
+/// hide a real independent pass or hide that the author graded their own
+/// work — each misleading in a different direction.
+#[test]
+fn a_claim_grounded_by_both_reports_both() {
+    let sb = Sandbox::new("mixed-ground");
+    let memo = memo_authored_by(&sb);
+
+    sb.run(&["--workspace", "grounder", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "grounder", "fact", "--note", "read independently"]);
+    sb.run(&["--workspace", "grounder", "record", memo.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["--workspace", "author", "record", memo.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("MIXED"), "got:\n{combined}");
+    assert!(combined.contains("not as independent confirmation"), "got:\n{combined}");
+}
+
+/// Without a snapshot there is no authoring identity to compare against,
+/// and the check says that rather than guessing either way.
+#[test]
+fn without_a_snapshot_the_distinction_is_reported_as_undeterminable() {
+    let sb = Sandbox::new("no-snapshot-ground");
+    let memo = memo_authored_by(&sb);
+    let bare = sb.dir.join("bare.md");
+    std::fs::copy(&memo, &bare).unwrap();
+
+    sb.run(&["--workspace", "author", "record", bare.to_str().unwrap(),
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+
+    let (_c, report, err) = sb.run(&["check", bare.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("cannot be determined from here"), "got:\n{combined}");
+}

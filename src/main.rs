@@ -617,6 +617,14 @@ fn main() -> ExitCode {
                 eprintln!("tetel: could not write {}: {e}", path.display());
                 return ExitCode::from(1);
             }
+            // Mint the workspace identity if this workspace has none yet:
+            // the snapshot is what lets `check` tell an author grounding
+            // their own claims from an independent pass, and it can only
+            // carry an identity that exists by the time it is written.
+            if let Err(e) = tetel::workspace::identity(&workspace_dir) {
+                eprintln!("tetel: could not establish workspace identity: {e}");
+                return ExitCode::from(1);
+            }
             if let Err(e) = tetel::snapshot::write(&path, &workspace_dir) {
                 eprintln!(
                     "tetel: wrote {} but could not write its snapshot: {e}",

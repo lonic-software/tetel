@@ -69,7 +69,15 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     findings.unresolved_evidence_sources = checks::unresolved_evidence_sources(&ledger.claims, &evidence_records);
     findings.no_scope_claims = checks::claims_without_declared_scope(&ledger.claims);
     findings.ledger_has_no_scope_columns = checks::ledger_has_no_scope_columns(&ledger.claims);
-    findings.grounding_provenance = checks::grounding_provenance(&ledger.claims, &evidence_records);
+    // Who authored this memo, read from the snapshot shipped beside it —
+    // without which self-grounding and independent grounding are
+    // indistinguishable.
+    let authoring_identity = workspace::identity_of(&snapshot::snapshot_path(path));
+    findings.grounding_provenance = checks::grounding_provenance(
+        &ledger.claims,
+        &evidence_records,
+        authoring_identity.as_deref(),
+    );
     findings.verdict_disagreements = disagreements;
     // Provenance is graded against the same bytes every other check saw,
     // never a re-read of the file.
