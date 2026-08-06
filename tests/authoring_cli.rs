@@ -1135,3 +1135,67 @@ fn fact_reports_what_it_folded_so_a_stale_buffer_is_visible() {
     assert!(out.contains("echo second"), "the leftover must be named:\n{out}");
     assert!(!out.contains("a.rs"), "the file that was never opened must not appear:\n{out}");
 }
+
+/// Document order was authoring order, so writing prose as discoveries
+/// happen — what the brief asks for — produced a document in discovery
+/// order, and the only route to a well-ordered one was deferring all
+/// prose to the end: exactly the pattern the brief exists to prevent.
+/// The tool's shape rewarded the anti-pattern, and no brief text can
+/// outweigh that.
+#[test]
+fn prose_can_be_inserted_before_an_existing_block() {
+    let sb = Sandbox::new("prose-before");
+    sb.run_stdin(&["prose"], "Discovered first, but belongs second.");
+    sb.run_stdin(&["prose", "--before", "P1"], "Discovered second, but belongs first.");
+
+    let (_c, out, _e) = sb.run(&["render"]);
+    let first = out.find("belongs first").expect("both blocks render");
+    let second = out.find("belongs second").expect("both blocks render");
+    assert!(first < second, "insertion must decide order, not authoring:\n{out}");
+}
+
+/// Headings insert too — a section discovered late still opens where it
+/// belongs.
+#[test]
+fn a_heading_can_be_inserted_before_an_existing_block() {
+    let sb = Sandbox::new("heading-before");
+    sb.run_stdin(&["prose"], "A paragraph written before its own section heading.");
+    sb.run_stdin(&["prose", "--heading", "-", "--level", "2", "--before", "P1"], "The section");
+
+    let (_c, out, _e) = sb.run(&["render"]);
+    assert!(
+        out.find("## The section").unwrap() < out.find("A paragraph written").unwrap(),
+        "the heading must precede its paragraph:\n{out}"
+    );
+}
+
+/// An anchor that does not exist is refused, not silently appended —
+/// otherwise a typo reorders the document without saying so.
+#[test]
+fn inserting_before_an_unknown_block_is_refused() {
+    let sb = Sandbox::new("before-unknown");
+    sb.run_stdin(&["prose"], "The only block.");
+    let (code, _o, err) = sb.run_stdin(&["prose", "--before", "P99"], "Should not land.");
+    assert_eq!(code, 1, "an unknown anchor must be refused");
+    assert!(err.contains("no such prose block to insert before"), "stderr:\n{err}");
+
+    let (_c, out, _e) = sb.run(&["render"]);
+    assert!(!out.contains("Should not land"), "nothing must be written:\n{out}");
+}
+
+/// Logs written before insertion existed carry no anchor and must replay
+/// in exactly the order they always did.
+#[test]
+fn a_log_without_anchors_still_replays_in_append_order() {
+    let sb = Sandbox::new("before-backcompat");
+    for (i, t) in ["first", "second", "third"].iter().enumerate() {
+        sb.run_stdin(&["prose"], &format!("Block {} is {t}.", i + 1));
+    }
+    let (_c, out, _e) = sb.run(&["render"]);
+    let (a, b, c) = (
+        out.find("is first").unwrap(),
+        out.find("is second").unwrap(),
+        out.find("is third").unwrap(),
+    );
+    assert!(a < b && b < c, "append order must be preserved:\n{out}");
+}

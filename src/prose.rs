@@ -6,13 +6,30 @@
 //! text stays in the append-only log — `tetel render` only ever shows a
 //! block's current text.
 //!
-//! **Not ported**: `--before`/`--after` insertion and `tmove`
-//! reordering. None of the four prototype runs this was ported from
-//! ever exercised either — every block was composed and left in append
-//! order — so this
-//! port keeps document order identical to creation order and drops the
-//! reordering machinery rather than carry code nothing has exercised.
-//! A block's text can still be revised in place with `--revise`.
+//! # Document order, and why `--before` exists
+//!
+//! Insertion was dropped in this port on the grounds that none of the
+//! four prototype runs ever used it — every block was composed and left
+//! in append order. That reasoning had a selection effect in it, spotted
+//! later by an agent writing with the tool: **those runs never needed
+//! insertion because they wrote all their prose at the end**, which is
+//! precisely the pattern the rhythm brief exists to prevent. The evidence
+//! for removing the feature came from runs exhibiting the behaviour the
+//! tool now tries to stop.
+//!
+//! Without insertion, document order is authoring order. An author
+//! following the brief — writing a paragraph the moment a claim exists to
+//! say something about — gets a document in discovery order, which reads
+//! badly. The only way to get a well-ordered document is to defer prose
+//! to the end. So the tool's shape rewarded the anti-pattern, and no
+//! amount of brief text could outweigh that: a prompt asks, a shape
+//! decides.
+//!
+//! `create` therefore takes an optional `before`, and document order is
+//! the insertion order the log records rather than the order blocks were
+//! appended. `tmove`-style reordering of existing blocks stays unported:
+//! nothing has needed it, and unlike insertion its absence creates no
+//! incentive to write badly.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,6 +53,11 @@ pub enum ProseEvent {
         text: String,
         #[serde(default)]
         cite: Vec<String>,
+        /// The block this one was inserted before, if any. Absent — the
+        /// shape of every Create written before this field existed —
+        /// means "append", so an old log replays exactly as it did.
+        #[serde(default)]
+        before: Option<String>,
         timestamp: u64,
     },
     Revise {
@@ -73,8 +95,14 @@ pub fn load_all(workspace_dir: &Path) -> io::Result<Vec<Block>> {
     let mut order: Vec<String> = Vec::new();
     for ev in events {
         match ev {
-            ProseEvent::Create { id, heading, level, text, cite, .. } => {
-                order.push(id.clone());
+            ProseEvent::Create { id, heading, level, text, cite, before, .. } => {
+                // Insert at the anchor if it is still present; otherwise
+                // append. A dangling anchor cannot reorder silently — the
+                // block lands at the end, where its absence is visible.
+                match before.as_deref().and_then(|b| order.iter().position(|o| o == b)) {
+                    Some(at) => order.insert(at, id.clone()),
+                    None => order.push(id.clone()),
+                }
                 by_id.insert(id.clone(), Block { id, heading, level, text, cite, revisions: 0 });
             }
             ProseEvent::Revise { id, text, cite, .. } => {
@@ -105,7 +133,22 @@ fn parse_ids(csv: &str) -> Vec<String> {
 /// Mints a paragraph block (`heading_level = None`) or a heading block
 /// at the given depth. `text` must already be resolved (see
 /// `workspace::resolve_text_value`/`resolve_text_or_stdin`) by the caller.
-pub fn create(workspace_dir: &Path, text: &str, cite_csv: Option<&str>, heading_level: Option<u8>) -> Result<Block, AuthoringError> {
+pub fn create(
+    workspace_dir: &Path,
+    text: &str,
+    cite_csv: Option<&str>,
+    heading_level: Option<u8>,
+    before: Option<&str>,
+) -> Result<Block, AuthoringError> {
+    if let Some(anchor) = before {
+        if !exists(workspace_dir, anchor)? {
+            return Err(workspace::refuse(
+                workspace_dir,
+                "prose",
+                format!("no such prose block to insert before: {anchor}; try `tetel query prose`"),
+            ));
+        }
+    }
     if let Some(level) = heading_level {
         if !(1..=6).contains(&level) {
             return Err(workspace::refuse(workspace_dir, "prose", format!("--level must be 1..=6 (a markdown heading depth), got {level}")));
@@ -119,6 +162,7 @@ pub fn create(workspace_dir: &Path, text: &str, cite_csv: Option<&str>, heading_
         level: heading_level,
         text: text.to_string(),
         cite: cite.clone(),
+        before: before.map(str::to_string),
         timestamp: workspace::now_unix(),
     };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
@@ -166,8 +210,8 @@ pub fn revise(
 /// on which combination of missing flags gets refused, or with what text.
 pub enum ProseRequest {
     Revise { id: String, text: String, why: Option<String>, cite: Option<String> },
-    Heading { text: String, level: Option<u8> },
-    Paragraph { text: String, cite: Option<String> },
+    Heading { text: String, level: Option<u8>, before: Option<String> },
+    Paragraph { text: String, cite: Option<String>, before: Option<String> },
 }
 
 pub enum ProseOutcome {
@@ -188,10 +232,14 @@ pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome,
             let cite = cite.as_deref().map(parse_ids);
             revise(workspace_dir, &id, &text, &why, cite).map(|()| ProseOutcome::Revised { id })
         }
-        ProseRequest::Heading { text, level } => {
+        ProseRequest::Heading { text, level, before } => {
             let level = level.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --heading requires --level"))?;
-            create(workspace_dir, &text, None, Some(level)).map(ProseOutcome::Created)
+            create(workspace_dir, &text, None, Some(level), before.as_deref())
+                .map(ProseOutcome::Created)
         }
-        ProseRequest::Paragraph { text, cite } => create(workspace_dir, &text, cite.as_deref(), None).map(ProseOutcome::Created),
+        ProseRequest::Paragraph { text, cite, before } => {
+            create(workspace_dir, &text, cite.as_deref(), None, before.as_deref())
+                .map(ProseOutcome::Created)
+        }
     }
 }

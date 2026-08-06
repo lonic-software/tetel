@@ -178,6 +178,17 @@ enum Command {
         /// rests on that — and `tetel render` prints it as `*cites: …*`.
         #[arg(long, value_name = "C1,C4")]
         cites: Option<String>,
+        /// Insert this block immediately before an existing one, instead
+        /// of appending it.
+        ///
+        /// Without this, document order is authoring order — so writing
+        /// prose as discoveries happen, which the brief asks for, yields
+        /// a document in discovery order, and the only way to a
+        /// well-ordered document is to defer all prose to the end. That
+        /// is the pattern the brief exists to prevent, so the tool should
+        /// not reward it.
+        #[arg(long, value_name = "P3")]
+        before: Option<String>,
         /// Revise this block's text instead of creating a new one.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
@@ -540,7 +551,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Prose { text, heading, level, cites: cite, revise, why } => {
+        Command::Prose { text, heading, level, cites: cite, before, revise, why } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
                 Err(e) => {
@@ -576,7 +587,7 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                tetel::prose::ProseRequest::Heading { text: heading_text, level }
+                tetel::prose::ProseRequest::Heading { text: heading_text, level, before }
             } else {
                 let body = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
                     Ok(s) => s,
@@ -585,7 +596,7 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                tetel::prose::ProseRequest::Paragraph { text: body, cite }
+                tetel::prose::ProseRequest::Paragraph { text: body, cite, before }
             };
 
             match tetel::prose::dispatch(&workspace_dir, req) {

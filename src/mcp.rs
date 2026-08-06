@@ -269,6 +269,14 @@ struct ProseParams {
     /// Ignored for a heading.
     #[serde(default)]
     cites: Option<String>,
+    /// Insert this new block immediately before an existing one, instead
+    /// of appending. Document order is otherwise authoring order, which
+    /// means writing prose as discoveries happen — what the brief asks —
+    /// produces a document in discovery order. Without this, the only way
+    /// to get a well-ordered document is to defer all prose to the end,
+    /// which is the pattern the brief exists to prevent.
+    #[serde(default)]
+    before: Option<String>,
     /// Revise this existing block's text instead of creating a new one.
     #[serde(default)]
     revise: Option<String>,
@@ -561,9 +569,9 @@ file, a grep searches for matches. Use one or the other.",
         let req = if let Some(id) = p.revise {
             prose::ProseRequest::Revise { id, text: p.text, why: p.why, cite: p.cites }
         } else if let Some(level) = p.heading_level {
-            prose::ProseRequest::Heading { text: p.text, level: Some(level) }
+            prose::ProseRequest::Heading { text: p.text, level: Some(level), before: p.before }
         } else {
-            prose::ProseRequest::Paragraph { text: p.text, cite: p.cites }
+            prose::ProseRequest::Paragraph { text: p.text, cite: p.cites, before: p.before }
         };
         match prose::dispatch(&dir, req) {
             Ok(prose::ProseOutcome::Created(b)) => Ok(CallToolResult::structured(json!({"id": b.id, "action": "appended"}))),

@@ -83,8 +83,8 @@ pub fn render_json(items: &[BriefItem]) -> String {
 ///
 /// Adapted from the harness prototype's own working brief to name this
 /// crate's actual subcommands, and to drop the two features that
-/// prototype supported but this port does not (`--before` prose
-/// insertion, `tmove` reordering — see `prose.rs`). Self-contained: it
+/// prototype supported but this port does not (`tmove` reordering — see
+/// `prose.rs`; `--before` insertion was later restored). Self-contained: it
 /// names no other document, repository, or path.
 pub const AUTHORING_BRIEF: &str = "\
 # Working brief — writing with tetel
@@ -99,7 +99,10 @@ your prose. Work in passes, and let the document grow alongside the
 evidence:
 
 - As soon as a claim exists that you can say something about, write that
-  prose then — do not defer it to a writing phase at the end.
+  prose then — do not defer it to a writing phase at the end. Where it
+  belongs in the finished document is a separate question from when you
+  wrote it: `tetel prose --before <ID>` puts a block ahead of an existing
+  one, so a paragraph discovered late can still open a section.
 - When writing prose makes you realise a claim is imprecise, wrong, or
   needs a qualification, revise the claim (`tetel claim --revise`) and
   then revise the prose that cites it (`tetel prose --revise`).
