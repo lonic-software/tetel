@@ -147,6 +147,53 @@ fn extent_covers(fact: &Fact, mentioned: &str) -> bool {
     })
 }
 
+/// What to tell the author, at the moment of minting.
+///
+/// # Why the author gets this and not only the reviewer
+///
+/// The design assumes agents author and humans review. A finding that
+/// reaches only `check` reaches only the reviewer — by which point the
+/// note is written, the claim resting on it is written, and the memo is
+/// rendered. The cheapest moment to fix an overreaching note is the
+/// second after it is minted, while whoever wrote it still remembers
+/// whether that location was context or a conclusion.
+///
+/// So this is deliberately phrased as a decision the author can act on
+/// immediately, with both available corrections named. It is still not a
+/// refusal: naming a location as context is legitimate, and refusing
+/// would make the honest note unwritable in order to catch the dishonest
+/// one.
+pub fn advice(o: &OutsideExtent) -> String {
+    format!(
+        "note names {}, which this fact's extent does not cover (extent: {}). \
+Fine if that's context. If it's a conclusion about {}, you have not read it here — \
+`look` at it and mint a fact for it, or revise this note to drop the claim about it.",
+        o.mentioned,
+        o.extent_labels.join("; "),
+        o.mentioned,
+    )
+}
+
+/// The findings for one fact id in a workspace, for the authoring paths.
+///
+/// Loads from disk rather than taking a `Fact`, because `revise` returns
+/// only an id — and a revised note can overreach exactly as a minted one
+/// can. Checking mint but not revise would leave the obvious way to
+/// introduce the defect unwatched.
+///
+/// Returns empty on a read error rather than failing the command: the
+/// fact was already written, and a warning that cannot be computed must
+/// not turn a successful mint into an error.
+pub fn for_fact(workspace_dir: &std::path::Path, id: &str) -> Vec<OutsideExtent> {
+    let Ok(facts) = crate::facts::load_all(workspace_dir) else {
+        return Vec::new();
+    };
+    let Some(f) = facts.into_iter().find(|f| f.id == id) else {
+        return Vec::new();
+    };
+    outside_extent(std::slice::from_ref(&f))
+}
+
 /// Every location a fact's note names that its own extent does not cover.
 pub fn outside_extent(facts: &[Fact]) -> Vec<OutsideExtent> {
     let mut out = Vec::new();

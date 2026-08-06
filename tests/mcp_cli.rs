@@ -225,3 +225,128 @@ async fn two_workspaces_do_not_share_a_pending_buffer() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// Helper: `look` at `path`, then `fact` with `note`, returning the
+/// fact call's structured content.
+async fn look_then_fact(
+    client: &RunningService<RoleClient, DummyClientHandler>,
+    ws: &str,
+    path: &str,
+    extra: serde_json::Value,
+) -> serde_json::Value {
+    client
+        .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "path": path,
+        }))))
+        .await
+        .expect("look must succeed");
+
+    let mut fact_args = serde_json::json!({ "workspace": ws });
+    for (k, v) in extra.as_object().unwrap() {
+        fact_args[k] = v.clone();
+    }
+    let result = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(fact_args)))
+        .await
+        .expect("fact must succeed");
+    assert_ne!(result.is_error, Some(true), "fact must not be refused: {result:?}");
+    result.structured_content.expect("fact must carry structured_content").clone()
+}
+
+/// The authoring surface agents actually use must carry the
+/// note-vs-extent finding back to the author. A finding that only
+/// reaches `check` only ever reaches the human reviewing the finished
+/// memo — long after the note, the claim resting on it, and the prose
+/// are all written, and long after the cheapest moment to fix it.
+#[tokio::test]
+async fn a_note_naming_an_unopened_file_comes_back_on_the_mint_result() {
+    let sb = Sandbox::new("attention-mint");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+
+    let out = look_then_fact(
+        &client,
+        "ws-a",
+        "read_me.rs",
+        serde_json::json!({"note": "read_me.rs defines a(), and other_file.rs calls it exactly once"}),
+    )
+    .await;
+
+    assert_eq!(out["action"], "minted");
+    let attention = out["attention"].as_array().expect("result must carry an attention array");
+    assert_eq!(attention.len(), 1, "expected one finding, got: {out}");
+    assert_eq!(attention[0]["kind"], "note-outside-extent");
+    assert_eq!(attention[0]["mentioned"], "other_file.rs");
+
+    let guidance = attention[0]["guidance"].as_str().expect("guidance must be a string");
+    assert!(guidance.contains("other_file.rs"), "guidance names the file: {guidance}");
+    assert!(
+        guidance.contains("look") && guidance.contains("revise"),
+        "guidance must name both corrections an author can take: {guidance}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// A clean note leaves the array empty rather than omitting the field,
+/// so a caller can branch on it without first checking it exists.
+#[tokio::test]
+async fn a_note_within_its_extent_comes_back_with_an_empty_attention_array() {
+    let sb = Sandbox::new("attention-clean");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+
+    let out = look_then_fact(
+        &client,
+        "ws-b",
+        "read_me.rs",
+        serde_json::json!({"note": "read_me.rs defines a()"}),
+    )
+    .await;
+
+    assert_eq!(out["action"], "minted");
+    assert_eq!(
+        out["attention"].as_array().expect("field must exist even when empty").len(),
+        0,
+        "got: {out}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// Editing a note is the obvious way to introduce this defect, so a
+/// revision is checked exactly as a mint is.
+#[tokio::test]
+async fn revising_a_note_into_an_overreach_is_reported_too() {
+    let sb = Sandbox::new("attention-revise");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+
+    let minted = look_then_fact(
+        &client,
+        "ws-c",
+        "read_me.rs",
+        serde_json::json!({"note": "read_me.rs defines a()"}),
+    )
+    .await;
+    assert_eq!(minted["attention"].as_array().unwrap().len(), 0, "clean at mint: {minted}");
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": "ws-c",
+            "revise": "F1",
+            "why": "adding what I concluded",
+            "note": "read_me.rs defines a(), which other_file.rs never calls",
+        }))))
+        .await
+        .expect("revise must succeed");
+    let out = result.structured_content.expect("revise must carry structured_content");
+
+    assert_eq!(out["action"], "revised");
+    let attention = out["attention"].as_array().unwrap();
+    assert_eq!(attention.len(), 1, "a revised note must be checked too: {out}");
+    assert_eq!(attention[0]["mentioned"], "other_file.rs");
+
+    client.cancel().await.expect("clean shutdown");
+}

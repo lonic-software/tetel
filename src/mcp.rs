@@ -106,6 +106,35 @@ fn text_result(s: impl Into<String>) -> Result<CallToolResult, ErrorData> {
     Ok(CallToolResult::success(vec![ContentBlock::text(s.into())]))
 }
 
+/// The result of a successful `fact` mint or revision, carrying any
+/// note-vs-extent findings back to whoever wrote the note.
+///
+/// This is the authoring surface agents actually use, so a finding that
+/// only reached `check` would only ever reach the human reviewing the
+/// finished memo — after the note, the claim resting on it, and the
+/// prose are all written. The author is the one who can still cheaply
+/// tell context from conclusion, and they get it here.
+///
+/// Carried as `attention`, a top-level array, rather than folded into a
+/// prose sentence: the caller is a program, and a field it can branch on
+/// beats a string it has to notice. `advice` is shared verbatim with the
+/// CLI so the two surfaces cannot drift into saying different things
+/// about the same finding.
+fn fact_result(dir: &Path, id: &str, action: &str) -> serde_json::Value {
+    let attention: Vec<serde_json::Value> = crate::scope::for_fact(dir, id)
+        .iter()
+        .map(|o| {
+            json!({
+                "kind": "note-outside-extent",
+                "mentioned": o.mentioned,
+                "extent": o.extent_labels,
+                "guidance": crate::scope::advice(o),
+            })
+        })
+        .collect();
+    json!({ "id": id, "action": action, "attention": attention })
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct LineRange {
     /// 1-based inclusive start line.
@@ -328,7 +357,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
+    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = match p.revise {
@@ -336,8 +365,12 @@ impl TetelServer {
             None => facts::FactRequest::Mint { note: p.note },
         };
         match facts::dispatch(&dir, req) {
-            Ok(facts::FactOutcome::Minted(f)) => Ok(CallToolResult::structured(json!({"id": f.id, "action": "minted"}))),
-            Ok(facts::FactOutcome::Revised { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "revised"}))),
+            Ok(facts::FactOutcome::Minted(f)) => {
+                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted")))
+            }
+            Ok(facts::FactOutcome::Revised { id }) => {
+                Ok(CallToolResult::structured(fact_result(&dir, &id, "revised")))
+            }
             Err(e) => Ok(refusal("fact", &p.workspace, e)),
         }
     }

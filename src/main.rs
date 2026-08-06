@@ -362,23 +362,23 @@ fn main() -> ExitCode {
                 tetel::facts::FactRequest::Mint { note: resolved_note }
             };
             match tetel::facts::dispatch(&workspace_dir, req) {
+                // Warned at authoring time as well as at check time,
+                // because this is the moment the author still remembers
+                // whether the location was context or a conclusion. A
+                // revision gets the same treatment as a mint: editing a
+                // note is the obvious way to introduce the defect.
                 Ok(tetel::facts::FactOutcome::Minted(fact)) => {
                     println!("{} minted.", fact.id);
-                    // Warned here as well as at check time, because this
-                    // is the moment the author still remembers whether
-                    // the location was context or a conclusion.
-                    for o in tetel::scope::outside_extent(std::slice::from_ref(&fact)) {
-                        eprintln!(
-                            "tetel: note names {}, outside this fact's extent ({}) — fine if \
-that's context, worth a second look if it's a conclusion",
-                            o.mentioned,
-                            o.extent_labels.join("; ")
-                        );
+                    for o in tetel::scope::for_fact(&workspace_dir, &fact.id) {
+                        eprintln!("tetel: {}", tetel::scope::advice(&o));
                     }
                     ExitCode::from(0)
                 }
                 Ok(tetel::facts::FactOutcome::Revised { id }) => {
                     println!("{id} revised.");
+                    for o in tetel::scope::for_fact(&workspace_dir, &id) {
+                        eprintln!("tetel: {}", tetel::scope::advice(&o));
+                    }
                     ExitCode::from(0)
                 }
                 Err(e) => {
