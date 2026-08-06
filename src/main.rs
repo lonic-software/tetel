@@ -248,22 +248,16 @@ fn main() -> ExitCode {
         }
 
         Command::Look { path, lines, grep } => {
-            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            if let Err(e) = tetel::workspace::ensure(&workspace_dir) {
-                eprintln!("tetel: could not create workspace state: {e}");
-                return ExitCode::from(1);
-            }
-            let result = if let Some(pattern) = grep {
-                let Some(root) = path else {
-                    eprintln!("tetel: `look --grep <pattern>` requires a path-or-dir");
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
                     return ExitCode::from(1);
-                };
-                tetel::observe::look_grep(&workspace_dir, &pattern, &root)
+                }
+            };
+            let req = if let Some(pattern) = grep {
+                tetel::observe::LookRequest::Grep { pattern, root: path }
             } else {
-                let Some(path) = path else {
-                    eprintln!("tetel: usage: tetel look <path> [--lines A:B] | tetel look --grep <pattern> <path-or-dir>");
-                    return ExitCode::from(1);
-                };
                 let parsed_lines = match lines {
                     Some(spec) => match parse_lines(&spec) {
                         Ok(v) => Some(v),
@@ -274,9 +268,9 @@ fn main() -> ExitCode {
                     },
                     None => None,
                 };
-                tetel::observe::look_path(&workspace_dir, &path, parsed_lines)
+                tetel::observe::LookRequest::Open { path, lines: parsed_lines }
             };
-            match result {
+            match tetel::observe::dispatch(&workspace_dir, req) {
                 Ok(outcome) => {
                     print!("{}", outcome.printed);
                     ExitCode::from(0)
@@ -288,11 +282,13 @@ fn main() -> ExitCode {
             }
         }
         Command::Run { command } => {
-            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            if let Err(e) = tetel::workspace::ensure(&workspace_dir) {
-                eprintln!("tetel: could not create workspace state: {e}");
-                return ExitCode::from(1);
-            }
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
+                    return ExitCode::from(1);
+                }
+            };
             match tetel::observe::run_command(&workspace_dir, &command) {
                 Ok(outcome) => {
                     print!("{}", outcome.printed);
@@ -305,11 +301,13 @@ fn main() -> ExitCode {
             }
         }
         Command::Fact { note, revise, why } => {
-            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            if let Err(e) = tetel::workspace::ensure(&workspace_dir) {
-                eprintln!("tetel: could not create workspace state: {e}");
-                return ExitCode::from(1);
-            }
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
+                    return ExitCode::from(1);
+                }
+            };
             let resolved_note = match &note {
                 Some(raw) => match tetel::workspace::resolve_text_value(raw) {
                     Ok(s) => Some(s),
@@ -320,127 +318,94 @@ fn main() -> ExitCode {
                 },
                 None => None,
             };
-            if let Some(id) = revise {
-                let Some(why) = why else {
-                    eprintln!("tetel: fact --revise requires --why");
-                    return ExitCode::from(1);
+            let req = if let Some(id) = revise {
+                let resolved_why = match &why {
+                    Some(raw) => match tetel::workspace::resolve_text_value(raw) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            eprintln!("tetel: error reading --why: {e}");
+                            return ExitCode::from(1);
+                        }
+                    },
+                    None => None,
                 };
-                let resolved_why = match tetel::workspace::resolve_text_value(&why) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("tetel: error reading --why: {e}");
-                        return ExitCode::from(1);
-                    }
-                };
-                let Some(resolved_note) = resolved_note else {
-                    eprintln!("tetel: fact --revise requires --note (the new note text)");
-                    return ExitCode::from(1);
-                };
-                match tetel::facts::revise(&workspace_dir, &id, &resolved_note, &resolved_why) {
-                    Ok(()) => {
-                        println!("{id} revised.");
-                        ExitCode::from(0)
-                    }
-                    Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
-                    }
-                }
+                tetel::facts::FactRequest::Revise { id, note: resolved_note, why: resolved_why }
             } else {
-                let Some(resolved_note) = resolved_note else {
-                    eprintln!("tetel: fact requires --note");
-                    return ExitCode::from(1);
-                };
-                match tetel::facts::mint(&workspace_dir, &resolved_note) {
-                    Ok(fact) => {
-                        println!("{} minted.", fact.id);
-                        ExitCode::from(0)
-                    }
-                    Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
-                    }
+                tetel::facts::FactRequest::Mint { note: resolved_note }
+            };
+            match tetel::facts::dispatch(&workspace_dir, req) {
+                Ok(tetel::facts::FactOutcome::Minted(fact)) => {
+                    println!("{} minted.", fact.id);
+                    ExitCode::from(0)
+                }
+                Ok(tetel::facts::FactOutcome::Revised { id }) => {
+                    println!("{id} revised.");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
                 }
             }
         }
         Command::Claim { prop, from, revise, withdraw, why } => {
-            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            if let Err(e) = tetel::workspace::ensure(&workspace_dir) {
-                eprintln!("tetel: could not create workspace state: {e}");
-                return ExitCode::from(1);
-            }
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
+                    return ExitCode::from(1);
+                }
+            };
             let resolve = |raw: &str| -> Result<String, ExitCode> {
                 tetel::workspace::resolve_text_value(raw).map_err(|e| {
                     eprintln!("tetel: error reading text: {e}");
                     ExitCode::from(1)
                 })
             };
+            let resolve_opt = |raw: &Option<String>| -> Result<Option<String>, ExitCode> {
+                match raw {
+                    Some(s) => resolve(s).map(Some),
+                    None => Ok(None),
+                }
+            };
 
-            if let Some(id) = withdraw {
-                let Some(why) = why else {
-                    eprintln!("tetel: claim --withdraw requires --why");
-                    return ExitCode::from(1);
-                };
-                let why = match resolve(&why) {
-                    Ok(s) => s,
+            let req = if let Some(id) = withdraw {
+                let why = match resolve_opt(&why) {
+                    Ok(v) => v,
                     Err(code) => return code,
                 };
-                return match tetel::claims::withdraw(&workspace_dir, &id, &why) {
-                    Ok(()) => {
-                        println!("{id} withdrawn.");
-                        ExitCode::from(0)
-                    }
-                    Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
-                    }
-                };
-            }
-
-            if let Some(id) = revise {
-                let Some(why) = why else {
-                    eprintln!("tetel: claim --revise requires --why");
-                    return ExitCode::from(1);
-                };
-                let why = match resolve(&why) {
-                    Ok(s) => s,
+                tetel::claims::ClaimRequest::Withdraw { id, why }
+            } else if let Some(id) = revise {
+                let why = match resolve_opt(&why) {
+                    Ok(v) => v,
                     Err(code) => return code,
                 };
-                let new_prop = match &prop {
-                    Some(raw) => match resolve(raw) {
-                        Ok(s) => Some(s),
-                        Err(code) => return code,
-                    },
-                    None => None,
+                let prop = match resolve_opt(&prop) {
+                    Ok(v) => v,
+                    Err(code) => return code,
                 };
-                return match tetel::claims::revise(&workspace_dir, &id, new_prop.as_deref(), from.as_deref(), &why) {
-                    Ok(()) => {
-                        println!("{id} revised.");
-                        ExitCode::from(0)
-                    }
-                    Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
-                    }
+                tetel::claims::ClaimRequest::Revise { id, prop, from, why }
+            } else {
+                let prop = match resolve_opt(&prop) {
+                    Ok(v) => v,
+                    Err(code) => return code,
                 };
-            }
+                tetel::claims::ClaimRequest::Create { prop, from }
+            };
 
-            let Some(prop) = prop else {
-                eprintln!("tetel: claim requires --prop");
-                return ExitCode::from(1);
-            };
-            let prop = match resolve(&prop) {
-                Ok(s) => s,
-                Err(code) => return code,
-            };
-            let Some(from) = from else {
-                eprintln!("tetel: claim requires --from");
-                return ExitCode::from(1);
-            };
-            match tetel::claims::create(&workspace_dir, &prop, &from) {
-                Ok(outcome) => {
+            match tetel::claims::dispatch(&workspace_dir, req) {
+                Ok(tetel::claims::ClaimOutcome::Withdrawn { id }) => {
+                    println!("{id} withdrawn.");
+                    ExitCode::from(0)
+                }
+                Ok(tetel::claims::ClaimOutcome::Revised { id }) => {
+                    println!("{id} revised.");
+                    ExitCode::from(0)
+                }
+                Ok(tetel::claims::ClaimOutcome::Created(outcome)) => {
                     println!(
-                        "OVERLAP REPORT (facts sharing a designator with {from}, excluding those cited):"
+                        "OVERLAP REPORT (facts sharing a designator with {}, excluding those cited):",
+                        outcome.claim.from.join(",")
                     );
                     if outcome.overlap.is_empty() {
                         println!("  (none)");
@@ -459,23 +424,24 @@ fn main() -> ExitCode {
             }
         }
         Command::Prose { text, heading, level, cite, revise, why } => {
-            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            if let Err(e) = tetel::workspace::ensure(&workspace_dir) {
-                eprintln!("tetel: could not create workspace state: {e}");
-                return ExitCode::from(1);
-            }
-
-            if let Some(id) = revise {
-                let Some(why) = why else {
-                    eprintln!("tetel: prose --revise requires --why");
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
                     return ExitCode::from(1);
-                };
-                let why = match tetel::workspace::resolve_text_value(&why) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("tetel: error reading --why: {e}");
-                        return ExitCode::from(1);
-                    }
+                }
+            };
+
+            let req = if let Some(id) = revise {
+                let why = match &why {
+                    Some(raw) => match tetel::workspace::resolve_text_value(raw) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            eprintln!("tetel: error reading --why: {e}");
+                            return ExitCode::from(1);
+                        }
+                    },
+                    None => None,
                 };
                 let new_text = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
                     Ok(s) => s,
@@ -484,23 +450,8 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                return match tetel::prose::revise(&workspace_dir, &id, &new_text, &why) {
-                    Ok(()) => {
-                        println!("{id} revised.");
-                        ExitCode::from(0)
-                    }
-                    Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
-                    }
-                };
-            }
-
-            if let Some(heading_raw) = heading {
-                let Some(level) = level else {
-                    eprintln!("tetel: prose --heading requires --level");
-                    return ExitCode::from(1);
-                };
+                tetel::prose::ProseRequest::Revise { id, text: new_text, why }
+            } else if let Some(heading_raw) = heading {
                 let heading_text = match tetel::workspace::resolve_text_value(&heading_raw) {
                     Ok(s) => s,
                     Err(e) => {
@@ -508,27 +459,24 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                return match tetel::prose::create(&workspace_dir, &heading_text, None, Some(level)) {
-                    Ok(block) => {
-                        println!("{} appended.", block.id);
-                        ExitCode::from(0)
-                    }
+                tetel::prose::ProseRequest::Heading { text: heading_text, level }
+            } else {
+                let body = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
+                    Ok(s) => s,
                     Err(e) => {
-                        eprintln!("tetel: {e}");
-                        ExitCode::from(1)
+                        eprintln!("tetel: error reading prose text: {e}");
+                        return ExitCode::from(1);
                     }
                 };
-            }
-
-            let body = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("tetel: error reading prose text: {e}");
-                    return ExitCode::from(1);
-                }
+                tetel::prose::ProseRequest::Paragraph { text: body, cite }
             };
-            match tetel::prose::create(&workspace_dir, &body, cite.as_deref(), None) {
-                Ok(block) => {
+
+            match tetel::prose::dispatch(&workspace_dir, req) {
+                Ok(tetel::prose::ProseOutcome::Revised { id }) => {
+                    println!("{id} revised.");
+                    ExitCode::from(0)
+                }
+                Ok(tetel::prose::ProseOutcome::Created(block)) => {
                     println!("{} appended.", block.id);
                     ExitCode::from(0)
                 }

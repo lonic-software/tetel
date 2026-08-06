@@ -163,6 +163,43 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     Ok(LookOutcome { printed })
 }
 
+/// What `tetel look` was asked to do — open a path, or search one with
+/// `--grep`. The single shape both the CLI and the MCP server build and
+/// pass to [`dispatch`], so the two front ends can never drift on which
+/// combination of missing flags gets refused, or with what text.
+pub enum LookRequest {
+    /// `tetel look <path> [--lines A:B]`.
+    Open { path: Option<String>, lines: Option<(usize, usize)> },
+    /// `tetel look --grep <pattern> <path-or-dir>`.
+    Grep { pattern: String, root: Option<String> },
+}
+
+/// Dispatches a [`LookRequest`] to [`look_path`] or [`look_grep`],
+/// refusing with the exact text the CLI has always printed when the
+/// path-or-dir a mode needs was never given — lifted here (rather than
+/// left as a bare `eprintln!` in `main.rs`) so the MCP server's
+/// structured refusals carry the same guidance the CLI does, from the
+/// one place that decides it.
+pub fn dispatch(workspace_dir: &Path, req: LookRequest) -> Result<LookOutcome, AuthoringError> {
+    match req {
+        LookRequest::Grep { pattern, root } => {
+            let root = root
+                .ok_or_else(|| workspace::refuse(workspace_dir, "look", "`look --grep <pattern>` requires a path-or-dir"))?;
+            look_grep(workspace_dir, &pattern, &root)
+        }
+        LookRequest::Open { path, lines } => {
+            let path = path.ok_or_else(|| {
+                workspace::refuse(
+                    workspace_dir,
+                    "look",
+                    "usage: tetel look <path> [--lines A:B] | tetel look --grep <pattern> <path-or-dir>",
+                )
+            })?;
+            look_path(workspace_dir, &path, lines)
+        }
+    }
+}
+
 pub struct RunOutcome {
     pub printed: String,
     pub exit_code: i32,

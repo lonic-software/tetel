@@ -219,3 +219,43 @@ pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<(), Authori
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }
+
+/// What `tetel claim` was asked to do — create, revise or withdraw. The
+/// single shape both the CLI and the MCP server build and pass to
+/// [`dispatch`], so the two front ends can never drift on which
+/// combination of missing flags gets refused, or with what text.
+pub enum ClaimRequest {
+    Create { prop: Option<String>, from: Option<String> },
+    Revise { id: String, prop: Option<String>, from: Option<String>, why: Option<String> },
+    Withdraw { id: String, why: Option<String> },
+}
+
+pub enum ClaimOutcome {
+    Created(CreateOutcome),
+    Revised { id: String },
+    Withdrawn { id: String },
+}
+
+/// Dispatches a [`ClaimRequest`] to [`create`], [`revise`] or
+/// [`withdraw`], refusing with the exact text the CLI has always printed
+/// for a flag a mode required but didn't get — lifted here (rather than
+/// left as a bare `eprintln!` in `main.rs`) so the MCP server's
+/// structured refusals carry the same guidance the CLI does, from the
+/// one place that decides it.
+pub fn dispatch(workspace_dir: &Path, req: ClaimRequest) -> Result<ClaimOutcome, AuthoringError> {
+    match req {
+        ClaimRequest::Withdraw { id, why } => {
+            let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim --withdraw requires --why"))?;
+            withdraw(workspace_dir, &id, &why).map(|()| ClaimOutcome::Withdrawn { id })
+        }
+        ClaimRequest::Revise { id, prop, from, why } => {
+            let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim --revise requires --why"))?;
+            revise(workspace_dir, &id, prop.as_deref(), from.as_deref(), &why).map(|()| ClaimOutcome::Revised { id })
+        }
+        ClaimRequest::Create { prop, from } => {
+            let prop = prop.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --prop"))?;
+            let from = from.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --from"))?;
+            create(workspace_dir, &prop, &from).map(ClaimOutcome::Created)
+        }
+    }
+}

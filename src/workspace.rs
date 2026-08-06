@@ -77,6 +77,17 @@ pub fn ensure(dir: &Path) -> io::Result<()> {
     fs::create_dir_all(dir)
 }
 
+/// Resolve `name` to its workspace directory and ensure it exists on
+/// disk — the two-step sequence every authoring command (`look`, `run`,
+/// `fact`, `claim`, `prose`) needs before touching any state. Lifted here
+/// so the CLI and the MCP server share the exact same resolution rather
+/// than each re-deriving it.
+pub fn open(name: &str) -> io::Result<PathBuf> {
+    let dir = workspace_dir(name);
+    ensure(&dir)?;
+    Ok(dir)
+}
+
 /// Every authoring command either succeeds or refuses (see [`refuse`]);
 /// `Io` is reserved for genuine I/O failure (disk full, permissions),
 /// never for a semantic refusal.

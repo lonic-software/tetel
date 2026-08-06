@@ -125,3 +125,41 @@ pub fn revise(workspace_dir: &Path, id: &str, new_text: &str, why: &str) -> Resu
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }
+
+/// What `tetel prose` was asked to do — append a paragraph, append a
+/// heading, or revise an existing block. `text` arrives already resolved
+/// (stdin/`@file`/literal, or the heading/paragraph body) by the caller;
+/// only `--why`/`--level`, which the CLI never falls back to stdin for,
+/// stay optional here. The single shape both the CLI and the MCP server
+/// build and pass to [`dispatch`], so the two front ends can never drift
+/// on which combination of missing flags gets refused, or with what text.
+pub enum ProseRequest {
+    Revise { id: String, text: String, why: Option<String> },
+    Heading { text: String, level: Option<u8> },
+    Paragraph { text: String, cite: Option<String> },
+}
+
+pub enum ProseOutcome {
+    Revised { id: String },
+    Created(Block),
+}
+
+/// Dispatches a [`ProseRequest`] to [`create`] or [`revise`], refusing
+/// with the exact text the CLI has always printed for a flag a mode
+/// required but didn't get — lifted here (rather than left as a bare
+/// `eprintln!` in `main.rs`) so the MCP server's structured refusals
+/// carry the same guidance the CLI does, from the one place that decides
+/// it.
+pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome, AuthoringError> {
+    match req {
+        ProseRequest::Revise { id, text, why } => {
+            let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --revise requires --why"))?;
+            revise(workspace_dir, &id, &text, &why).map(|()| ProseOutcome::Revised { id })
+        }
+        ProseRequest::Heading { text, level } => {
+            let level = level.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --heading requires --level"))?;
+            create(workspace_dir, &text, None, Some(level)).map(ProseOutcome::Created)
+        }
+        ProseRequest::Paragraph { text, cite } => create(workspace_dir, &text, cite.as_deref(), None).map(ProseOutcome::Created),
+    }
+}

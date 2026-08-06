@@ -168,3 +168,39 @@ pub fn revise(workspace_dir: &Path, id: &str, new_note: &str, why: &str) -> Resu
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }
+
+/// What `tetel fact` was asked to do — mint a new fact from the pending
+/// buffer, or revise an existing one's note. The single shape both the
+/// CLI and the MCP server build and pass to [`dispatch`], so the two
+/// front ends can never drift on which combination of missing flags gets
+/// refused, or with what text.
+pub enum FactRequest {
+    Mint { note: Option<String> },
+    Revise { id: String, note: Option<String>, why: Option<String> },
+}
+
+pub enum FactOutcome {
+    Minted(Fact),
+    Revised { id: String },
+}
+
+/// Dispatches a [`FactRequest`] to [`mint`] or [`revise`], refusing with
+/// the exact text the CLI has always printed for a flag a mode required
+/// but didn't get — lifted here (rather than left as a bare `eprintln!`
+/// in `main.rs`) so the MCP server's structured refusals carry the same
+/// guidance the CLI does, from the one place that decides it.
+pub fn dispatch(workspace_dir: &Path, req: FactRequest) -> Result<FactOutcome, AuthoringError> {
+    match req {
+        FactRequest::Mint { note } => {
+            let note = note.ok_or_else(|| workspace::refuse(workspace_dir, "fact", "fact requires --note"))?;
+            mint(workspace_dir, &note).map(FactOutcome::Minted)
+        }
+        FactRequest::Revise { id, note, why } => {
+            let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "fact", "fact --revise requires --why"))?;
+            let note = note.ok_or_else(|| {
+                workspace::refuse(workspace_dir, "fact", "fact --revise requires --note (the new note text)")
+            })?;
+            revise(workspace_dir, &id, &note, &why).map(|()| FactOutcome::Revised { id })
+        }
+    }
+}
