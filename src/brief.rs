@@ -111,6 +111,27 @@ A run in which nothing is revised and prose is written only after the
 last claim means the tool was used as a transcription buffer. That is a
 legitimate outcome to report if it is what genuinely happened — but do
 not aim for it.
+
+## Grounding — where free reading stops
+
+Orientation is free and unrecorded. Read however you like — grep around,
+skim files, follow a call chain — to work out what you are even looking
+at. None of that needs `look`/`run`.
+
+But anything a fact rests on has to go *through* `look`/`run`, not just be
+informed by it. Opening a file you already understood, only to give
+`tetel fact` something to point at, records the act and throws away the
+discovery it was supposed to be evidence of — the ledger shows a `look`,
+not that it was theater.
+
+`tetel fact` refuses on an empty pending buffer, so a fact minted with no
+`look`/`run` at all is caught. It cannot tell a genuine discovery from a
+`look` performed after the fact purely to satisfy that refusal — that
+part is on you, not the tool.
+
+Closing the loop is yours to do, not someone else's: once the document is
+rendered (`tetel render`), run `tetel check` against it. That is your own
+last check on what you just wrote, not a second reader's job.
 ";
 
 #[cfg(test)]
