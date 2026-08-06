@@ -430,6 +430,12 @@ fn main() -> ExitCode {
             } else {
                 tetel::facts::FactRequest::Mint { note: resolved_note }
             };
+            // Described before dispatch: a successful mint clears the
+            // buffer, so this is the last moment the folded observations
+            // can be reported.
+            let folded = tetel::pending::load(&workspace_dir)
+                .map(|b| tetel::facts::describe_buffer(&b, tetel::workspace::now_unix()))
+                .unwrap_or_default();
             match tetel::facts::dispatch(&workspace_dir, req) {
                 // Warned at authoring time as well as at check time,
                 // because this is the moment the author still remembers
@@ -437,7 +443,10 @@ fn main() -> ExitCode {
                 // revision gets the same treatment as a mint: editing a
                 // note is the obvious way to introduce the defect.
                 Ok(tetel::facts::FactOutcome::Minted(fact)) => {
-                    println!("{} minted.", fact.id);
+                    println!("{} minted, folding:", fact.id);
+                    for line in &folded {
+                        println!("  {line}");
+                    }
                     for o in tetel::scope::for_fact(&workspace_dir, &fact.id) {
                         eprintln!("tetel: {}", tetel::scope::advice(&o));
                     }
@@ -558,7 +567,7 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                tetel::prose::ProseRequest::Revise { id, text: new_text, why }
+                tetel::prose::ProseRequest::Revise { id, text: new_text, why, cite }
             } else if let Some(heading_raw) = heading {
                 let heading_text = match tetel::workspace::resolve_text_value(&heading_raw) {
                     Ok(s) => s,

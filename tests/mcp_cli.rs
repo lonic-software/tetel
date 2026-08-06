@@ -654,3 +654,29 @@ async fn tool_descriptions_stay_tied_to_the_behaviour_they_promise() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// The CLI refuses `--lines` with `--grep` through clap; MCP silently
+/// ignored `lines` and ran the grep, so one call meant different things
+/// on the two surfaces.
+#[tokio::test]
+async fn look_refuses_lines_combined_with_grep_as_the_cli_does() {
+    let sb = Sandbox::new("lines-grep");
+    sb.write("a.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+            "workspace": "w",
+            "path": sb.dir.join("a.rs").to_str().unwrap(),
+            "grep": "fn",
+            "lines": {"start": 1, "end": 1},
+        }))))
+        .await
+        .expect("the call must succeed at the protocol level");
+
+    assert_eq!(result.is_error, Some(true), "the combination must be refused");
+    let s = result.structured_content.as_ref().expect("structured refusal");
+    assert!(s["guidance"].as_str().unwrap_or("").contains("cannot be combined"), "got: {s}");
+
+    client.cancel().await.expect("clean shutdown");
+}

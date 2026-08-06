@@ -94,6 +94,37 @@ pub fn get(workspace_dir: &Path, id: &str) -> io::Result<Option<Fact>> {
     Ok(load_all(workspace_dir)?.into_iter().find(|f| f.id == id))
 }
 
+/// How old each observation in the buffer is, at the moment it is folded.
+///
+/// `fact` prints this because a buffer is not necessarily what you just
+/// looked at. A revision does not clear it and a failed `look` does not
+/// add to it, so a mint can fold an observation from an earlier line of
+/// enquiry — which happened, silently, producing a fact whose note
+/// described two source files its extent never covered.
+///
+/// Reported rather than refused, and without a staleness threshold: there
+/// is no age at which folding an earlier observation becomes wrong, and a
+/// number chosen here would be arbitrary. What was missing was not a rule
+/// but the fact being visible at all — an author who expected two file
+/// reads and is told they folded one four-minute-old command has what
+/// they need.
+pub fn describe_buffer(entries: &[crate::pending::PendingEntry], now: u64) -> Vec<String> {
+    entries
+        .iter()
+        .map(|e| {
+            let age = now.saturating_sub(e.captured_at);
+            let when = if e.captured_at == 0 {
+                "age unknown".to_string()
+            } else if age < 60 {
+                format!("{age}s ago")
+            } else {
+                format!("{}m ago", age / 60)
+            };
+            format!("{} ({when})", e.label)
+        })
+        .collect()
+}
+
 /// Mint a fact from the current pending buffer. Refuses if the buffer
 /// is empty (a fact needs a preceding `look`/`run`) or the note text is
 /// empty. Clears the buffer on success, exactly once, after the log

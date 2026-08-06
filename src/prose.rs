@@ -42,6 +42,12 @@ pub enum ProseEvent {
         id: String,
         text: String,
         why: String,
+        /// Citations this revision sets, replacing whatever the block
+        /// carried. Absent — the shape every revision written before this
+        /// field existed has — leaves them untouched, so an old log
+        /// replays exactly as it did.
+        #[serde(default)]
+        cite: Option<Vec<String>>,
         timestamp: u64,
     },
 }
@@ -71,9 +77,15 @@ pub fn load_all(workspace_dir: &Path) -> io::Result<Vec<Block>> {
                 order.push(id.clone());
                 by_id.insert(id.clone(), Block { id, heading, level, text, cite, revisions: 0 });
             }
-            ProseEvent::Revise { id, text, .. } => {
+            ProseEvent::Revise { id, text, cite, .. } => {
                 if let Some(b) = by_id.get_mut(&id) {
                     b.text = text;
+                    // Absent means "unchanged", not "cleared": a
+                    // revision written before this field existed must
+                    // replay identically.
+                    if let Some(c) = cite {
+                        b.cite = c;
+                    }
                     b.revisions += 1;
                 }
             }
@@ -114,14 +126,33 @@ pub fn create(workspace_dir: &Path, text: &str, cite_csv: Option<&str>, heading_
 }
 
 /// `tetel prose --revise <id> --why <text> [new text, from stdin by default]`.
-pub fn revise(workspace_dir: &Path, id: &str, new_text: &str, why: &str) -> Result<(), AuthoringError> {
+/// Revise a block's text, and optionally its citations.
+///
+/// `cite: None` leaves citations untouched. Until this parameter existed,
+/// a paragraph created without a citation could never be given one —
+/// `--cites` was accepted alongside `--revise` and silently discarded —
+/// which made `tetel review`'s own instruction ("mint the missing claim
+/// and cite it") unreachable for existing prose.
+pub fn revise(
+    workspace_dir: &Path,
+    id: &str,
+    new_text: &str,
+    why: &str,
+    cite: Option<Vec<String>>,
+) -> Result<(), AuthoringError> {
     if !exists(workspace_dir, id)? {
         return Err(workspace::refuse(workspace_dir, "prose", format!("no such prose block: {id}")));
     }
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "prose", "--revise requires --why (revisions must explain themselves)"));
     }
-    let event = ProseEvent::Revise { id: id.to_string(), text: new_text.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
+    let event = ProseEvent::Revise {
+        id: id.to_string(),
+        text: new_text.to_string(),
+        why: why.to_string(),
+        cite,
+        timestamp: workspace::now_unix(),
+    };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }
@@ -134,7 +165,7 @@ pub fn revise(workspace_dir: &Path, id: &str, new_text: &str, why: &str) -> Resu
 /// build and pass to [`dispatch`], so the two front ends can never drift
 /// on which combination of missing flags gets refused, or with what text.
 pub enum ProseRequest {
-    Revise { id: String, text: String, why: Option<String> },
+    Revise { id: String, text: String, why: Option<String>, cite: Option<String> },
     Heading { text: String, level: Option<u8> },
     Paragraph { text: String, cite: Option<String> },
 }
@@ -152,9 +183,10 @@ pub enum ProseOutcome {
 /// it.
 pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome, AuthoringError> {
     match req {
-        ProseRequest::Revise { id, text, why } => {
+        ProseRequest::Revise { id, text, why, cite } => {
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --revise requires --why"))?;
-            revise(workspace_dir, &id, &text, &why).map(|()| ProseOutcome::Revised { id })
+            let cite = cite.as_deref().map(parse_ids);
+            revise(workspace_dir, &id, &text, &why, cite).map(|()| ProseOutcome::Revised { id })
         }
         ProseRequest::Heading { text, level } => {
             let level = level.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --heading requires --level"))?;

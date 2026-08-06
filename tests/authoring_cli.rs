@@ -1053,3 +1053,71 @@ fn re_grounding_a_revised_claim_clears_the_stale_finding() {
         "exactly the one superseded record is named, not the fresh one:\n{combined}"
     );
 }
+
+/// A paragraph must be able to gain a citation after the fact. Until it
+/// could, `tetel review`'s own instruction — mint the missing claim and
+/// cite it — was unreachable for existing prose: `--cites` parsed beside
+/// `--revise` and was discarded without a word.
+#[test]
+fn a_revision_can_attach_citations_to_a_paragraph_that_had_none() {
+    let sb = Sandbox::new("revise-cites");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.run(&["look", "a.rs"]);
+    sb.run(&["fact", "--note", "a.rs defines a()"]);
+    sb.run(&["claim", "--proposition", "a.rs defines a()", "--cites", "F1"]);
+    sb.run_stdin(&["prose"], "Written before its claim existed.");
+
+    let (_c, before, _e) = sb.run(&["render"]);
+    assert!(!before.contains("*cites: C1*"), "starts uncited:\n{before}");
+
+    sb.run_stdin(
+        &["prose", "--revise", "P1", "--why", "attaching the claim minted afterwards", "--cites", "C1"],
+        "Written before its claim existed.",
+    );
+    let (_c, after, _e) = sb.run(&["render"]);
+    assert!(after.contains("*cites: C1*"), "revision must attach the citation:\n{after}");
+}
+
+/// Omitting `--cites` on a revision leaves existing citations alone —
+/// "absent" means unchanged, not cleared. A revision written before the
+/// field existed carries no cite at all and must replay identically.
+#[test]
+fn a_revision_without_cites_leaves_existing_citations_untouched() {
+    let sb = Sandbox::new("revise-keeps-cites");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.run(&["look", "a.rs"]);
+    sb.run(&["fact", "--note", "a.rs defines a()"]);
+    sb.run(&["claim", "--proposition", "a.rs defines a()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Cited from the start.");
+
+    sb.run_stdin(&["prose", "--revise", "P1", "--why", "reworded only"], "Reworded, same claim.");
+    let (_c, out, _e) = sb.run(&["render"]);
+    assert!(out.contains("Reworded, same claim."), "text changed:\n{out}");
+    assert!(out.contains("*cites: C1*"), "citation must survive a text-only revision:\n{out}");
+}
+
+/// A buffer is not necessarily what you just looked at: a revision does
+/// not clear it and a failed `look` does not add to it, so a mint can
+/// fold an observation from an earlier line of enquiry. That happened,
+/// silently, producing a fact whose note described two source files its
+/// extent never covered. `fact` now says what it folded and how old it is.
+#[test]
+fn fact_reports_what_it_folded_so_a_stale_buffer_is_visible() {
+    let sb = Sandbox::new("stale-buffer");
+    sb.write("a.rs", "fn a() {}\n");
+
+    sb.run(&["run", "echo", "leftover"]);
+    sb.run(&["fact", "--note", "the first fact"]);
+    sb.run(&["run", "echo", "second"]);
+    // A revision does not clear the buffer — this is what leaves the
+    // leftover in place.
+    sb.run(&["fact", "--revise", "F1", "--why", "reworded", "--note", "the first fact, reworded"]);
+    // A malformed range fails and adds nothing.
+    let (code, _o, err) = sb.run(&["look", "a.rs", "--lines", "1-2"]);
+    assert_ne!(code, 0, "a malformed range must fail: {err}");
+
+    let (_c, out, _e) = sb.run(&["fact", "--note", "a note that would claim to be about a.rs"]);
+    assert!(out.contains("folding:"), "mint must report what it folded:\n{out}");
+    assert!(out.contains("echo second"), "the leftover must be named:\n{out}");
+    assert!(!out.contains("a.rs"), "the file that was never opened must not appear:\n{out}");
+}

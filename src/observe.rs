@@ -87,7 +87,8 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         printed.push('\n');
     }
 
-    let entry = PendingEntry { kind: ObservationKind::Path, key, label, output: shown, world_state };
+    let entry = PendingEntry {
+        kind: ObservationKind::Path, key, label, output: shown, world_state, captured_at: workspace::now_unix() };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
     pending::save(workspace_dir, &buf)?;
@@ -135,6 +136,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     if stdout.trim().is_empty() {
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
         buf.push(PendingEntry {
+            captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
             key: resolve_key(root_path),
             label: format!("no-match: {pattern} in {root}"),
@@ -151,6 +153,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         }
         for (file, matches) in by_file {
             buf.push(PendingEntry {
+            captured_at: workspace::now_unix(),
                 kind: ObservationKind::GrepMatch,
                 key: resolve_key(Path::new(&file)),
                 label: format!("{file} (grep: {pattern})"),
@@ -258,6 +261,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     let exit_code = status.code().unwrap_or(-1);
 
     let entry = PendingEntry {
+        captured_at: workspace::now_unix(),
         kind: ObservationKind::Proc,
         key: cmdline.clone(),
         label: format!("proc: {cmdline} (exit {exit_code})"),

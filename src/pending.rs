@@ -40,6 +40,16 @@ pub struct PendingEntry {
     /// The working-tree state marker at the moment this observation was
     /// captured — see `worldstate.rs` and fix 1 in the design memo.
     pub world_state: String,
+    /// Unix seconds at capture.
+    ///
+    /// Exists so `tetel fact` can say how old what it is folding is. A
+    /// revision does not clear the buffer and a failed `look` does not
+    /// add to it, so a `fact` can silently fold an observation from an
+    /// earlier line of enquiry — which happened, producing a fact whose
+    /// note described two files its extent never covered. Defaulted for
+    /// entries written before this field existed.
+    #[serde(default)]
+    pub captured_at: u64,
 }
 
 fn path(workspace_dir: &Path) -> PathBuf {

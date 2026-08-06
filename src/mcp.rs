@@ -154,7 +154,7 @@ fn text_result(s: impl Into<String>) -> Result<CallToolResult, ErrorData> {
 /// beats a string it has to notice. `advice` is shared verbatim with the
 /// CLI so the two surfaces cannot drift into saying different things
 /// about the same finding.
-fn fact_result(dir: &Path, id: &str, action: &str) -> serde_json::Value {
+fn fact_result(dir: &Path, id: &str, action: &str, folded: Vec<String>) -> serde_json::Value {
     let attention: Vec<serde_json::Value> = crate::scope::for_fact(dir, id)
         .iter()
         .map(|o| {
@@ -166,7 +166,7 @@ fn fact_result(dir: &Path, id: &str, action: &str) -> serde_json::Value {
             })
         })
         .collect();
-    json!({ "id": id, "action": action, "attention": attention })
+    json!({ "id": id, "action": action, "attention": attention, "folded": folded })
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -469,6 +469,18 @@ impl TetelServer {
 
     #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
+        // The CLI refuses this combination through clap's `conflicts_with`;
+        // MCP silently ignored `lines` and ran the grep, so the same call
+        // meant different things on the two surfaces.
+        if p.lines.is_some() && p.grep.is_some() {
+            return Ok(CallToolResult::structured_error(json!({
+                "error": "refused",
+                "command": "look",
+                "workspace": p.workspace,
+                "guidance": "`lines` and `grep` cannot be combined — a line range selects from one \
+file, a grep searches for matches. Use one or the other.",
+            })));
+        }
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(pattern) = p.grep {
             observe::LookRequest::Grep { pattern, root: Some(p.path) }
@@ -500,12 +512,16 @@ impl TetelServer {
             Some(id) => facts::FactRequest::Revise { id, note: p.note, why: p.why },
             None => facts::FactRequest::Mint { note: p.note },
         };
+        // Described before dispatch: a successful mint clears the buffer.
+        let folded = crate::pending::load(&dir)
+            .map(|b| facts::describe_buffer(&b, workspace::now_unix()))
+            .unwrap_or_default();
         match facts::dispatch(&dir, req) {
             Ok(facts::FactOutcome::Minted(f)) => {
-                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted")))
+                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded)))
             }
             Ok(facts::FactOutcome::Revised { id }) => {
-                Ok(CallToolResult::structured(fact_result(&dir, &id, "revised")))
+                Ok(CallToolResult::structured(fact_result(&dir, &id, "revised", Vec::new())))
             }
             Err(e) => Ok(refusal("fact", &p.workspace, e)),
         }
@@ -543,7 +559,7 @@ impl TetelServer {
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.revise {
-            prose::ProseRequest::Revise { id, text: p.text, why: p.why }
+            prose::ProseRequest::Revise { id, text: p.text, why: p.why, cite: p.cites }
         } else if let Some(level) = p.heading_level {
             prose::ProseRequest::Heading { text: p.text, level: Some(level) }
         } else {
