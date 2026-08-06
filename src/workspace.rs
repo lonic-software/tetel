@@ -1,4 +1,4 @@
-//! Session state for tetel's authoring commands (`look`, `run`, `fact`,
+//! Workspace state for tetel's authoring commands (`look`, `run`, `fact`,
 //! `claim`, `prose`, `render`, `query`): the pending observation buffer,
 //! and the append-only fact/claim/prose logs. Unlike `check`/`brief`/
 //! `record`, which read state back out of a document already on disk,
@@ -6,7 +6,21 @@
 //! state between one `tetel` invocation and the next, since each
 //! subcommand is its own process.
 //!
-//! # Where session state lives
+//! A workspace is not the document: alongside the append-only fact/
+//! claim/prose logs a document is rendered from, it also holds the
+//! pending observation buffer, the refusals log, and the id counters —
+//! none of which `render` ever reads. It is where one authoring effort's
+//! working state lives; a document is one output of it, not the whole of
+//! it.
+//!
+//! Ids minted here (`F1`, `C1`, `P1`, ...) are workspace-relative: they
+//! are unique only within the workspace that minted them, and collide
+//! freely across workspaces (`F1` in one workspace names nothing in
+//! another). Nothing in this crate may promise cross-workspace id
+//! stability or uniqueness — a caller that needs to tell two workspaces'
+//! ids apart must qualify them itself.
+//!
+//! # Where workspace state lives
 //!
 //! State never lives inside the repository being authored. Dropping a
 //! `.tetel/` directory into a tree under design would pollute `git
@@ -17,7 +31,7 @@
 //! whose author opted in by having a memo there at all. Authoring state
 //! exists *before* there is a memo, so it has nowhere equivalent to sit.
 //!
-//! Instead, session state lives under a state-home directory, resolved
+//! Instead, workspace state lives under a state-home directory, resolved
 //! in this order:
 //!   1. `$TETEL_STATE_HOME`, if set — an escape hatch, and how the test
 //!      suite points every run at a private temporary directory rather
@@ -27,9 +41,9 @@
 //!      by hand rather than pulling in a platform-directories dependency
 //!      for one path.
 //!
-//! Under that root, one directory per named session — `sessions/<name>`,
+//! Under that root, one directory per named workspace — `workspaces/<name>`,
 //! `<name>` defaulting to `default` and overridable with the CLI's
-//! global `--session` flag — so two documents being authored
+//! global `--workspace` flag — so two documents being authored
 //! concurrently don't share one pending buffer or one set of ids.
 
 use std::env;
@@ -40,7 +54,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_SESSION: &str = "default";
+pub const DEFAULT_WORKSPACE: &str = "default";
 
 /// The state-home root — see the module doc comment for resolution order.
 pub fn state_home() -> PathBuf {
@@ -54,9 +68,9 @@ pub fn state_home() -> PathBuf {
     PathBuf::from(home).join(".local").join("state").join("tetel")
 }
 
-/// The directory one named session's state lives in.
-pub fn session_dir(name: &str) -> PathBuf {
-    state_home().join("sessions").join(name)
+/// The directory one named workspace's state lives in.
+pub fn workspace_dir(name: &str) -> PathBuf {
+    state_home().join("workspaces").join(name)
 }
 
 pub fn ensure(dir: &Path) -> io::Result<()> {
@@ -101,10 +115,10 @@ pub fn now_unix() -> u64 {
 /// the single choke point, mirrored from the prototype's `refuse()` in
 /// `common.sh`: no refusal branch anywhere calls its own error path
 /// directly instead of this one.
-pub fn refuse(session_dir: &Path, cmd: &str, reason: impl Into<String>) -> AuthoringError {
+pub fn refuse(workspace_dir: &Path, cmd: &str, reason: impl Into<String>) -> AuthoringError {
     let reason = reason.into();
-    let _ = ensure(session_dir);
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(session_dir.join("refusals.log")) {
+    let _ = ensure(workspace_dir);
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(workspace_dir.join("refusals.log")) {
         let _ = writeln!(f, "{}\t{}\t{}", ts(), cmd, reason);
     }
     AuthoringError::Refused(reason)
@@ -182,22 +196,22 @@ struct Counters {
     prose: u64,
 }
 
-fn counters_path(session_dir: &Path) -> PathBuf {
-    session_dir.join("counters.json")
+fn counters_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("counters.json")
 }
 
-fn load_counters(session_dir: &Path) -> io::Result<Counters> {
-    match fs::read_to_string(counters_path(session_dir)) {
+fn load_counters(workspace_dir: &Path) -> io::Result<Counters> {
+    match fs::read_to_string(counters_path(workspace_dir)) {
         Ok(s) => Ok(serde_json::from_str(&s).unwrap_or_default()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Counters::default()),
         Err(e) => Err(e),
     }
 }
 
-fn save_counters(session_dir: &Path, c: &Counters) -> io::Result<()> {
-    ensure(session_dir)?;
+fn save_counters(workspace_dir: &Path, c: &Counters) -> io::Result<()> {
+    ensure(workspace_dir)?;
     let json = serde_json::to_string_pretty(c).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(counters_path(session_dir), json)
+    fs::write(counters_path(workspace_dir), json)
 }
 
 pub enum Kind {
@@ -207,8 +221,10 @@ pub enum Kind {
 }
 
 /// Allocates and persists the next id for `kind`, returning e.g. `F3`.
-pub fn next_id(session_dir: &Path, kind: Kind) -> io::Result<String> {
-    let mut c = load_counters(session_dir)?;
+/// See the module doc comment: this id is workspace-relative and gives
+/// no promise of uniqueness or stability outside `workspace_dir`.
+pub fn next_id(workspace_dir: &Path, kind: Kind) -> io::Result<String> {
+    let mut c = load_counters(workspace_dir)?;
     let (n, prefix) = match kind {
         Kind::Fact => {
             c.fact += 1;
@@ -223,7 +239,7 @@ pub fn next_id(session_dir: &Path, kind: Kind) -> io::Result<String> {
             (c.prose, "P")
         }
     };
-    save_counters(session_dir, &c)?;
+    save_counters(workspace_dir, &c)?;
     Ok(format!("{prefix}{n}"))
 }
 

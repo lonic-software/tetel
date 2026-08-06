@@ -1,4 +1,4 @@
-//! `tetel look` and `tetel run` — the only two ways an authoring session
+//! `tetel look` and `tetel run` — the only two ways an authoring workspace
 //! adds to its pending observation buffer (see `pending.rs`). Mirrors
 //! the prototype's `tlook`/`trun`, with two changes: `--lines A:B` is
 //! new (see the module's `look_path` doc comment), and every recorded
@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::pending::{self, ObservationKind, PendingEntry};
-use crate::session::{self, AuthoringError};
+use crate::workspace::{self, AuthoringError};
 use crate::worldstate;
 
 /// Resolve `path` to the key used for overlap matching: its canonical
@@ -45,14 +45,14 @@ pub struct LookOutcome {
 /// A range entirely past the end of the file is not an error — it is
 /// recorded as an explicit empty-range observation, the same "a bounded
 /// negative must leave a trace" discipline as a zero-match grep.
-pub fn look_path(session_dir: &Path, path: &str, lines: Option<(usize, usize)>) -> Result<LookOutcome, AuthoringError> {
+pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>) -> Result<LookOutcome, AuthoringError> {
     let p = Path::new(path);
     if !p.exists() {
-        return Err(session::refuse(session_dir, "look", format!("no such path: {path}")));
+        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {path}")));
     }
     if p.is_dir() {
-        return Err(session::refuse(
-            session_dir,
+        return Err(workspace::refuse(
+            workspace_dir,
             "look",
             format!(
                 "{path} is a directory; `tetel look` opens files. Use `tetel look --grep <pattern> {path}` to search it."
@@ -67,7 +67,7 @@ pub fn look_path(session_dir: &Path, path: &str, lines: Option<(usize, usize)>) 
         None => (contents.clone(), path.to_string()),
         Some((a, b)) => {
             if a < 1 || a > b {
-                return Err(session::refuse(session_dir, "look", format!("invalid --lines range {a}:{b}")));
+                return Err(workspace::refuse(workspace_dir, "look", format!("invalid --lines range {a}:{b}")));
             }
             let all: Vec<&str> = contents.lines().collect();
             let total = all.len();
@@ -88,9 +88,9 @@ pub fn look_path(session_dir: &Path, path: &str, lines: Option<(usize, usize)>) 
     }
 
     let entry = PendingEntry { kind: ObservationKind::Path, key, label, output: shown, world_state };
-    let mut buf = pending::load(session_dir)?;
+    let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
-    pending::save(session_dir, &buf)?;
+    pending::save(workspace_dir, &buf)?;
 
     Ok(LookOutcome { printed })
 }
@@ -106,10 +106,10 @@ pub fn look_path(session_dir: &Path, path: &str, lines: Option<(usize, usize)>) 
 /// match records one entry per file that actually matched, keyed by
 /// that file's resolved path (fix 2), not by the search root or the
 /// grep command line.
-pub fn look_grep(session_dir: &Path, pattern: &str, root: &str) -> Result<LookOutcome, AuthoringError> {
+pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<LookOutcome, AuthoringError> {
     let root_path = Path::new(root);
     if !root_path.exists() {
-        return Err(session::refuse(session_dir, "look", format!("no such path: {root}")));
+        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
     }
     let world_state = worldstate::compute();
 
@@ -130,7 +130,7 @@ pub fn look_grep(session_dir: &Path, pattern: &str, root: &str) -> Result<LookOu
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
     let mut printed = String::new();
-    let mut buf = pending::load(session_dir)?;
+    let mut buf = pending::load(workspace_dir)?;
 
     if stdout.trim().is_empty() {
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
@@ -159,7 +159,7 @@ pub fn look_grep(session_dir: &Path, pattern: &str, root: &str) -> Result<LookOu
             });
         }
     }
-    pending::save(session_dir, &buf)?;
+    pending::save(workspace_dir, &buf)?;
     Ok(LookOutcome { printed })
 }
 
@@ -179,9 +179,9 @@ pub struct RunOutcome {
 /// can interleave in a different order than a real shell redirection
 /// would produce, since nothing here observes their true fd-level
 /// arrival order. Documented, not silently assumed exact.
-pub fn run_command(session_dir: &Path, argv: &[String]) -> Result<RunOutcome, AuthoringError> {
+pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, AuthoringError> {
     if argv.is_empty() {
-        return Err(session::refuse(session_dir, "run", "no command given"));
+        return Err(workspace::refuse(workspace_dir, "run", "no command given"));
     }
     let world_state = worldstate::compute();
     let cmdline = argv.join(" ");
@@ -227,9 +227,9 @@ pub fn run_command(session_dir: &Path, argv: &[String]) -> Result<RunOutcome, Au
         output: output_text.clone(),
         world_state,
     };
-    let mut buf = pending::load(session_dir)?;
+    let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
-    pending::save(session_dir, &buf)?;
+    pending::save(workspace_dir, &buf)?;
 
     Ok(RunOutcome { printed: output_text, exit_code })
 }

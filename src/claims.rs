@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::facts;
-use crate::session::{self, AuthoringError, Kind};
+use crate::workspace::{self, AuthoringError, Kind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event")]
@@ -52,12 +52,12 @@ pub struct Claim {
     pub revisions: usize,
 }
 
-fn log_path(session_dir: &Path) -> PathBuf {
-    session_dir.join("claims.jsonl")
+fn log_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("claims.jsonl")
 }
 
-pub fn load_all(session_dir: &Path) -> io::Result<Vec<Claim>> {
-    let events: Vec<ClaimEvent> = session::read_jsonl(&log_path(session_dir))?;
+pub fn load_all(workspace_dir: &Path) -> io::Result<Vec<Claim>> {
+    let events: Vec<ClaimEvent> = workspace::read_jsonl(&log_path(workspace_dir))?;
     let mut by_id: std::collections::BTreeMap<String, Claim> = std::collections::BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     for ev in events {
@@ -87,8 +87,8 @@ pub fn load_all(session_dir: &Path) -> io::Result<Vec<Claim>> {
     Ok(order.into_iter().filter_map(|id| by_id.remove(&id)).collect())
 }
 
-pub fn exists(session_dir: &Path, id: &str) -> io::Result<bool> {
-    Ok(load_all(session_dir)?.iter().any(|c| c.id == id))
+pub fn exists(workspace_dir: &Path, id: &str) -> io::Result<bool> {
+    Ok(load_all(workspace_dir)?.iter().any(|c| c.id == id))
 }
 
 fn parse_ids(csv: &str) -> Vec<String> {
@@ -103,37 +103,37 @@ pub struct CreateOutcome {
 }
 
 /// `tetel claim --prop <text> --from F1,F3`.
-pub fn create(session_dir: &Path, prop: &str, from_csv: &str) -> Result<CreateOutcome, AuthoringError> {
+pub fn create(workspace_dir: &Path, prop: &str, from_csv: &str) -> Result<CreateOutcome, AuthoringError> {
     let ids = parse_ids(from_csv);
     if ids.is_empty() {
-        return Err(session::refuse(
-            session_dir,
+        return Err(workspace::refuse(
+            workspace_dir,
             "claim",
             "a claim must rest on at least one fact (--from was missing or empty); try `tetel query facts` to find one, or mint a new fact with `tetel look`/`tetel run` + `tetel fact`",
         ));
     }
     let mut missing = Vec::new();
     for id in &ids {
-        if !facts::exists(session_dir, id)? {
+        if !facts::exists(workspace_dir, id)? {
             missing.push(id.clone());
         }
     }
     if !missing.is_empty() {
-        return Err(session::refuse(
-            session_dir,
+        return Err(workspace::refuse(
+            workspace_dir,
             "claim",
             format!("cited fact(s) do not exist: {}; try `tetel query facts` to see what exists", missing.join(", ")),
         ));
     }
     if prop.trim().is_empty() {
-        return Err(session::refuse(session_dir, "claim", "no --prop given; a claim needs a proposition"));
+        return Err(workspace::refuse(workspace_dir, "claim", "no --prop given; a claim needs a proposition"));
     }
 
-    let overlap = overlap_report(session_dir, &ids)?;
+    let overlap = overlap_report(workspace_dir, &ids)?;
 
-    let id = session::next_id(session_dir, Kind::Claim)?;
-    let event = ClaimEvent::Create { id: id.clone(), prop: prop.to_string(), from: ids.clone(), timestamp: session::now_unix() };
-    session::append_jsonl(&log_path(session_dir), &event)?;
+    let id = workspace::next_id(workspace_dir, Kind::Claim)?;
+    let event = ClaimEvent::Create { id: id.clone(), prop: prop.to_string(), from: ids.clone(), timestamp: workspace::now_unix() };
+    workspace::append_jsonl(&log_path(workspace_dir), &event)?;
 
     Ok(CreateOutcome { claim: Claim { id, prop: prop.to_string(), from: ids, withdrawn: false, revisions: 0 }, overlap })
 }
@@ -143,8 +143,8 @@ pub fn create(session_dir: &Path, prop: &str, from_csv: &str) -> Result<CreateOu
 /// path where a designator names a file, so three different line-ranges
 /// of one file, and a plain read of it, all overlap each other now,
 /// where the prototype's literal-command-string key never caught this).
-fn overlap_report(session_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(String, String)>> {
-    let all = facts::load_all(session_dir)?;
+fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(String, String)>> {
+    let all = facts::load_all(workspace_dir)?;
     let cited: BTreeSet<&str> = cited_ids.iter().map(String::as_str).collect();
     let mut union_keys: BTreeSet<&str> = BTreeSet::new();
     for f in &all {
@@ -170,29 +170,29 @@ fn overlap_report(session_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(S
 /// At least one of `new_prop`/`new_from_csv` must be given — a revision
 /// that changes nothing isn't a revision.
 pub fn revise(
-    session_dir: &Path,
+    workspace_dir: &Path,
     id: &str,
     new_prop: Option<&str>,
     new_from_csv: Option<&str>,
     why: &str,
 ) -> Result<(), AuthoringError> {
-    if !exists(session_dir, id)? {
-        return Err(session::refuse(session_dir, "claim", format!("no such claim: {id}")));
+    if !exists(workspace_dir, id)? {
+        return Err(workspace::refuse(workspace_dir, "claim", format!("no such claim: {id}")));
     }
     if why.trim().is_empty() {
-        return Err(session::refuse(session_dir, "claim", "--revise requires --why (revisions must explain themselves)"));
+        return Err(workspace::refuse(workspace_dir, "claim", "--revise requires --why (revisions must explain themselves)"));
     }
     let from = match new_from_csv {
         Some(csv) => {
             let ids = parse_ids(csv);
             let mut missing = Vec::new();
             for fid in &ids {
-                if !facts::exists(session_dir, fid)? {
+                if !facts::exists(workspace_dir, fid)? {
                     missing.push(fid.clone());
                 }
             }
             if !missing.is_empty() {
-                return Err(session::refuse(session_dir, "claim", format!("cited fact(s) do not exist: {}", missing.join(", "))));
+                return Err(workspace::refuse(workspace_dir, "claim", format!("cited fact(s) do not exist: {}", missing.join(", "))));
             }
             Some(ids)
         }
@@ -200,22 +200,22 @@ pub fn revise(
     };
     let prop = new_prop.map(str::to_string);
     if prop.is_none() && from.is_none() {
-        return Err(session::refuse(session_dir, "claim", "--revise requires a new --prop and/or --from"));
+        return Err(workspace::refuse(workspace_dir, "claim", "--revise requires a new --prop and/or --from"));
     }
-    let event = ClaimEvent::Revise { id: id.to_string(), prop, from, why: why.to_string(), timestamp: session::now_unix() };
-    session::append_jsonl(&log_path(session_dir), &event)?;
+    let event = ClaimEvent::Revise { id: id.to_string(), prop, from, why: why.to_string(), timestamp: workspace::now_unix() };
+    workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }
 
 /// `tetel claim --withdraw <id> --why <text>`.
-pub fn withdraw(session_dir: &Path, id: &str, why: &str) -> Result<(), AuthoringError> {
-    if !exists(session_dir, id)? {
-        return Err(session::refuse(session_dir, "claim", format!("no such claim: {id}")));
+pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<(), AuthoringError> {
+    if !exists(workspace_dir, id)? {
+        return Err(workspace::refuse(workspace_dir, "claim", format!("no such claim: {id}")));
     }
     if why.trim().is_empty() {
-        return Err(session::refuse(session_dir, "claim", "--withdraw requires --why"));
+        return Err(workspace::refuse(workspace_dir, "claim", "--withdraw requires --why"));
     }
-    let event = ClaimEvent::Withdraw { id: id.to_string(), why: why.to_string(), timestamp: session::now_unix() };
-    session::append_jsonl(&log_path(session_dir), &event)?;
+    let event = ClaimEvent::Withdraw { id: id.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
+    workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }

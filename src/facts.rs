@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evidence::sha256_hex;
 use crate::pending;
-use crate::session::{self, AuthoringError, Kind};
+use crate::workspace::{self, AuthoringError, Kind};
 
 /// One observation folded into a fact's extent — the label a human
 /// reads, the key overlap detection compares, and the world-state
@@ -61,12 +61,12 @@ pub struct Fact {
     pub revisions: usize,
 }
 
-fn log_path(session_dir: &Path) -> PathBuf {
-    session_dir.join("facts.jsonl")
+fn log_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("facts.jsonl")
 }
 
-pub fn load_all(session_dir: &Path) -> io::Result<Vec<Fact>> {
-    let events: Vec<FactEvent> = session::read_jsonl(&log_path(session_dir))?;
+pub fn load_all(workspace_dir: &Path) -> io::Result<Vec<Fact>> {
+    let events: Vec<FactEvent> = workspace::read_jsonl(&log_path(workspace_dir))?;
     let mut by_id: std::collections::BTreeMap<String, Fact> = std::collections::BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     for ev in events {
@@ -86,26 +86,26 @@ pub fn load_all(session_dir: &Path) -> io::Result<Vec<Fact>> {
     Ok(order.into_iter().filter_map(|id| by_id.remove(&id)).collect())
 }
 
-pub fn exists(session_dir: &Path, id: &str) -> io::Result<bool> {
-    Ok(load_all(session_dir)?.iter().any(|f| f.id == id))
+pub fn exists(workspace_dir: &Path, id: &str) -> io::Result<bool> {
+    Ok(load_all(workspace_dir)?.iter().any(|f| f.id == id))
 }
 
-pub fn get(session_dir: &Path, id: &str) -> io::Result<Option<Fact>> {
-    Ok(load_all(session_dir)?.into_iter().find(|f| f.id == id))
+pub fn get(workspace_dir: &Path, id: &str) -> io::Result<Option<Fact>> {
+    Ok(load_all(workspace_dir)?.into_iter().find(|f| f.id == id))
 }
 
 /// Mint a fact from the current pending buffer. Refuses if the buffer
 /// is empty (a fact needs a preceding `look`/`run`) or the note text is
 /// empty. Clears the buffer on success, exactly once, after the log
 /// append succeeds — never before.
-pub fn mint(session_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
+pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
     if note.trim().is_empty() {
-        return Err(session::refuse(session_dir, "fact", "note text is empty"));
+        return Err(workspace::refuse(workspace_dir, "fact", "note text is empty"));
     }
-    let buf = pending::load(session_dir)?;
+    let buf = pending::load(workspace_dir)?;
     if buf.is_empty() {
-        return Err(session::refuse(
-            session_dir,
+        return Err(workspace::refuse(
+            workspace_dir,
             "fact",
             "pending observation buffer is empty; run `tetel look` or `tetel run` first, then `tetel fact`",
         ));
@@ -137,34 +137,34 @@ pub fn mint(session_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
     }
     let pin = format!("sha256:{}", sha256_hex(&hash_input));
 
-    let id = session::next_id(session_dir, Kind::Fact)?;
+    let id = workspace::next_id(workspace_dir, Kind::Fact)?;
     let event = FactEvent::Create {
         id: id.clone(),
         note: note.to_string(),
         extent: extent.clone(),
         output: output.clone(),
         pin: pin.clone(),
-        timestamp: session::now_unix(),
+        timestamp: workspace::now_unix(),
     };
-    session::append_jsonl(&log_path(session_dir), &event)?;
-    pending::clear(session_dir)?;
+    workspace::append_jsonl(&log_path(workspace_dir), &event)?;
+    pending::clear(workspace_dir)?;
 
     Ok(Fact { id, note: note.to_string(), extent, output, pin, revisions: 0 })
 }
 
 /// `tetel fact --revise <id> --note <new-text> --why <text>`.
-pub fn revise(session_dir: &Path, id: &str, new_note: &str, why: &str) -> Result<(), AuthoringError> {
-    if !exists(session_dir, id)? {
-        return Err(session::refuse(session_dir, "fact", format!("no such fact: {id}")));
+pub fn revise(workspace_dir: &Path, id: &str, new_note: &str, why: &str) -> Result<(), AuthoringError> {
+    if !exists(workspace_dir, id)? {
+        return Err(workspace::refuse(workspace_dir, "fact", format!("no such fact: {id}")));
     }
     if why.trim().is_empty() {
-        return Err(session::refuse(session_dir, "fact", "--revise requires --why (revisions must explain themselves)"));
+        return Err(workspace::refuse(workspace_dir, "fact", "--revise requires --why (revisions must explain themselves)"));
     }
     if new_note.trim().is_empty() {
-        return Err(session::refuse(session_dir, "fact", "no new --note text given"));
+        return Err(workspace::refuse(workspace_dir, "fact", "no new --note text given"));
     }
     let event =
-        FactEvent::Revise { id: id.to_string(), note: new_note.to_string(), why: why.to_string(), timestamp: session::now_unix() };
-    session::append_jsonl(&log_path(session_dir), &event)?;
+        FactEvent::Revise { id: id.to_string(), note: new_note.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
+    workspace::append_jsonl(&log_path(workspace_dir), &event)?;
     Ok(())
 }

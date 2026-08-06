@@ -1,6 +1,6 @@
-//! `tetel render` — assemble the session's current prose state into
+//! `tetel render` — assemble the workspace's current prose state into
 //! markdown on stdout, followed by an evidence ledger built from the
-//! session's claims. Mirrors `trender`, plus fix 1 from this port's own
+//! workspace's claims. Mirrors `trender`, plus fix 1 from this port's own
 //! design memo: the prototype's `trender` had nothing downstream that
 //! read its output back, so a rendered document and `tetel check` never
 //! connected — every check reported "no evidence ledger found" against
@@ -26,8 +26,8 @@ use crate::claims;
 use crate::ledger;
 use crate::prose;
 
-pub fn render(session_dir: &Path) -> io::Result<String> {
-    let blocks = prose::load_all(session_dir)?;
+pub fn render(workspace_dir: &Path) -> io::Result<String> {
+    let blocks = prose::load_all(workspace_dir)?;
     let mut out = String::new();
     for (i, b) in blocks.iter().enumerate() {
         if i > 0 {
@@ -48,7 +48,7 @@ pub fn render(session_dir: &Path) -> io::Result<String> {
             }
         }
     }
-    out.push_str(&render_ledger(&claims::load_all(session_dir)?));
+    out.push_str(&render_ledger(&claims::load_all(workspace_dir)?));
     Ok(out)
 }
 

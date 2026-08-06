@@ -18,7 +18,7 @@ pub mod pending;
 pub mod prose;
 pub mod query;
 pub mod report;
-pub mod session;
+pub mod workspace;
 pub mod worldstate;
 
 use std::path::Path;

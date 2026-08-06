@@ -2,7 +2,7 @@
 //! `fact`, `claim`, `prose`, `render`, `query`). Each test gets a
 //! private sandbox directory used both as the child process's working
 //! directory (so `look`/`run` see files that exist only for this test)
-//! and, via `TETEL_STATE_HOME`, as the root its session state lives
+//! and, via `TETEL_STATE_HOME`, as the root its workspace state lives
 //! under — so tests never share state and never touch a real user's
 //! `~/.local/state/tetel`.
 
@@ -75,15 +75,15 @@ impl Sandbox {
     }
 
     fn facts_jsonl(&self) -> String {
-        std::fs::read_to_string(self.state_home().join("sessions/default/facts.jsonl")).unwrap_or_default()
+        std::fs::read_to_string(self.state_home().join("workspaces/default/facts.jsonl")).unwrap_or_default()
     }
 
     fn claims_jsonl(&self) -> String {
-        std::fs::read_to_string(self.state_home().join("sessions/default/claims.jsonl")).unwrap_or_default()
+        std::fs::read_to_string(self.state_home().join("workspaces/default/claims.jsonl")).unwrap_or_default()
     }
 
     fn prose_jsonl(&self) -> String {
-        std::fs::read_to_string(self.state_home().join("sessions/default/prose.jsonl")).unwrap_or_default()
+        std::fs::read_to_string(self.state_home().join("workspaces/default/prose.jsonl")).unwrap_or_default()
     }
 }
 
