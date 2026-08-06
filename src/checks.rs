@@ -127,7 +127,17 @@ fn designator_display(d: &Designator) -> String {
     }
 }
 
-pub fn analyze(doc: &Document) -> Findings {
+/// `ledger_claims` is the memo's own evidence ledger (see
+/// [`crate::ledger::import`]), passed in so that a citation of a ledger
+/// claim id is recognised as defined — a ledger claim is never a fenced
+/// row, so `rows_by_id` alone used to be blind to it entirely (every
+/// citation of one reported `cited but undefined`, on every memo
+/// `render` produces, since its own evidence ledger is the only thing
+/// its prose ever cites). Fixed here, not by weakening the check: a
+/// citation resolving to neither a row nor a ledger claim is still
+/// reported. See the `ledger_by_id` map built below for which checks a
+/// ledger-claim citation does and does not participate in.
+pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
     let mut grammar_errors: Vec<(usize, String)> = doc
         .grammar_errors
         .iter()
@@ -135,6 +145,19 @@ pub fn analyze(doc: &Document) -> Findings {
         .collect();
 
     let rows_by_id: HashMap<&str, &Row> = doc.rows.iter().map(|r| (r.id.as_str(), r)).collect();
+    // A ledger claim is a citable id too — see the doc comment above on
+    // why `rows_by_id` alone can't answer "is this id defined": a ledger
+    // claim has no `Row` to sit in that map. This index exists only to
+    // settle "is the id defined at all" (fed into the `None` arm below,
+    // and into the row→row edge scan for check 5); it is deliberately
+    // never consulted by check 3 (abutting literal, needs a row's
+    // `value`) or check 4 (unsettled citation, needs a row's typed
+    // `Status`) — a ledger claim has no equivalent of either field, and
+    // inventing one (e.g. parsing `Status` prose for VERIFIED/REFUTED,
+    // the way `author_status_verdict` does for a different purpose) would
+    // fabricate a value this crate has no basis for. See the report for
+    // which checks were affected and why each was left to not apply.
+    let ledger_by_id: HashMap<&str, &Claim> = ledger_claims.iter().map(|c| (c.id.as_str(), c)).collect();
 
     // Check 2 — domain ⊆ extent, enumerated rows only.
     let mut subset_failures = Vec::new();
@@ -172,7 +195,12 @@ pub fn analyze(doc: &Document) -> Findings {
         cited_ids.insert(cit.id.clone());
         match rows_by_id.get(cit.id.as_str()) {
             None => {
-                if !cited_undefined.contains(&cit.id) {
+                // Defined by the ledger instead of a fenced row: the
+                // citation resolves, so it is not cited-but-undefined —
+                // but checks 3 and 4 have nothing to run against it (see
+                // `ledger_by_id`'s doc comment above), so nothing further
+                // happens for this arm either way.
+                if !ledger_by_id.contains_key(cit.id.as_str()) && !cited_undefined.contains(&cit.id) {
                     cited_undefined.push(cit.id.clone());
                 }
             }
@@ -264,6 +292,12 @@ pub fn analyze(doc: &Document) -> Findings {
                             .or_default()
                             .push((row.id.clone(), row.line));
                     }
+                } else if ledger_by_id.contains_key(id.as_str()) {
+                    // Defined by the ledger, not a row: it cannot be a
+                    // cascade root (no typed `Status`) or a row→row
+                    // dependent (it isn't a `Row`), so it never enters
+                    // `row_citers` — but it is not cited-but-undefined.
+                    cited_ids.insert(id.clone());
                 } else {
                     cited_ids.insert(id.clone());
                     if !cited_undefined.contains(&id) {
@@ -359,6 +393,16 @@ pub fn analyze(doc: &Document) -> Findings {
                     row.claim.clone(),
                 ));
             }
+        }
+    }
+    // The same inverse for ledger claims: "an uncited claim prints,
+    // default disposition delete" is a deliberate rule (see report.rs),
+    // and it must hold for a ledger claim exactly as it does for a
+    // fenced row — fixing citation resolution to see ledger claims
+    // cannot also make an uncited one invisible in the other direction.
+    for claim in ledger_claims {
+        if !cited_ids.contains(&claim.id) {
+            defined_uncited.push((claim.id.clone(), claim.proposition.clone()));
         }
     }
 
@@ -545,7 +589,8 @@ mod tests {
 
     fn check(source: &str) -> (i32, String, Findings) {
         let doc = parse_document(source);
-        let findings = analyze(&doc);
+        let ledger = crate::ledger::import(&doc.body);
+        let findings = analyze(&doc, &ledger.claims);
         let (code, text) = render("test.md", &doc, &findings);
         (code, text, findings)
     }

@@ -32,8 +32,8 @@ pub use report::{EXIT_CHECK_FAILED, EXIT_CLEAN, EXIT_NO_ROWS};
 /// bare strings; the CLI always goes through [`check_file`].
 pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
     let doc = parse::parse_document(source);
-    let mut findings = checks::analyze(&doc);
     let ledger = ledger::import(&doc.body);
+    let mut findings = checks::analyze(&doc, &ledger.claims);
     findings.ledger_claims_found = ledger.claims.len();
     findings.ledger_errors = ledger.errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect();
     report::render(display_path, &doc, &findings)
@@ -46,9 +46,9 @@ pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
 pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     let source = std::fs::read_to_string(path)?;
     let doc = parse::parse_document(&source);
-    let mut findings = checks::analyze(&doc);
-
     let ledger = ledger::import(&doc.body);
+    let mut findings = checks::analyze(&doc, &ledger.claims);
+
     let (evidence_records, evidence_errors) = evidence::load(path)?;
     let (ungrounded, attested_grounded, disagreements) =
         checks::analyze_ledger(&ledger.claims, &evidence_records);

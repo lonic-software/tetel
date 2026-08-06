@@ -117,3 +117,45 @@ fn check_runs_the_five_existing_checks_and_the_two_ledger_checks_together() {
     assert!(out.contains("TR-1"), "the five existing checks must still see the tetel row:\n{out}");
     assert!(out.contains("L-1: ungrounded"), "the ledger check must still see the ledger claim:\n{out}");
 }
+
+#[test]
+fn a_citation_resolving_to_a_ledger_claim_is_not_cited_but_undefined() {
+    // L-1 is a ledger claim, not a fenced row, and is cited bare (no
+    // stance marker) with an OWED status — exactly the shape `tetel
+    // render` produces, and exactly the shape that used to report
+    // `cited but undefined: [L-1]` on every memo this tool authors
+    // itself. GHOST-1 is genuinely undefined and must still surface: the
+    // fix must not weaken the check, only stop it being blind to the
+    // ledger.
+    let (code, out) = run_check("ledger_citation_resolves.md");
+    assert_eq!(code, 0, "a ledger-defined citation must never fail the run:\n{out}");
+    assert!(
+        !out.contains("cited but undefined: [L-1]") && !out.contains("[L-1, GHOST-1]") && !out.contains("[GHOST-1, L-1]"),
+        "L-1 is defined by the ledger and must not be reported cited-but-undefined:\n{out}"
+    );
+    assert!(
+        out.contains("cited but undefined: [GHOST-1]"),
+        "a genuinely undefined citation must still be reported:\n{out}"
+    );
+    assert!(
+        !out.contains("[unsettled-citation]"),
+        "check 4 has no ledger-claim equivalent to run against and must not fabricate one:\n{out}"
+    );
+}
+
+#[test]
+fn a_ledger_claim_never_cited_by_prose_still_surfaces_as_defined_uncited() {
+    // The inverse of the fix above: teaching the citation check to see
+    // ledger claims must not also make an *uncited* one invisible. L-1 is
+    // cited and must not print as uncited; L-2 is never cited and must.
+    let (code, out) = run_check("ledger_uncited_claim.md");
+    assert_eq!(code, 0, "an uncited ledger claim must never fail the run:\n{out}");
+    assert!(
+        out.contains("L-2: defined but never cited; default disposition is delete"),
+        "an uncited ledger claim must surface exactly like an uncited row:\n{out}"
+    );
+    assert!(
+        !out.contains("L-1: defined but never cited"),
+        "L-1 is cited and must not print as uncited:\n{out}"
+    );
+}
