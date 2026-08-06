@@ -11,6 +11,7 @@ pub mod compose;
 pub mod evidence;
 pub mod facts;
 pub mod ledger;
+pub mod mcp;
 pub mod model;
 pub mod observe;
 pub mod parse;

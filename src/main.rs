@@ -172,6 +172,11 @@ enum Command {
         #[command(subcommand)]
         what: QueryCommand,
     },
+    /// Run an MCP server over stdio, exposing `look`/`run`/`fact`/
+    /// `claim`/`prose`/`render`/`query`/`check`/`brief`/`record` as
+    /// tools. See `tetel::mcp` for why this exists and how refusals and
+    /// workspace scoping are handled.
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -495,6 +500,22 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("tetel: error rendering: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Mcp => {
+            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("tetel: could not start async runtime: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            match rt.block_on(tetel::mcp::serve_stdio()) {
+                Ok(()) => ExitCode::from(0),
+                Err(e) => {
+                    eprintln!("tetel: mcp server error: {e}");
                     ExitCode::from(1)
                 }
             }
