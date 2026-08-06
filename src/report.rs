@@ -114,10 +114,13 @@ a matching one.\n"
 contains a proc:/external designator, the RUN command\u{2194}proposition correspondence, \
 cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
-declared scope at all, qualified verdicts, facts whose note names a location outside their own \
+declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
  captured extent, \
 and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
+    for e in &findings.superseded_evidence {
+        out.push_str(&format!("  - superseded evidence: {e}\n"));
+    }
     for (id, pass, note) in &findings.qualified_claims {
         out.push_str(&format!(
             "  - {id}: QUALIFIED by pass {pass} — not a plain confirmation. \"{note}\"\n"

@@ -132,6 +132,10 @@ pub struct Findings {
     /// claim's current text — the proposition was revised after being
     /// graded. A machine failure; see [`analyze_ledger`].
     pub stale_evidence: Vec<String>,
+    /// Records that graded an earlier wording of a claim which *has*
+    /// since been re-grounded. Human-owed history, never a failure — see
+    /// [`analyze_ledger`] on why the distinction matters.
+    pub superseded_evidence: Vec<String>,
 }
 
 impl Findings {
@@ -507,6 +511,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         grounding_provenance: Vec::new(),
         qualified_claims: Vec::new(),
         stale_evidence: Vec::new(),
+        superseded_evidence: Vec::new(),
     }
 }
 
@@ -545,6 +550,7 @@ type LedgerFindings = (
     Vec<String>,
     Vec<(String, String, String)>,
     Vec<String>,
+    Vec<String>,
 );
 
 /// The checks this slice and the grounding-provenance slice on top of it
@@ -562,6 +568,7 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
     let mut disagreements = Vec::new();
     let mut qualified = Vec::new();
     let mut stale_digests = Vec::new();
+    let mut superseded = Vec::new();
 
     for claim in claims {
         let records: Vec<&EvidenceRecord> = evidence.iter().filter(|e| e.claim_id == claim.id).collect();
@@ -575,28 +582,50 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
         // `claim --revise` + `render --out` path left its old evidence
         // attached — including to the exact negation of what was graded,
         // with the memo still matching its snapshot, no drift, and the
-        // machine partition clean. The tool reported evidence for a
-        // proposition nobody had examined, through the supported path,
-        // with nothing anywhere saying so.
+        // machine partition clean.
         //
-        // A machine failure: the record states which bytes it graded, the
-        // claim states its bytes, and they differ. No judgement involved.
+        // **Whether a stale record fails depends on what sits beside it.**
+        // The first version of this check failed on any stale record, and
+        // that was undischargeable: the evidence log is append-only with
+        // no supersession, so re-grounding — the remedy this very check
+        // printed — added a current record and left the failure standing.
+        // A red nobody can clear is the defect this crate rejected in the
+        // verdict-disagreement check hours earlier, rebuilt here.
+        //
+        // So: a claim with no record matching its current text is a
+        // machine failure, because nothing grades what it now says. A
+        // claim that has one is grounded, and its superseded records are
+        // history — worth printing, never a failure. Re-grounding is now
+        // a remedy that works.
         let current = crate::evidence::sha256_hex(&claim.proposition);
-        for r in records.iter().filter(|r| {
-            !r.proposition_digest.is_empty() && r.proposition_digest != current
-        }) {
-            stale_digests.push(format!(
+        let (fresh, stale): (Vec<&&EvidenceRecord>, Vec<&&EvidenceRecord>) = records
+            .iter()
+            .filter(|r| !r.proposition_digest.is_empty())
+            .partition(|r| r.proposition_digest == current);
+
+        for r in &stale {
+            let line = format!(
                 "{} — evidence from pass {} graded different text than this claim now carries \
-(recorded digest {}…, current {}…). The proposition was revised after it was graded, so this \
-record establishes nothing about what the claim says today. Re-ground it, or restore the wording \
-it was graded against.\n      that pass said: {} — {}",
+(recorded digest {}…, current {}…).\n      that pass said: {} — {}",
                 claim.id,
                 r.pass,
                 &r.proposition_digest[..r.proposition_digest.len().min(12)],
                 &current[..current.len().min(12)],
                 r.verdict,
                 r.note.as_deref().unwrap_or("(no note)"),
-            ));
+            );
+            if fresh.is_empty() {
+                stale_digests.push(format!(
+                    "{line}\n      Nothing grades what this claim says today. Re-ground it \
+against the current wording, or restore the wording it was graded against."
+                ));
+            } else {
+                superseded.push(format!(
+                    "{line}\n      Superseded: {} record(s) grade the current wording. Kept \
+because it is what an earlier pass actually found, and the log is append-only.",
+                    fresh.len()
+                ));
+            }
         }
 
         if records.is_empty() {
@@ -714,7 +743,7 @@ it was graded against.\n      that pass said: {} — {}",
         }
     }
 
-    (ungrounded, attested_grounded, disagreements, qualified, stale_digests)
+    (ungrounded, attested_grounded, disagreements, qualified, stale_digests, superseded)
 }
 
 /// One line per evidence record whose `source` designator is a path that

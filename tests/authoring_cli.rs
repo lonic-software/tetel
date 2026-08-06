@@ -1024,10 +1024,14 @@ fn revising_a_graded_proposition_makes_its_evidence_stale() {
     assert!(!combined.contains("[provenance-drift]"), "drift must not be the catcher:\n{combined}");
 }
 
-/// Re-grounding after the revision clears it: the new record carries the
-/// new text's digest.
+/// Re-grounding must actually clear the failure, because that is the
+/// remedy `check` prints. The first version of this check failed on any
+/// stale record, so re-grounding added a current record and left the red
+/// standing — a red nobody could clear, since the evidence log is
+/// append-only and has no supersede. The superseded record is still
+/// shown, as history, in the human-owed half.
 #[test]
-fn re_grounding_a_revised_claim_clears_the_stale_finding() {
+fn re_grounding_a_revised_claim_clears_the_stale_failure() {
     let sb = Sandbox::new("stale-cleared");
     let memo = one_claim_memo(&sb);
     let m = memo.to_str().unwrap();
@@ -1036,28 +1040,38 @@ fn re_grounding_a_revised_claim_clears_the_stale_finding() {
     sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs defines exactly one function",
              "--why", "narrowing"]);
     sb.run(&["render", "--out", m]);
-    let (code, _r, _e) = sb.run(&["check", m]);
-    assert_eq!(code, 1, "stale first");
+    let (code, report, err) = sb.run(&["check", m]);
+    assert_eq!(code, 1, "stale first:\n{report}{err}");
 
-    // The old record stays — the log is append-only — so the finding
-    // persists until the wording it graded is restored. Re-grounding adds
-    // a current record beside it; the stale one is still named, which is
-    // correct: it graded text this claim no longer carries.
     sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
              "--note", "re-grounded against the narrowed wording"]);
-    let (_c, report, err) = sb.run(&["check", m]);
+    let (code, report, err) = sb.run(&["check", m]);
     let combined = format!("{report}{err}");
-    assert_eq!(
-        combined.matches("[stale-evidence]").count(),
-        1,
-        "exactly the one superseded record is named, not the fresh one:\n{combined}"
-    );
+    assert_ne!(code, 1, "re-grounding must clear the failure:\n{combined}");
+    assert!(!combined.contains("[stale-evidence]"), "no longer a machine failure:\n{combined}");
+    // Still visible, as history rather than alarm.
+    assert!(combined.contains("superseded evidence"), "the earlier record stays visible:\n{combined}");
 }
 
-/// A paragraph must be able to gain a citation after the fact. Until it
-/// could, `tetel review`'s own instruction — mint the missing claim and
-/// cite it — was unreachable for existing prose: `--cites` parsed beside
-/// `--revise` and was discarded without a word.
+/// A claim whose only evidence graded an earlier wording is still a
+/// machine failure: nothing grades what it says today.
+#[test]
+fn a_claim_with_only_stale_evidence_still_fails() {
+    let sb = Sandbox::new("stale-only");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs does NOT define alpha()",
+             "--why", "reversing"]);
+    sb.run(&["render", "--out", m]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "nothing grades the current wording:\n{combined}");
+    assert!(combined.contains("[stale-evidence]"), "got:\n{combined}");
+    assert!(combined.contains("Nothing grades what this claim says today"), "got:\n{combined}");
+}
 #[test]
 fn a_revision_can_attach_citations_to_a_paragraph_that_had_none() {
     let sb = Sandbox::new("revise-cites");

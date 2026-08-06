@@ -54,7 +54,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     let mut findings = checks::analyze(&doc, &ledger.claims);
 
     let (evidence_records, evidence_errors) = evidence::load(path)?;
-    let (ungrounded, attested_grounded, disagreements, qualified, stale) =
+    let (ungrounded, attested_grounded, disagreements, qualified, stale, superseded) =
         checks::analyze_ledger(&ledger.claims, &evidence_records);
 
     findings.ledger_claims_found = ledger.claims.len();
@@ -81,6 +81,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     findings.verdict_disagreements = disagreements;
     findings.qualified_claims = qualified;
     findings.stale_evidence = stale;
+    findings.superseded_evidence = superseded;
     // Provenance is graded against the same bytes every other check saw,
     // never a re-read of the file.
     findings.provenance = snapshot::check(path, &source);
