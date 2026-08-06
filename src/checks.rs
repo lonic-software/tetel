@@ -78,6 +78,15 @@ pub struct Findings {
     /// (not aggregated into a bracketed list) since each names a distinct
     /// claim and path.
     pub unresolved_evidence_sources: Vec<String>,
+    /// A ledger claim whose Domain/Extent cells are exactly
+    /// [`crate::ledger::NO_SCOPE_DECLARED`] — minted by `tetel claim` via
+    /// `compose::render`, which has no scope field to draw from.
+    /// Human-owed, never a failure: distinct from `coverage_skipped`
+    /// (a *declared* domain/extent this crate's checks can't enumerate,
+    /// e.g. a `proc:`/`external:` designator) — this is a domain/extent
+    /// that was never declared at all, and it says so plainly rather than
+    /// let a silently-passing check imply a coverage claim nobody made.
+    pub no_scope_claims: Vec<(String, String)>,
     /// Formatted failures: two evidence records for one claim disagreeing
     /// on verdict, or a verdict contradicting the author's own Status
     /// cell. A machine failure — an unresolved contradiction, the same
@@ -376,6 +385,7 @@ pub fn analyze(doc: &Document) -> Findings {
         ungrounded_claims: Vec::new(),
         attested_grounded_claims: Vec::new(),
         unresolved_evidence_sources: Vec::new(),
+        no_scope_claims: Vec::new(),
         verdict_disagreements: Vec::new(),
     }
 }
@@ -510,6 +520,20 @@ pub fn unresolved_evidence_sources(claims: &[Claim], evidence: &[EvidenceRecord]
         }
     }
     out
+}
+
+/// Ledger claims minted with no declared scope at all (see
+/// [`crate::ledger::NO_SCOPE_DECLARED`] and `compose::render`). Both cells
+/// must match the sentinel exactly — an ordinary hand-written ledger row
+/// whose Domain/Extent text happens to coincide is not this crate's
+/// business to guess at, and `compose::render` always writes both cells
+/// identically, so a real match never falls short of both.
+pub fn claims_without_declared_scope(claims: &[Claim]) -> Vec<(String, String)> {
+    claims
+        .iter()
+        .filter(|c| c.domain == crate::ledger::NO_SCOPE_DECLARED && c.extent == crate::ledger::NO_SCOPE_DECLARED)
+        .map(|c| (c.id.clone(), c.proposition.clone()))
+        .collect()
 }
 
 #[cfg(test)]

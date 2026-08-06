@@ -340,6 +340,63 @@ fn query_deps_reports_what_a_fact_is_cited_by_and_what_a_claim_rests_on() {
 }
 
 #[test]
+fn render_appends_a_checkable_evidence_ledger_without_altering_prose_bytes() {
+    // Fix 1: `tetel check` on a document `tetel render` just produced
+    // used to report "no tetel rows found" forever — the authoring half
+    // and the verification half never connected. `render` now appends
+    // an evidence-ledger table in the shape `ledger::import` already
+    // reads; this test drives the CLI end to end (`look`/`fact`/`claim`/
+    // `prose`/`render`/`check`) to prove the loop actually closes.
+    let sb = Sandbox::new("render-ledger");
+    sb.write("src/lib.rs", "fn foo() {}\n");
+    sb.run(&["look", "src/lib.rs"]);
+    sb.run(&["fact", "--note", "foo is defined in lib.rs"]);
+    sb.run(&["claim", "--prop", "foo exists", "--from", "F1"]);
+    sb.run_stdin(&["prose", "--cite", "C1"], "Foo exists in the codebase.");
+
+    let (code, out, err) = sb.run(&["render"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(
+        out.starts_with("Foo exists in the codebase.\n"),
+        "prose must render first and unchanged, ledger only appended after it:\n{out}"
+    );
+    assert!(out.contains("## Evidence ledger"), "output was:\n{out}");
+    assert!(out.contains("| C1 | foo exists |"), "output was:\n{out}");
+
+    let memo_path = sb.write("rendered-memo.md", &out);
+    let mut check_cmd = std::process::Command::new(env!("CARGO_BIN_EXE_tetel"));
+    check_cmd.arg("check").arg(&memo_path);
+    let check_out = check_cmd.output().expect("failed to run tetel binary");
+    let check_stdout = String::from_utf8_lossy(&check_out.stdout).into_owned();
+    assert_eq!(check_out.status.code(), Some(0), "stdout:\n{check_stdout}");
+    assert!(
+        !check_stdout.contains("no tetel rows found"),
+        "a rendered memo must connect to `check`, not read as empty:\n{check_stdout}"
+    );
+    assert!(
+        !check_stdout.contains("no evidence ledger found"),
+        "output was:\n{check_stdout}"
+    );
+    assert!(
+        check_stdout.contains("C1: ungrounded"),
+        "an unrecorded claim must show up as a real, human-owed finding:\n{check_stdout}"
+    );
+    assert!(
+        check_stdout.contains("no scope declared"),
+        "the missing domain/extent field must be named plainly, not silently passed:\n{check_stdout}"
+    );
+}
+
+#[test]
+fn render_with_no_claims_appends_no_evidence_ledger() {
+    let sb = Sandbox::new("render-no-claims");
+    sb.run_stdin(&["prose"], "just a paragraph, nothing cited");
+    let (code, out, err) = sb.run(&["render"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(!out.contains("Evidence ledger"), "no claims exist; nothing to append:\n{out}");
+}
+
+#[test]
 fn brief_authoring_mode_needs_no_memo_and_is_self_contained() {
     let sb = Sandbox::new("brief-authoring");
     let (code, out, err) = sb.run(&["brief", "--authoring"]);

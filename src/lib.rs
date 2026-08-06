@@ -63,6 +63,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     findings.ungrounded_claims = ungrounded;
     findings.attested_grounded_claims = attested_grounded;
     findings.unresolved_evidence_sources = checks::unresolved_evidence_sources(&ledger.claims, &evidence_records);
+    findings.no_scope_claims = checks::claims_without_declared_scope(&ledger.claims);
     findings.verdict_disagreements = disagreements;
 
     Ok(report::render(&path.display().to_string(), &doc, &findings))

@@ -51,6 +51,17 @@ pub struct LedgerImport {
 const HEADER_WITH_KIND: [&str; 6] = ["ID", "Proposition", "Domain", "Extent", "Kind", "Status"];
 const HEADER_WITHOUT_KIND: [&str; 5] = ["ID", "Proposition", "Domain", "Extent", "Status"];
 
+/// Sentinel `Domain`/`Extent` cell text `compose::render` writes for a
+/// claim minted with `tetel claim`: the authoring model (`claims.rs`) has
+/// no scope/domain field on a claim at all, and deriving one from the
+/// facts a claim cites would recreate exactly the vacuity this project
+/// measured and rejected once already — a field and its own check
+/// answered by one act. Writing this exact, recognisable string instead
+/// of a fabricated value is what lets `checks::claims_without_declared_scope`
+/// name the gap plainly rather than let an empty-seeming cell pass as an
+/// (unearned) claim of total coverage.
+pub const NO_SCOPE_DECLARED: &str = "not declared (tetel's authoring model has no domain/extent field on a claim)";
+
 /// Split one `|`-delimited table row into its cells. Respects a backtick
 /// span (a `|` inside `` `...` `` is not a separator) and a `\|` escape,
 /// and drops the empty leading/trailing cell markdown table syntax
