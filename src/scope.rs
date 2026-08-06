@@ -71,6 +71,31 @@
 //! So: a file-and-line reference to unopened code is caught, and a
 //! conclusion drawn without naming anything is not. That is a real
 //! ceiling, not a to-do.
+//!
+//! # Language-agnostic by construction
+//!
+//! Tetel documents systems in any language, so nothing here may be tuned
+//! to one. There is no list of languages and no list of extensions.
+//!
+//! What counts as a filename is decided in two stages. Shape rules reject
+//! what cannot be a file — prose abbreviations, version numbers, the
+//! tails of method chains. Then the token's extension must be one this
+//! workspace has **actually opened**, read out of the captured extents.
+//! A `look` at a Swift file is what teaches the scanner that `.swift`
+//! names a file here; nobody enumerates that in advance and no language
+//! is excluded in advance.
+//!
+//! The second stage is load-bearing, not belt-and-braces. Attribute
+//! access — `self.value`, `response.data` — is filename-shaped under any
+//! shape rule worth having: a good stem, a good extension. Only "was
+//! this extension ever opened" separates it from a real file, and it does
+//! so without knowing which language is being discussed.
+//!
+//! Its cost is that the vocabulary is per-extension, not per-language: a
+//! workspace that has opened `mix.exs` has not thereby learned `.ex`. The
+//! alternative is a hard-coded map from extension to language, which is
+//! exactly the coupling this avoids. Pinned by a test rather than left to
+//! be rediscovered.
 
 use crate::facts::Fact;
 
@@ -90,25 +115,56 @@ fn is_path_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.' || b == b'/'
 }
 
-/// File extensions worth scanning for. Deliberately a fixed list rather
-/// than "any dotted token": prose is full of `e.g.` and version numbers,
-/// and a scanner that fired on those would be turned off within a day.
+/// The extension of a path-shaped token, lowercased, or `None` if the
+/// token does not look like a filename at all.
 ///
-/// This is a coverage/noise trade made explicit rather than silently — a
-/// note naming a file in a language not listed here will not be checked,
-/// and that is a known gap, not an oversight.
-const SOURCE_EXTENSIONS: [&str; 14] = [
-    ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rb", ".c", ".h", ".cpp", ".sh",
-    ".toml",
-];
+/// Deliberately not a fixed list of languages. Tetel documents systems in
+/// any language, and a hard-coded set would silently stop checking the
+/// moment someone wrote about Swift, Kotlin, Elixir or Zig — the worst
+/// kind of gap, because it looks like a clean result.
+///
+/// The shape rules instead:
+///   - a non-empty stem, rejecting the leading-dot fragments left by
+///     method chains (`?.parents`, `).ok`);
+///   - an extension of one to six ASCII letters, rejecting version
+///     numbers (`v1.2`, digits) and the long or underscored tails of
+///     field access (`p.tree_hash`, `parcel.parents`);
+///   - not both parts a single character, which is what separates the
+///     prose abbreviations `e.g` and `i.e` from real short filenames.
+///
+/// That last rule is why it is not simply "stem of two or more": `a.rs`
+/// is a legitimate filename and `main.c` a legitimate one-letter
+/// extension, so neither half can be excluded alone. Six characters
+/// covers `.coffee` and `.python`; `parcel.parents` is seven and falls
+/// out. Both boundaries are doing real work and are stated rather than
+/// rounded off.
+fn filename_extension(tok: &str) -> Option<String> {
+    let (stem, ext) = tok.rsplit_once('.')?;
+    let stem = stem.rsplit('/').next().unwrap_or(stem);
+    if stem.is_empty() || ext.is_empty() || ext.len() > 6 {
+        return None;
+    }
+    if stem.len() == 1 && ext.len() == 1 {
+        return None;
+    }
+    if !ext.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return None;
+    }
+    Some(ext.to_ascii_lowercase())
+}
 
-/// Every file-path-shaped token in a note, in order of appearance.
+/// Every filename-shaped token in a note, in order of appearance.
 ///
 /// Returns the token as written. A note saying `graph_utils.rs ~560-566`
 /// yields `graph_utils.rs`; the line range is not parsed, because a note
 /// naming the right file at the wrong lines is a question for a reader,
 /// not a token this check can adjudicate.
-pub fn mentioned_paths(note: &str) -> Vec<String> {
+///
+/// `known_extensions` narrows the shape rules above to extensions this
+/// workspace has actually opened — see [`outside_extent`], which derives
+/// them from the captured extents. Pass an empty slice to accept every
+/// filename-shaped token.
+pub fn mentioned_paths(note: &str, known_extensions: &[String]) -> Vec<String> {
     let bytes = note.as_bytes();
     let mut out: Vec<String> = Vec::new();
     let mut i = 0usize;
@@ -124,8 +180,42 @@ pub fn mentioned_paths(note: &str) -> Vec<String> {
         // Trim trailing sentence punctuation: `audit_utils.rs.` and
         // `audit_utils.rs` are the same file.
         let tok = note[start..i].trim_end_matches('.');
-        if SOURCE_EXTENSIONS.iter().any(|e| tok.ends_with(e)) && !out.iter().any(|s| s == tok) {
+        let Some(ext) = filename_extension(tok) else {
+            continue;
+        };
+        if !known_extensions.is_empty() && !known_extensions.contains(&ext) {
+            continue;
+        }
+        if !out.iter().any(|s| s == tok) {
             out.push(tok.to_string());
+        }
+    }
+    out
+}
+
+/// The file extensions this workspace has actually opened.
+///
+/// This is what keeps the check language-agnostic without drowning in
+/// noise. A `look` at a Swift file teaches the scanner that `.swift`
+/// names a file here; nobody has to enumerate languages in advance, and
+/// no language is silently excluded. The vocabulary comes from the same
+/// captured extents the check compares against — the machine-captured
+/// side, never the authored one.
+///
+/// Its own limit, stated: a note naming a file type the workspace has
+/// never opened is not checked. If every `look` was at Markdown and the
+/// note concludes about `other.swift`, that passes. Rarer than the case
+/// it buys, and preferable to a fixed list that fails the same way
+/// permanently.
+fn observed_extensions(facts: &[Fact]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in facts {
+        for e in &f.extent {
+            if let Some(ext) = filename_extension(&e.key) {
+                if !out.contains(&ext) {
+                    out.push(ext);
+                }
+            }
         }
     }
     out
@@ -188,16 +278,26 @@ pub fn for_fact(workspace_dir: &std::path::Path, id: &str) -> Vec<OutsideExtent>
     let Ok(facts) = crate::facts::load_all(workspace_dir) else {
         return Vec::new();
     };
-    let Some(f) = facts.into_iter().find(|f| f.id == id) else {
+    let Some(pos) = facts.iter().position(|f| f.id == id) else {
         return Vec::new();
     };
-    outside_extent(std::slice::from_ref(&f))
+    // Graded alone, but against the whole workspace's vocabulary: the
+    // first fact in a Swift codebase must not go unchecked merely
+    // because it is the only one minted so far.
+    outside_extent_in(&facts[pos..pos + 1], &facts)
 }
 
-/// Every location a fact's note names that its own extent does not cover.
-pub fn outside_extent(facts: &[Fact]) -> Vec<OutsideExtent> {
+/// Every location a fact's note names that its own extent does not
+/// cover, checking `subjects` against a vocabulary drawn from `corpus`.
+///
+/// The split exists because the two authoring paths need different
+/// halves: `check` grades every fact in a workspace, while `fact`
+/// grades the one just written — but both must read the same extension
+/// vocabulary, which only the whole workspace can supply.
+fn outside_extent_in(subjects: &[Fact], corpus: &[Fact]) -> Vec<OutsideExtent> {
+    let known = observed_extensions(corpus);
     let mut out = Vec::new();
-    for f in facts {
+    for f in subjects {
         // A fact minted purely from `run` has a command as its extent,
         // not a path. Its note routinely names the files the command
         // touched, and calling those out-of-extent would fire on every
@@ -207,7 +307,7 @@ pub fn outside_extent(facts: &[Fact]) -> Vec<OutsideExtent> {
         if f.extent.iter().all(|e| e.label.starts_with("proc:")) {
             continue;
         }
-        for m in mentioned_paths(&f.note) {
+        for m in mentioned_paths(&f.note, &known) {
             if !extent_covers(f, &m) {
                 out.push(OutsideExtent {
                     fact_id: f.id.clone(),
@@ -218,6 +318,11 @@ pub fn outside_extent(facts: &[Fact]) -> Vec<OutsideExtent> {
         }
     }
     out
+}
+
+/// Every location a fact's note names that its own extent does not cover.
+pub fn outside_extent(facts: &[Fact]) -> Vec<OutsideExtent> {
+    outside_extent_in(facts, facts)
 }
 
 #[cfg(test)]
@@ -251,13 +356,13 @@ mod tests {
 
     #[test]
     fn finds_source_paths_and_ignores_prose_dots() {
-        let found = mentioned_paths("see audit_utils.rs and graph_utils.rs, e.g. v1.2 or i.e. this");
+        let found = mentioned_paths("see audit_utils.rs and graph_utils.rs, e.g. v1.2 or i.e. this", &[]);
         assert_eq!(found, vec!["audit_utils.rs", "graph_utils.rs"]);
     }
 
     #[test]
     fn a_path_is_reported_once_however_often_it_appears() {
-        assert_eq!(mentioned_paths("a.rs then a.rs again a.rs"), vec!["a.rs"]);
+        assert_eq!(mentioned_paths("a.rs then a.rs again a.rs", &[]), vec!["a.rs"]);
     }
 
     /// The regression this module was written for, reduced to its shape:
@@ -304,6 +409,66 @@ the same parents field, so there is no separate source.",
         }
     }
 
+    /// The check must work in any language, not the one tetel happens to
+    /// be written in. Each of these is a fact whose extent is one file
+    /// and whose note concludes about a second, unopened one — the F6
+    /// shape, transposed. None of these extensions is enumerated
+    /// anywhere in this module.
+    #[test]
+    fn the_check_is_not_specific_to_any_one_language() {
+        let cases = [
+            ("Model.swift", "ViewController.swift"),
+            ("main.kt", "Repository.kt"),
+            ("core.clj", "handlers.clj"),
+            ("Service.cs", "Repo.cs"),
+            ("router.ex", "plug.ex"),
+            ("build.zig", "parser.zig"),
+            ("app.dart", "store.dart"),
+            ("Main.hs", "Parser.hs"),
+            ("query.sql", "schema.sql"),
+        ];
+        for (opened, concluded_about) in cases {
+            let f = fact(
+                "F1",
+                &format!("{opened} defines the type; {concluded_about} never uses it"),
+                &[(&format!("/repo/{opened}"), opened)],
+            );
+            let found = outside_extent(&[f]);
+            assert_eq!(
+                found.len(),
+                1,
+                "should fire for {opened} -> {concluded_about}, got {:?}",
+                found.iter().map(|o| &o.mentioned).collect::<Vec<_>>()
+            );
+            assert_eq!(found[0].mentioned, concluded_about);
+        }
+    }
+
+    /// Prose abbreviations and code punctuation must not be mistaken for
+    /// filenames, in any language.
+    #[test]
+    fn prose_and_code_punctuation_are_not_filenames() {
+        // A realistic vocabulary: this workspace has opened Rust files.
+        let known = vec!["rs".to_string()];
+        for note in [
+            "e.g. this and i.e. that",
+            "version v1.2 and 3.14",
+            "reads p.tree_hash from the parcel",
+            "calls load_parcel(hash)?.parents directly",
+            // Attribute access is filename-shaped by every rule above —
+            // `self` is a fine stem and `value` a fine extension. Only
+            // the observed-extension vocabulary separates them, which is
+            // why that filter exists rather than shape rules alone.
+            "self.value and obj.field",
+            "config.settings and response.data",
+        ] {
+            assert!(
+                mentioned_paths(note, &known).is_empty(),
+                "should find no filename in: {note}"
+            );
+        }
+    }
+
     /// A `run`-only fact's note names whatever the command touched; that
     /// is not overreach, and firing on it would bury the real signal.
     #[test]
@@ -321,6 +486,26 @@ the same parents field, so there is no separate source.",
 mod known_limits {
     use super::tests_support::fact;
     use super::*;
+
+    /// The vocabulary is per-extension, not per-language, so a language
+    /// using two extensions only checks the ones actually opened. Found
+    /// while writing the cross-language test above, and kept: it is a
+    /// consequence of learning the vocabulary from captured extents
+    /// rather than enumerating languages, and the alternative — a
+    /// hard-coded map of which extensions belong to which language — is
+    /// the language-specific coupling this design exists to avoid.
+    #[test]
+    fn a_second_extension_of_the_same_language_is_not_inferred() {
+        let f = fact(
+            "F1",
+            "mix.exs configures the project; router.ex never imports it",
+            &[("/repo/mix.exs", "mix.exs")],
+        );
+        assert!(
+            outside_extent(&[f]).is_empty(),
+            "if this now fires, the vocabulary learned to generalise — update the module doc"
+        );
+    }
 
     /// Documents the ceiling rather than hiding it: F7's real note, whose
     /// overreach ("mirrors the server's") names no location, so nothing

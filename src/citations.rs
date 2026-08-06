@@ -40,25 +40,42 @@ pub struct Citation {
 /// contains a digit or a hyphen. `F5`, `C1`, `P1`, `S3-L17`, `E-4`,
 /// `X-6`, `R-ROOT`, `CYC-A` all qualify.
 ///
-/// Without this, bracketed Rust in a note is read as a citation. A real
-/// note in the FORK-94 memo quotes `base_tree_hashes: &[String]`, and
-/// `check` duly reported `cited but undefined: [String]`. Slice and
-/// generic syntax is ordinary content in a document about code, and a
-/// checker that cannot tell it from a citation generates noise precisely
-/// where the prose is most technical.
+/// The rule describes **what a tetel id looks like**, not what some
+/// language's identifiers look like. That distinction matters: this tool
+/// documents systems in any language, and a check tuned to one of them
+/// would be wrong everywhere else.
 ///
-/// Both halves of the rule are load-bearing, and a first attempt using
-/// only "contains a digit" was wrong — it rejected `R-ROOT` and `CYC-A`,
-/// real ids in this crate's own fixtures. The hyphen is the stronger
-/// signal of the two, because a hyphen cannot appear in a Rust
-/// identifier at all, so no type name can collide with it. The
-/// uppercase-start half rules out `[u8]` and `[i32]`, which do carry
-/// digits.
+/// Ids in this system are minted `F1`/`C1`/`P1`, or come from a corpus
+/// ledger as `S3-L17`, `E-4`, `X-6`, `R-ROOT`, `CYC-A`. Uppercase-led,
+/// with a digit or a hyphen. Everything else between brackets is content.
 ///
-/// What still gets through: a bracketed CamelCase name containing a
-/// digit, like `[Utf8Error]`. Narrow enough to accept; a citation scheme
-/// wanting bare `[Foo]` to resolve would have to revisit this, and none
-/// exists here.
+/// Without this, bracketed code in a note is read as a citation. A real
+/// note quotes `base_tree_hashes: &[String]`, and `check` duly reported
+/// `cited but undefined: [String]`. Bracketed type and collection syntax
+/// is ordinary content in a document about code — in Rust, in Python
+/// annotations, in TypeScript, in Java generics — and a checker that
+/// cannot tell it from a citation generates noise precisely where the
+/// prose is most technical.
+///
+/// A first attempt using only "contains a digit" was wrong: it rejected
+/// `R-ROOT` and `CYC-A`, real ids in this crate's own fixtures.
+///
+/// # Where this is imprecise, stated rather than assumed away
+///
+/// The failure mode is a false positive — content read as a citation,
+/// surfacing as `cited but undefined` — never a missed citation, so the
+/// cost is noise a reader can dismiss, not a check that silently passes.
+///
+/// A bracketed name that is uppercase-led *and* hyphenated collides. That
+/// is impossible in C-family and Python-family identifiers but perfectly
+/// ordinary in Lisp, Clojure and Scheme, where `-` is an identifier
+/// character: a note about `[Some-Var]` in Clojure would be reported as
+/// an unresolved citation. Likewise a bracketed CamelCase name carrying a
+/// digit, like `[Utf8Error]`.
+///
+/// Both are accepted rather than engineered around. The alternative is
+/// making the rule depend on which language a document is about, which
+/// would require knowing that — and this tool deliberately does not.
 fn is_citation_shaped(id: &str) -> bool {
     id.starts_with(|c: char| c.is_ascii_uppercase())
         && id.bytes().any(|b| b.is_ascii_digit() || b == b'-')
