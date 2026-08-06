@@ -10,7 +10,7 @@
 //!
 //! Shell quoting has corrupted content in three separate runs of this
 //! tool and its prototype — most recently, backticks in `--note`/
-//! `--prop` broke inline CLI use on every attempt, forcing all
+//! `--proposition` broke inline CLI use on every attempt, forcing all
 //! substantial text through `@file` (see `workspace::resolve_text_value`).
 //! MCP arguments arrive as JSON values, decoded straight into Rust
 //! strings with no shell, and therefore no command-substitution step, in
@@ -166,14 +166,16 @@ struct ClaimParams {
     /// The claim's proposition. Plain text — no shell involved, so
     /// backticks, quotes and embedded newlines all pass through
     /// byte-exact. Required to create a new claim; with `revise`, an
-    /// omitted `prop` leaves the proposition unchanged.
+    /// omitted `proposition` leaves the proposition unchanged.
     #[serde(default)]
-    prop: Option<String>,
-    /// Comma-separated fact ids the claim rests on (e.g. `"F1,F3"`).
-    /// Required to create a new claim; with `revise`, an omitted `from`
-    /// leaves the citations unchanged.
+    proposition: Option<String>,
+    /// Comma-separated fact ids the claim rests on (e.g. `"F1,F3"`). The
+    /// same field `prose` takes, because it is the same relation — this
+    /// rests on that — and `render` prints it as `*cites: …*`. Required
+    /// to create a new claim; with `revise`, an omitted `cites` leaves
+    /// the citations unchanged.
     #[serde(default)]
-    from: Option<String>,
+    cites: Option<String>,
     /// Revise this existing claim instead of creating a new one.
     #[serde(default)]
     revise: Option<String>,
@@ -197,9 +199,11 @@ struct ProseParams {
     #[serde(default)]
     heading_level: Option<u8>,
     /// Comma-separated claim ids this paragraph cites (e.g. `"C1,C4"`).
+    /// The same field `claim` takes, because it is the same relation —
+    /// this rests on that — and `render` prints it as `*cites: …*`.
     /// Ignored for a heading.
     #[serde(default)]
-    cite: Option<String>,
+    cites: Option<String>,
     /// Revise this existing block's text instead of creating a new one.
     #[serde(default)]
     revise: Option<String>,
@@ -335,9 +339,9 @@ impl TetelServer {
         let req = if let Some(id) = p.withdraw {
             claims::ClaimRequest::Withdraw { id, why: p.why }
         } else if let Some(id) = p.revise {
-            claims::ClaimRequest::Revise { id, prop: p.prop, from: p.from, why: p.why }
+            claims::ClaimRequest::Revise { id, prop: p.proposition, from: p.cites, why: p.why }
         } else {
-            claims::ClaimRequest::Create { prop: p.prop, from: p.from }
+            claims::ClaimRequest::Create { prop: p.proposition, from: p.cites }
         };
         match claims::dispatch(&dir, req) {
             Ok(claims::ClaimOutcome::Created(outcome)) => {
@@ -365,7 +369,7 @@ impl TetelServer {
         } else if let Some(level) = p.heading_level {
             prose::ProseRequest::Heading { text: p.text, level: Some(level) }
         } else {
-            prose::ProseRequest::Paragraph { text: p.text, cite: p.cite }
+            prose::ProseRequest::Paragraph { text: p.text, cite: p.cites }
         };
         match prose::dispatch(&dir, req) {
             Ok(prose::ProseOutcome::Created(b)) => Ok(CallToolResult::structured(json!({"id": b.id, "action": "appended"}))),
@@ -400,6 +404,31 @@ impl TetelServer {
         match out {
             Ok(s) => text_result(s),
             Err(e) => Err(ErrorData::internal_error(format!("error querying: {e}"), None)),
+        }
+    }
+
+    #[tool(description = "List every authoring workspace on this machine with its fact/claim/prose counts. Takes no `workspace` — this is the one question that cannot be answered from inside one. Read-only; never creates anything.")]
+    async fn workspaces(&self) -> Result<CallToolResult, ErrorData> {
+        match crate::workspace::list() {
+            Ok(list) if list.is_empty() => text_result(format!(
+                "no workspaces yet under {}",
+                crate::workspace::state_home().join("workspaces").display()
+            )),
+            Ok(list) => text_result(
+                list.into_iter()
+                    .map(|w| {
+                        format!(
+                            "{}\t{} facts\t{} claims\t{} prose",
+                            w.name, w.facts, w.claims, w.prose
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            Err(e) => Err(ErrorData::internal_error(
+                format!("could not list workspaces: {e}"),
+                None,
+            )),
         }
     }
 

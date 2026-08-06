@@ -1,5 +1,5 @@
 //! `tetel claim` — assert, revise, or withdraw a proposition resting on
-//! facts. Refuses without `--from` (a claim must cite at least one
+//! facts. Refuses without `--cites` (a claim must cite at least one
 //! fact) and refuses on an unknown fact id. Before accepting a new
 //! claim, prints an overlap report: existing facts, not among those
 //! cited, that share an overlap key (see `pending.rs`'s doc comment on
@@ -102,14 +102,14 @@ pub struct CreateOutcome {
     pub overlap: Vec<(String, String)>,
 }
 
-/// `tetel claim --prop <text> --from F1,F3`.
+/// `tetel claim --proposition <text> --cites F1,F3`.
 pub fn create(workspace_dir: &Path, prop: &str, from_csv: &str) -> Result<CreateOutcome, AuthoringError> {
     let ids = parse_ids(from_csv);
     if ids.is_empty() {
         return Err(workspace::refuse(
             workspace_dir,
             "claim",
-            "a claim must rest on at least one fact (--from was missing or empty); try `tetel query facts` to find one, or mint a new fact with `tetel look`/`tetel run` + `tetel fact`",
+            "a claim must rest on at least one fact (--cites was missing or empty); try `tetel query facts` to find one, or mint a new fact with `tetel look`/`tetel run` + `tetel fact`",
         ));
     }
     let mut missing = Vec::new();
@@ -126,7 +126,7 @@ pub fn create(workspace_dir: &Path, prop: &str, from_csv: &str) -> Result<Create
         ));
     }
     if prop.trim().is_empty() {
-        return Err(workspace::refuse(workspace_dir, "claim", "no --prop given; a claim needs a proposition"));
+        return Err(workspace::refuse(workspace_dir, "claim", "no --proposition given; a claim needs a proposition"));
     }
 
     let overlap = overlap_report(workspace_dir, &ids)?;
@@ -166,7 +166,7 @@ fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<
     Ok(out)
 }
 
-/// `tetel claim --revise <id> --why <text> [--prop <text>] [--from ...]`.
+/// `tetel claim --revise <id> --why <text> [--proposition <text>] [--cites ...]`.
 /// At least one of `new_prop`/`new_from_csv` must be given — a revision
 /// that changes nothing isn't a revision.
 pub fn revise(
@@ -200,7 +200,7 @@ pub fn revise(
     };
     let prop = new_prop.map(str::to_string);
     if prop.is_none() && from.is_none() {
-        return Err(workspace::refuse(workspace_dir, "claim", "--revise requires a new --prop and/or --from"));
+        return Err(workspace::refuse(workspace_dir, "claim", "--revise requires a new --proposition and/or --cites"));
     }
     let event = ClaimEvent::Revise { id: id.to_string(), prop, from, why: why.to_string(), timestamp: workspace::now_unix() };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
@@ -253,8 +253,8 @@ pub fn dispatch(workspace_dir: &Path, req: ClaimRequest) -> Result<ClaimOutcome,
             revise(workspace_dir, &id, prop.as_deref(), from.as_deref(), &why).map(|()| ClaimOutcome::Revised { id })
         }
         ClaimRequest::Create { prop, from } => {
-            let prop = prop.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --prop"))?;
-            let from = from.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --from"))?;
+            let prop = prop.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --proposition"))?;
+            let from = from.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --cites"))?;
             create(workspace_dir, &prop, &from).map(ClaimOutcome::Created)
         }
     }

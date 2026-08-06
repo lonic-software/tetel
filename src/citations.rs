@@ -1,8 +1,29 @@
 //! Scans a document's body prose (fenced regions already blanked out by
-//! `parse::parse_document`) for `[ID]` / `[!ID]` citations, and classifies
-//! what immediately precedes each citation for the abutting-literal check.
+//! `parse::parse_document`) for citations, and classifies what
+//! immediately precedes each one for the abutting-literal check.
+//!
+//! # Two citation forms, one meaning
+//!
+//! Inline `[ID]` / `[!ID]` is the hand-authored form: it pins a citation
+//! to a specific spot in a sentence, which is what the abutting-literal
+//! check needs a column for.
+//!
+//! `*cites: C1, C4*` on a line of its own is what [`crate::compose`]
+//! emits for a block authored through `tetel prose --cites`. It attributes
+//! the whole preceding block rather than one phrase in it.
+//!
+//! Both must be scanned. Recognising only the bracket form was a real
+//! defect: `render` emitted the trailer form, `check` could not read it,
+//! and every claim a rendered document cited was reported "defined but
+//! never cited — default disposition is delete". Following that advice on
+//! the first document authored this way would have deleted a ledger whose
+//! prose cited every row. This is the mirror of the same seam fixed in
+//! "check: stop reporting a memo's own ledger claims as cited-but-
+//! undefined" — the renderer and the checker must agree on the syntax, in
+//! both directions.
 
-/// One `[ID]` or `[!ID]` citation found in body prose.
+/// One citation found in body prose — inline `[ID]`/`[!ID]`, or an id
+/// within a `*cites: …*` trailer line.
 #[derive(Debug, Clone)]
 pub struct Citation {
     /// 1-based line number.
@@ -20,6 +41,9 @@ pub struct Citation {
 /// `citation_ids_in` (a row's own field text, where only the cited ids
 /// matter, not a position to display).
 fn scan_line(line: &str) -> Vec<(usize, String, bool)> {
+    if let Some(trailer) = scan_cites_trailer(line) {
+        return trailer;
+    }
     let mut out = Vec::new();
     let bytes = line.as_bytes();
     let mut i = 0usize;
@@ -45,6 +69,44 @@ fn scan_line(line: &str) -> Vec<(usize, String, bool)> {
         i += 1;
     }
     out
+}
+
+/// A whole-line `*cites: C1, C4*` trailer as [`compose`](crate::compose)
+/// writes it, or `None` if this line is not one.
+///
+/// Deliberately strict: the line must be *only* the trailer, so that
+/// ordinary prose mentioning the word "cites" between asterisks is never
+/// silently reinterpreted as a citation. Each id gets the byte offset it
+/// actually starts at, so a malformed trailer still reports a usable
+/// column. There is no refuted stance here — the trailer form has no
+/// `[!ID]` equivalent, because a block-level attribution says "this rests
+/// on that", never "this refutes that".
+fn scan_cites_trailer(line: &str) -> Option<Vec<(usize, String, bool)>> {
+    let trimmed = line.trim();
+    let inner = trimmed.strip_prefix("*cites:")?.strip_suffix('*')?;
+    // Where `inner` begins within the original line, so the offsets below
+    // are relative to the line and not to the trimmed slice.
+    let base = line.len() - line.trim_start().len() + "*cites:".len();
+
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    for part in inner.split(',') {
+        let id = part.trim();
+        if !id.is_empty()
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            let within = part.len() - part.trim_start().len();
+            out.push((base + offset + within, id.to_string(), false));
+        }
+        offset += part.len() + 1; // + 1 for the ',' that split consumed
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 pub fn scan_citations(body: &[String]) -> Vec<Citation> {
@@ -221,4 +283,72 @@ pub fn abutting_context(line: &str, bracket_col: usize) -> AbuttingContext {
         return AbuttingContext::Candidate(tok.to_string());
     }
     AbuttingContext::None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The regression this module's doc comment describes: `render`
+    /// writes `*cites: …*`, and before this was fixed `check` read that
+    /// line as containing no citations at all.
+    #[test]
+    fn a_cites_trailer_is_scanned_as_citations() {
+        let ids: Vec<String> = scan_citations(&["*cites: C1, C4*".to_string()])
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["C1", "C4"]);
+    }
+
+    #[test]
+    fn a_single_id_trailer_and_a_leading_indent_both_scan() {
+        let ids: Vec<String> = scan_citations(&["  *cites: C1*".to_string()])
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["C1"]);
+    }
+
+    /// Each id must report the column it really starts at, not the start
+    /// of the trailer — `abutting_context` slices the line at that offset
+    /// and would panic on a byte index past the end.
+    #[test]
+    fn trailer_columns_point_at_each_id() {
+        let line = "*cites: C1, C40*".to_string();
+        let cits = scan_citations(&[line.clone()]);
+        for c in &cits {
+            assert_eq!(&line[c.col..c.col + c.id.len()], c.id, "column was wrong");
+        }
+    }
+
+    /// A trailer is a block-level attribution — "this rests on that" —
+    /// so it has no refuted form to carry.
+    #[test]
+    fn a_trailer_citation_never_carries_a_refuted_stance() {
+        assert!(scan_citations(&["*cites: C1*".to_string()])
+            .iter()
+            .all(|c| !c.stance_refuted));
+    }
+
+    /// Prose that merely talks about citing must not become a citation.
+    /// The trailer form is recognised only when it is the entire line.
+    #[test]
+    fn prose_mentioning_cites_mid_sentence_is_not_a_trailer() {
+        let body = vec!["The memo *cites: C1* in passing, mid-sentence.".to_string()];
+        assert!(scan_citations(&body).is_empty());
+    }
+
+    /// The inline form keeps working exactly as before, including its
+    /// refuted stance — the trailer scan is additive, not a replacement.
+    #[test]
+    fn inline_bracket_citations_still_scan_with_stance() {
+        let cits = scan_citations(&["grounded in [C1] but [!C2] was refuted".to_string()]);
+        let seen: Vec<(String, bool)> =
+            cits.into_iter().map(|c| (c.id, c.stance_refuted)).collect();
+        assert_eq!(
+            seen,
+            vec![("C1".to_string(), false), ("C2".to_string(), true)]
+        );
+    }
 }

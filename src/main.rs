@@ -114,10 +114,12 @@ enum Command {
         /// `@file`. Backticks in the text must come via `-` or `@file`,
         /// never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
-        prop: Option<String>,
-        /// Comma-separated fact ids the claim rests on.
+        proposition: Option<String>,
+        /// Comma-separated fact ids the claim rests on. The same flag
+        /// `tetel prose` takes, because it is the same relation — this
+        /// rests on that — and `tetel render` prints it as `*cites: …*`.
         #[arg(long, value_name = "F1,F3")]
-        from: Option<String>,
+        cites: Option<String>,
         /// Revise this claim instead of creating a new one.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
@@ -151,9 +153,11 @@ enum Command {
         /// The heading's markdown depth, 1..=6. Required with `--heading`.
         #[arg(long)]
         level: Option<u8>,
-        /// Comma-separated claim ids this paragraph cites.
+        /// Comma-separated claim ids this paragraph cites. The same flag
+        /// `tetel claim` takes, because it is the same relation — this
+        /// rests on that — and `tetel render` prints it as `*cites: …*`.
         #[arg(long, value_name = "C1,C4")]
-        cite: Option<String>,
+        cites: Option<String>,
         /// Revise this block's text instead of creating a new one.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
@@ -172,6 +176,13 @@ enum Command {
         #[command(subcommand)]
         what: QueryCommand,
     },
+    /// List every authoring workspace on this machine, with its fact,
+    /// claim and prose counts.
+    ///
+    /// Deliberately not under `query`, which is scoped to one workspace
+    /// by `--workspace`: asking which workspaces exist is the one
+    /// question that cannot be answered from inside one of them.
+    Workspaces,
     /// Run an MCP server over stdio, exposing `look`/`run`/`fact`/
     /// `claim`/`prose`/`render`/`query`/`check`/`brief`/`record` as
     /// tools. See `tetel::mcp` for why this exists and how refusals and
@@ -353,7 +364,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Claim { prop, from, revise, withdraw, why } => {
+        Command::Claim { proposition: prop, cites: from, revise, withdraw, why } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
                 Err(e) => {
@@ -428,7 +439,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Prose { text, heading, level, cite, revise, why } => {
+        Command::Prose { text, heading, level, cites: cite, revise, why } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
                 Err(e) => {
@@ -504,6 +515,32 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Workspaces => match tetel::workspace::list() {
+            Ok(list) => {
+                if list.is_empty() {
+                    // Not an error and not a refusal: nobody has authored
+                    // anything yet. Say where they would appear, so an
+                    // empty list is never mistaken for looking in the
+                    // wrong place.
+                    println!(
+                        "no workspaces yet under {}",
+                        tetel::workspace::state_home().join("workspaces").display()
+                    );
+                } else {
+                    for w in list {
+                        println!(
+                            "{}\t{} facts\t{} claims\t{} prose",
+                            w.name, w.facts, w.claims, w.prose
+                        );
+                    }
+                }
+                ExitCode::from(0)
+            }
+            Err(e) => {
+                eprintln!("tetel: could not list workspaces: {e}");
+                ExitCode::from(1)
+            }
+        },
         Command::Mcp => {
             let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                 Ok(rt) => rt,

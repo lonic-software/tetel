@@ -77,6 +77,61 @@ pub fn ensure(dir: &Path) -> io::Result<()> {
     fs::create_dir_all(dir)
 }
 
+/// One workspace on disk, with enough shape to tell which is which.
+///
+/// The counts are what an author actually needs to recognise a workspace
+/// they left days ago — a name alone does not distinguish an empty
+/// scratch workspace from a finished memo's.
+pub struct WorkspaceSummary {
+    pub name: String,
+    pub facts: usize,
+    pub claims: usize,
+    pub prose: usize,
+}
+
+/// Every workspace under [`state_home`], name-sorted.
+///
+/// Returns an empty list when no workspace has ever been created — that
+/// is an ordinary state, not an error, so this never creates the root
+/// directory as a side effect of being asked what exists. Counts are line
+/// counts of the append-only logs, so a revision or a withdrawal counts as
+/// its own event; this is a "which workspace is this" aid, not a census of
+/// live ids (`tetel query` answers that).
+pub fn list() -> io::Result<Vec<WorkspaceSummary>> {
+    let root = state_home().join("workspaces");
+    let entries = match fs::read_dir(&root) {
+        Ok(e) => e,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+
+    let count = |dir: &Path, file: &str| -> usize {
+        fs::read_to_string(dir.join(file))
+            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0)
+    };
+
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let dir = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        out.push(WorkspaceSummary {
+            name,
+            facts: count(&dir, "facts.jsonl"),
+            claims: count(&dir, "claims.jsonl"),
+            prose: count(&dir, "prose.jsonl"),
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 /// Resolve `name` to its workspace directory and ensure it exists on
 /// disk — the two-step sequence every authoring command (`look`, `run`,
 /// `fact`, `claim`, `prose`) needs before touching any state. Lifted here
@@ -137,7 +192,7 @@ pub fn refuse(workspace_dir: &Path, cmd: &str, reason: impl Into<String>) -> Aut
 
 /// Resolves a `text|-|@file` CLI value: `-` reads all of stdin; `@path`
 /// reads the named file, byte-exact; anything else is used as the
-/// literal text. Every free-text flag (`--note`, `--prop`, `--why`,
+/// literal text. Every free-text flag (`--note`, `--proposition`, `--why`,
 /// prose's `--text`/`--heading`) goes through this — see fix 3 in the
 /// design memo: shell interpolation has corrupted backtick- and
 /// quote-bearing text passed as a raw argument more than once, and the

@@ -118,11 +118,11 @@ fn fact_has_no_flag_to_supply_extent_or_output_directly() {
 fn claim_is_refused_without_from_and_on_unknown_fact_ids() {
     let sb = Sandbox::new("claim-refusals");
 
-    let (code, _out, err) = sb.run(&["claim", "--prop", "a claim resting on nothing"]);
+    let (code, _out, err) = sb.run(&["claim", "--proposition", "a claim resting on nothing"]);
     assert_ne!(code, 0, "a claim with no --from must be refused");
-    assert!(err.contains("--from"), "stderr was:\n{err}");
+    assert!(err.contains("--cites"), "stderr was:\n{err}");
 
-    let (code, _out, err) = sb.run(&["claim", "--prop", "x", "--from", "F999"]);
+    let (code, _out, err) = sb.run(&["claim", "--proposition", "x", "--cites", "F999"]);
     assert_ne!(code, 0, "a claim citing an unknown fact id must be refused");
     assert!(err.contains("F999"), "stderr was:\n{err}");
     assert!(sb.claims_jsonl().is_empty(), "no claim must be logged from either refusal");
@@ -154,7 +154,7 @@ fn overlap_fires_across_two_different_line_ranges_of_one_file() {
     let (code, _, err) = sb.run(&["fact", "--note", "an unrelated file"]);
     assert_eq!(code, 0, "stderr:\n{err}");
 
-    let (code, out, err) = sb.run(&["claim", "--prop", "lib.rs starts with `line 1`", "--from", "F1"]);
+    let (code, out, err) = sb.run(&["claim", "--proposition", "lib.rs starts with `line 1`", "--cites", "F1"]);
     assert_eq!(code, 0, "stderr:\n{err}");
     assert!(out.contains("F2"), "the second range of the SAME file must overlap:\n{out}");
     assert!(!out.contains("F3"), "an unrelated file's fact must never overlap:\n{out}");
@@ -216,9 +216,9 @@ fn claim_revision_keeps_the_old_proposition_verbatim() {
     sb.write("src/lib.rs", "content\n");
     sb.run(&["look", "src/lib.rs"]);
     sb.run(&["fact", "--note", "a fact"]);
-    sb.run(&["claim", "--prop", "the original proposition", "--from", "F1"]);
+    sb.run(&["claim", "--proposition", "the original proposition", "--cites", "F1"]);
 
-    let (code, _out, err) = sb.run(&["claim", "--revise", "C1", "--prop", "the revised proposition", "--why", "narrowed after review"]);
+    let (code, _out, err) = sb.run(&["claim", "--revise", "C1", "--proposition", "the revised proposition", "--why", "narrowed after review"]);
     assert_eq!(code, 0, "stderr:\n{err}");
 
     let log = sb.claims_jsonl();
@@ -330,7 +330,7 @@ fn query_deps_reports_what_a_fact_is_cited_by_and_what_a_claim_rests_on() {
     sb.write("src/lib.rs", "content\n");
     sb.run(&["look", "src/lib.rs"]);
     sb.run(&["fact", "--note", "a fact"]);
-    sb.run(&["claim", "--prop", "a claim", "--from", "F1"]);
+    sb.run(&["claim", "--proposition", "a claim", "--cites", "F1"]);
 
     let (_, out, _) = sb.run(&["query", "deps", "F1"]);
     assert!(out.contains("C1"), "output was:\n{out}");
@@ -351,8 +351,8 @@ fn render_appends_a_checkable_evidence_ledger_without_altering_prose_bytes() {
     sb.write("src/lib.rs", "fn foo() {}\n");
     sb.run(&["look", "src/lib.rs"]);
     sb.run(&["fact", "--note", "foo is defined in lib.rs"]);
-    sb.run(&["claim", "--prop", "foo exists", "--from", "F1"]);
-    sb.run_stdin(&["prose", "--cite", "C1"], "Foo exists in the codebase.");
+    sb.run(&["claim", "--proposition", "foo exists", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Foo exists in the codebase.");
 
     let (code, out, err) = sb.run(&["render"]);
     assert_eq!(code, 0, "stderr:\n{err}");
@@ -431,4 +431,73 @@ fn brief_authoring_mode_needs_no_memo_and_is_self_contained() {
     assert!(out.contains("tetel claim --revise"), "output was:\n{out}");
     assert!(!out.contains("/Volumes/"), "output was:\n{out}");
     assert!(!out.contains("/Users/"), "output was:\n{out}");
+}
+
+/// `tetel workspaces` is the one question that cannot be answered from
+/// inside a workspace, so it takes no `--workspace` of its own.
+#[test]
+fn workspaces_lists_every_workspace_with_its_counts() {
+    let sb = Sandbox::new("workspaces-list");
+    sb.write("a.txt", "alpha\n");
+
+    sb.run(&["--workspace", "one", "look", "a.txt"]);
+    sb.run(&["--workspace", "one", "fact", "--note", "a note"]);
+    sb.run(&["--workspace", "one", "claim", "--proposition", "a claim", "--cites", "F1"]);
+    sb.run_stdin(&["--workspace", "one", "prose", "--cites", "C1"], "Some prose.");
+
+    // A second workspace with strictly less in it, to prove the counts
+    // are per-workspace rather than global.
+    sb.run(&["--workspace", "two", "look", "a.txt"]);
+    sb.run(&["--workspace", "two", "fact", "--note", "another note"]);
+
+    let (code, out, err) = sb.run(&["workspaces"]);
+    assert_eq!(code, 0, "stderr was:\n{err}");
+
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "expected exactly two workspaces, got:\n{out}");
+    // Name-sorted, so `one` precedes `two` regardless of creation order.
+    assert!(lines[0].starts_with("one\t"), "got: {}", lines[0]);
+    assert!(lines[0].contains("1 facts") && lines[0].contains("1 claims") && lines[0].contains("1 prose"), "got: {}", lines[0]);
+    assert!(lines[1].starts_with("two\t"), "got: {}", lines[1]);
+    assert!(lines[1].contains("1 facts") && lines[1].contains("0 claims") && lines[1].contains("0 prose"), "got: {}", lines[1]);
+}
+
+/// An empty list is an ordinary state, not an error — and it must say
+/// where it looked, so it is never mistaken for looking in the wrong
+/// place. It must also not create the root as a side effect of asking.
+#[test]
+fn workspaces_on_a_fresh_machine_reports_empty_without_creating_anything() {
+    let sb = Sandbox::new("workspaces-empty");
+    let (code, out, err) = sb.run(&["workspaces"]);
+    assert_eq!(code, 0, "stderr was:\n{err}");
+    assert!(out.contains("no workspaces yet"), "got: {out}");
+    assert!(
+        !sb.state_home().join("workspaces").exists(),
+        "asking what exists must not create the root"
+    );
+}
+
+/// The regression behind the citation-scanner fix, end to end: a
+/// document authored through `prose --cites` and produced by `render`
+/// must not have every one of its claims reported "defined but never
+/// cited", whose stated default disposition is to delete them.
+#[test]
+fn a_rendered_documents_own_citations_are_not_reported_as_uncited() {
+    let sb = Sandbox::new("rendered-citations-scan");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha.");
+
+    let (_code, rendered, _err) = sb.run(&["render"]);
+    assert!(rendered.contains("*cites: C1*"), "render should emit the trailer:\n{rendered}");
+    sb.write("memo.md", &rendered);
+
+    let (_code, report, err) = sb.run(&["check", "memo.md"]);
+    let combined = format!("{report}{err}");
+    assert!(
+        !combined.contains("C1: defined but never cited"),
+        "check must read render's own citation syntax; report was:\n{combined}"
+    );
 }
