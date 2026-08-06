@@ -129,6 +129,43 @@ not that it was theater.
 `look` performed after the fact purely to satisfy that refusal — that
 part is on you, not the tool.
 
+## Spending evidence — the note is not the claim
+
+Each of these is one observed failure from a real memo, turned into a
+rule. Every one produced a defect that survived to a rendered document
+and was caught later by a human reading closely.
+
+- **A qualifier your note recorded is part of the fact.** If a note says
+  `except` or `unless`, or records an ordering (`this runs AFTER that`),
+  a claim resting on it either carries that qualifier or says why it is
+  out of range. Writing `any`, `every` or `never` over a fact that
+  recorded an exception is how a true fact becomes a false claim.
+
+- **A comparison is a claim, not a note.** `X mirrors Y`, `both read the
+  same field` — if this fact's extent contains only X, you have not read
+  Y here. Mint a second fact for Y and put the comparison in a claim
+  citing both. A note may name Y as context; it may not conclude about
+  it. Two notes that each reach across to the other are how two facts
+  come to contradict each other with nothing to notice it.
+
+- **A number keeps the unit its instrument counted.** If the counter
+  counted calls to one function, spend it as that. Converting it to
+  another unit, or deriving a size from it, is a new assertion that needs
+  its own claim or stays out of the prose.
+
+- **A command that exits 0 has established nothing by exiting 0.** Before
+  resting a fact on `run`, reread the transcript: does the output state
+  the proposition, or only fail to deny it? If the proposition lives in a
+  file the run wrote, that file belongs beside the memo, and the note
+  says where.
+
+Before `tetel render`, run `tetel review` and read each paragraph against
+the claims it cites, asking one question: does this paragraph say
+anything none of its cited claims says? The sentence carrying your
+recommendation must cite a claim that states it, not a claim that happens
+to sit nearby. Mint the missing claim or cut the sentence — do not let
+the strongest sentence in the memo be the one with no row behind it.
+
 Closing the loop is yours to do, not someone else's: once the document is
 rendered (`tetel render`), run `tetel check` against it. That is your own
 last check on what you just wrote, not a second reader's job.
@@ -149,6 +186,11 @@ mod tests {
         assert!(!AUTHORING_BRIEF.contains("/Volumes/"));
         assert!(!AUTHORING_BRIEF.contains("harness"));
         assert!(AUTHORING_BRIEF.contains("tetel claim --revise"));
+        // The review step must stay named in the loop: `review` exists
+        // to be run before `render`, and a brief that never mentions it
+        // leaves the one channel that catches prose asserting past its
+        // claims to be discovered by accident.
+        assert!(AUTHORING_BRIEF.contains("tetel review"));
     }
 
     #[test]
