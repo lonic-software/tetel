@@ -437,7 +437,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Execute a command directly (no shell) and record its combined stdout/stderr into the pending buffer. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Execute a command directly (no shell) and record its combined stdout/stderr into the pending buffer. The whole output is captured verbatim and, once minted into a fact, becomes permanently unrevisable and ships into the snapshot beside the memo — so a command whose output is enormous, or contains a credential, puts that in a repository forever. A command exiting 0 also establishes nothing by exiting 0: read the output and ask whether it states your proposition or merely fails to deny it. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn run(&self, Parameters(p): Parameters<RunParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         match observe::run_command(&dir, &p.command) {
@@ -467,7 +467,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim prints an OVERLAP REPORT: other facts whose extent touches the same file or command as the facts you cited, and which you did NOT cite. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.withdraw {
@@ -512,7 +512,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assemble the workspace's current prose into the finished markdown document, plus a checkable evidence ledger. `workspace` is required (never defaulted).")]
+    #[tool(description = "Assemble the workspace into the finished document: prose in order, then an evidence ledger of every non-withdrawn claim, then a Facts table carrying each fact's note and its CAPTURED extent — which is what lets a reader check a note against what was actually opened without the workspace in hand. Run `review` before this and read each paragraph against the claims it cites. With `out`, also writes the workspace snapshot to `<out>.tetel/` in the same act, and mints the workspace identity if it has none; without a snapshot beside it a memo's citation ids resolve to nothing and `check` cannot tell self-grounding from independent grounding. Warns if observations are still pending, never minted into a fact. `workspace` is required (never defaulted).")]
     async fn render(&self, Parameters(p): Parameters<RenderParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let rendered = match compose::render(&dir) {
@@ -610,7 +610,7 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Check a markdown memo's `tetel` evidence rows and evidence ledger. Never writes any file, executes any command from the document, or makes a network call.")]
+    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), stale evidence (a record graded text the claim no longer carries), and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
         match crate::check_file(&resolved(&p.file)) {
             Ok((code, report)) => {

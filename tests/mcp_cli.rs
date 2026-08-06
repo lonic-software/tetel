@@ -587,3 +587,70 @@ async fn every_path_parameter_documents_that_it_wants_an_absolute_path() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// A tool description is the only thing a model re-reads at every call,
+/// and three of them had drifted from the behaviour by the time this was
+/// written: `review` advertised a parameter it ignored, `record` rejected
+/// a shape it should accept, and no path parameter said it wanted an
+/// absolute path. This pins the load-bearing claims each description
+/// makes to the code that has to keep them true — a weaker guarantee
+/// than checking prose for accuracy, but it fails when the constant or
+/// the returned field moves.
+#[tokio::test]
+async fn tool_descriptions_stay_tied_to_the_behaviour_they_promise() {
+    let sb = Sandbox::new("desc-pins");
+    let client = sb.connect().await;
+    let tools = client.list_all_tools().await.expect("list tools");
+    let desc = |name: &str| -> String {
+        tools
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("{name} missing"))
+            .description
+            .clone()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    // `check` promises exit 2 for the no-rows state — and that it is not
+    // a clean run, which is the distinction the code exists to keep.
+    let c = desc("check");
+    assert!(
+        c.contains(&format!("Exit {}", tetel::EXIT_NO_ROWS)),
+        "check must name the no-rows exit code, which is {}: {c}",
+        tetel::EXIT_NO_ROWS
+    );
+    assert!(c.contains("NOT a clean run"), "check must say exit 2 is not clean: {c}");
+    // And it must name both partitions, since the two-partition contract
+    // is the whole output shape.
+    assert!(c.contains("MACHINE-CHECKED") && c.contains("HUMAN-OWED"), "got: {c}");
+
+    // `render` promises the snapshot suffix that `snapshot_path` decides.
+    let r = desc("render");
+    let suffix = tetel::snapshot::snapshot_path(std::path::Path::new("m.md"))
+        .extension()
+        .and_then(|e| e.to_str())
+        .expect("snapshot path has an extension")
+        .to_string();
+    assert!(
+        r.contains(&format!(".{suffix}/")),
+        "render must name the snapshot suffix `.{suffix}/`: {r}"
+    );
+
+    // `claim` promises an overlap report; the handler returns it as a
+    // field, so the promise and the payload move together.
+    assert!(desc("claim").contains("OVERLAP REPORT"), "claim must explain its overlap output");
+
+    // `record` promises the witnessed/ingested split.
+    let rec = desc("record");
+    assert!(rec.contains("from_fact") && rec.contains("input"), "record must name both paths: {rec}");
+    assert!(rec.contains("witnessed"), "record must name the witnessed path: {rec}");
+
+    // `run` must warn that captured output is permanent and ships.
+    assert!(
+        desc("run").contains("unrevisable") && desc("run").contains("snapshot"),
+        "run must warn that its capture is permanent and ships with the memo"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
