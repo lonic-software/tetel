@@ -320,6 +320,12 @@ pub fn record_from_fact(
     identity: &crate::workspace::Identity,
     note: Option<String>,
 ) -> Result<(), RecordError> {
+    if verdict == Verdict::Qualifies && note.as_deref().unwrap_or("").trim().is_empty() {
+        return Err(RecordError::MalformedRecord(
+            "a `qualifies` verdict needs a `note` saying what the qualification is — either the \
+condition the proposition holds under, or what you could not establish".to_string(),
+        ));
+    }
     let claim = claims
         .iter()
         .find(|c| c.id == claim_id)
@@ -423,6 +429,17 @@ pub fn record(memo: &Path, claims: &[Claim], input_json: &str) -> Result<(), Rec
     if Source::parse(&input.source).is_none() {
         return Err(RecordError::MalformedRecord(
             "missing or malformed `source` (a file path, or `proc:<session-or-agent>`)".to_string(),
+        ));
+    }
+    // Format-level, not heuristic: a bare `qualifies` is uninterpretable.
+    // It says the proposition holds only under some condition, or that
+    // the pass could not establish it — and which of those, and what the
+    // condition is, exists nowhere else. `supports` and `refutes` stand
+    // alone; this one does not.
+    if verdict == Verdict::Qualifies && input.note.as_deref().unwrap_or("").trim().is_empty() {
+        return Err(RecordError::MalformedRecord(
+            "a `qualifies` verdict needs a `note` saying what the qualification is — either the \
+condition the proposition holds under, or what you could not establish".to_string(),
         ));
     }
     let claim = claims

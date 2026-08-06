@@ -116,6 +116,18 @@ pub struct Findings {
     /// ingested (extent typed by a caller). Human-owed, printed item by
     /// item, never a failure — see [`grounding_provenance`].
     pub grounding_provenance: Vec<String>,
+    /// `(claim id, pass, note)` per record whose verdict is
+    /// [`Verdict::Qualifies`]. Human-owed, never a failure.
+    ///
+    /// Until this existed, a qualifying verdict was invisible. On the
+    /// first real independent grounding pass, the two claims the grounder
+    /// declined to confirm — because the numbers they rest on could not
+    /// be verified from what it was given — printed as plainly "grounded",
+    /// while the one claim where it qualified a single premise of a
+    /// multi-premise argument was the only thing reddening the report.
+    /// The check fired on the wrong claim and was silent on the right
+    /// ones.
+    pub qualified_claims: Vec<(String, String, String)>,
 }
 
 impl Findings {
@@ -488,6 +500,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         notes_outside_extent: Vec::new(),
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
+        qualified_claims: Vec::new(),
     }
 }
 
@@ -512,8 +525,20 @@ fn author_status_verdict(status_cell: &str) -> Option<Verdict> {
     }
 }
 
-/// `(ungrounded, attested_grounded, disagreements)` — see [`analyze_ledger`].
-type LedgerFindings = (Vec<(String, String)>, Vec<(String, String)>, Vec<String>);
+/// `(ungrounded, attested_grounded, verdict_disagreements, qualified)`.
+///
+/// `qualified` is `(claim id, pass, note)` per qualifying record —
+/// human-owed, never a failure. A grounder that reports "true only under
+/// a condition this proposition does not state", or "I could not
+/// establish this from what I was given", has produced the most
+/// load-bearing sentence in its whole pass; it belongs in front of a
+/// reader, not buried in a file.
+type LedgerFindings = (
+    Vec<(String, String)>,
+    Vec<(String, String)>,
+    Vec<String>,
+    Vec<(String, String, String)>,
+);
 
 /// The checks this slice and the grounding-provenance slice on top of it
 /// add, run independently of the five `tetel`-row checks above: a claim
@@ -528,6 +553,7 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
     let mut ungrounded = Vec::new();
     let mut attested_grounded = Vec::new();
     let mut disagreements = Vec::new();
+    let mut qualified = Vec::new();
 
     for claim in claims {
         let records: Vec<&EvidenceRecord> = evidence.iter().filter(|e| e.claim_id == claim.id).collect();
@@ -547,21 +573,80 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
             attested_grounded.push((claim.id.clone(), claim.proposition.clone()));
         }
 
-        for pair in records.windows(2) {
-            let (a, b) = (pair[0], pair[1]);
-            if a.verdict != b.verdict {
-                disagreements.push(format!(
-                    "{} — {}\n      pass {} => {} — {}\n      pass {} => {} — {}",
-                    claim.id,
-                    claim.proposition,
-                    a.pass,
-                    a.verdict,
-                    a.note.as_deref().unwrap_or("(no note)"),
-                    b.pass,
-                    b.verdict,
-                    b.note.as_deref().unwrap_or("(no note)"),
-                ));
-            }
+        // A contradiction is `supports` *and* `refutes` on one
+        // proposition — P and not-P, decidable without a human, which is
+        // what belongs in the machine partition.
+        //
+        // Two things this deliberately no longer does.
+        //
+        // It no longer treats `qualifies` as contradicting anything.
+        // `qualifies` means "true under a condition the proposition does
+        // not state" or "I could not establish this from what I was
+        // given"; neither is inconsistent with another pass finding the
+        // proposition supported. The author-vs-record comparison below
+        // has always taken that view — only Supports/Refutes contradict —
+        // and the record-vs-record loop disagreeing with it was the
+        // inconsistency, not the doctrine. It also made an honest
+        // multi-fact grounding unwritable in effect: `record --from-fact`
+        // takes one fact per record, so a claim resting on several facts
+        // accrues several same-pass records, and a grounder qualifying
+        // one premise of a multi-premise argument reddened the memo for
+        // being precise. Worse, the red was undischargeable — the
+        // evidence log is append-only with no supersession, so nothing
+        // the author could do afterwards would clear it.
+        //
+        // And it compares the whole set rather than adjacent pairs. The
+        // old `windows(2)` loop compared (1,2) and (2,3) but never (1,3),
+        // so records ordered `supports, qualifies, refutes` reported two
+        // findings about the qualifies pairs and never mentioned the one
+        // real contradiction. Order-dependent, and wrong in the direction
+        // that hides the failure.
+        //
+        // Pass identity is deliberately not a condition. For an ingested
+        // record `pass` is caller-typed free text, so resting a machine
+        // verdict on passes differing would put a contradiction behind an
+        // unverifiable field — and same-pass Supports+Refutes on one
+        // proposition is a formal contradiction regardless of who wrote
+        // both.
+        let supporting: Vec<&&EvidenceRecord> =
+            records.iter().filter(|r| r.verdict == Verdict::Supports).collect();
+        let refuting: Vec<&&EvidenceRecord> =
+            records.iter().filter(|r| r.verdict == Verdict::Refutes).collect();
+        if !supporting.is_empty() && !refuting.is_empty() {
+            let side = |rs: &[&&EvidenceRecord]| -> String {
+                rs.iter()
+                    .map(|r| {
+                        format!(
+                            "\n      pass {} => {} — {}",
+                            r.pass,
+                            r.verdict,
+                            r.note.as_deref().unwrap_or("(no note)")
+                        )
+                    })
+                    .collect()
+            };
+            disagreements.push(format!(
+                "{} — {}{}{}",
+                claim.id,
+                claim.proposition,
+                side(&supporting),
+                side(&refuting),
+            ));
+        }
+
+        // A qualified claim is human-owed, and until now it was silent.
+        // On the first real grounding pass, the two claims the grounder
+        // explicitly declined to confirm read as plainly "grounded", with
+        // nothing anywhere in the report saying so — while the one claim
+        // where it qualified a single premise of a multi-premise argument
+        // was the one that reddened. The check fired on the wrong claim
+        // and said nothing about the right ones.
+        for r in records.iter().filter(|r| r.verdict == Verdict::Qualifies) {
+            qualified.push((
+                claim.id.clone(),
+                r.pass.clone(),
+                r.note.clone().unwrap_or_else(|| "(no note)".to_string()),
+            ));
         }
 
         if let Some(author_verdict) = author_status_verdict(&claim.status) {
@@ -587,7 +672,7 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
         }
     }
 
-    (ungrounded, attested_grounded, disagreements)
+    (ungrounded, attested_grounded, disagreements, qualified)
 }
 
 /// One line per evidence record whose `source` designator is a path that

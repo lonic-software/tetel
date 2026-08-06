@@ -888,3 +888,108 @@ fn without_a_snapshot_the_distinction_is_reported_as_undeterminable() {
     let combined = format!("{report}{err}");
     assert!(combined.contains("cannot be determined from here"), "got:\n{combined}");
 }
+
+/// Build a one-claim memo, returning its path. Fixtures for the
+/// verdict-policy tests are authored here rather than copied from any
+/// real corpus — this repo is public and must carry no private memo's
+/// text or paths.
+fn one_claim_memo(sb: &Sandbox) -> PathBuf {
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+    memo
+}
+
+/// `supports` beside `qualifies` is not a contradiction, and must not
+/// redden the machine partition. It is what an honest grounder produces
+/// when a claim rests on several facts and one premise holds only under
+/// a condition — and `record --from-fact` takes one fact per record, so
+/// that shape is the tool's own, not a misuse of it.
+#[test]
+fn supports_beside_qualifies_is_not_a_machine_failure() {
+    let sb = Sandbox::new("verdict-mixed");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "qualifies",
+             "--note", "holds only for the single-threaded path"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_ne!(code, 1, "supports + qualifies must not fail the machine check:\n{combined}");
+    assert!(!combined.contains("[verdict-disagreement]"), "got:\n{combined}");
+    // But it must be visible: a qualification is the most load-bearing
+    // thing a grounding pass produces, and it used to print nowhere.
+    assert!(combined.contains("C1: QUALIFIED"), "got:\n{combined}");
+    assert!(combined.contains("single-threaded path"), "the note must be quoted:\n{combined}");
+}
+
+/// `supports` and `refutes` on one proposition is P and not-P — still a
+/// machine failure, regardless of which pass wrote either.
+#[test]
+fn supports_and_refutes_still_fails_the_machine_check() {
+    let sb = Sandbox::new("verdict-contradiction");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "refutes"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "a real contradiction must still redden:\n{combined}");
+    assert!(combined.contains("[verdict-disagreement]"), "got:\n{combined}");
+}
+
+/// The old check compared only *adjacent* records, so with the ordering
+/// `supports, qualifies, refutes` it reported the two qualifies pairs and
+/// never compared (1,3) — the one real contradiction went unmentioned
+/// while the report reddened for the wrong reason. Set-based comparison
+/// fixes both halves.
+#[test]
+fn a_contradiction_is_found_whatever_order_the_records_arrive_in() {
+    let sb = Sandbox::new("verdict-ordering");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "qualifies",
+             "--note", "only under condition X"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "refutes"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "the supports/refutes pair must be found:\n{combined}");
+    // Exactly one finding for the claim, not one per adjacent pair.
+    assert_eq!(
+        combined.matches("[verdict-disagreement]").count(),
+        1,
+        "one finding per claim, not per pair:\n{combined}"
+    );
+    assert!(combined.contains("C1: QUALIFIED"), "the qualification still prints:\n{combined}");
+}
+
+/// A bare `qualifies` is uninterpretable: which of "holds under a
+/// condition" and "I could not establish this" it means, and what the
+/// condition is, exist nowhere else. Format-level, so a refusal is
+/// allowed where a heuristic one would not be.
+#[test]
+fn a_qualifies_verdict_without_a_note_is_refused() {
+    let sb = Sandbox::new("verdict-bare-qualifies");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    let (code, _out, err) = sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1",
+                                     "--verdict", "qualifies"]);
+    assert_eq!(code, 1, "a bare qualifies must be refused");
+    assert!(err.contains("needs a `note`"), "stderr:\n{err}");
+
+    // And nothing was written.
+    let ev = sb.dir.join("memo.md.evidence.jsonl");
+    assert!(!ev.exists() || std::fs::read_to_string(&ev).unwrap().trim().is_empty());
+}
