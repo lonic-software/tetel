@@ -224,6 +224,18 @@ pub struct EvidenceRecord {
     /// separates "the tool witnessed the act" from "the tool witnessed
     /// someone saying the act happened".
     pub witnessed: bool,
+    /// sha256 of the exact proposition text this record was graded
+    /// against, read back from `subject.digest`.
+    ///
+    /// Written since this module existed and, until now, read by nothing.
+    /// A record is matched to a claim by **id**, so a proposition could
+    /// be revised underneath its own evidence and the evidence would
+    /// silently transfer — including to its negation, through the
+    /// ordinary `claim --revise` + `render` path, with the memo still
+    /// matching its snapshot and the machine partition still clean.
+    /// [`crate::checks::analyze_ledger`] now compares this against the
+    /// claim's current text, which is what the field was for.
+    pub proposition_digest: String,
 }
 
 impl EvidenceRecord {
@@ -524,6 +536,7 @@ fn parse_line(line: &str) -> Result<EvidenceRecord, String> {
         pin: statement.predicate.pin.clone(),
         timestamp: statement.predicate.timestamp,
         witnessed: statement.predicate_type == CAPTURED_PREDICATE_TYPE,
+        proposition_digest: subject.digest.sha256.clone(),
     })
 }
 

@@ -993,3 +993,63 @@ fn a_qualifies_verdict_without_a_note_is_refused() {
     let ev = sb.dir.join("memo.md.evidence.jsonl");
     assert!(!ev.exists() || std::fs::read_to_string(&ev).unwrap().trim().is_empty());
 }
+
+/// Evidence grades a *proposition*, not an id. Revising a claim's text
+/// after it was graded used to leave the old evidence attached — through
+/// the ordinary `claim --revise` + `render --out` path, with the memo
+/// still matching its snapshot, no drift, and the machine partition
+/// clean. The tool reported evidence for a proposition nobody had
+/// examined, and this test is the negation case: the claim now asserts
+/// the exact opposite of what was graded.
+#[test]
+fn revising_a_graded_proposition_makes_its_evidence_stale() {
+    let sb = Sandbox::new("stale-evidence");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    let (code, report, err) = sb.run(&["check", m]);
+    assert_ne!(code, 1, "clean before the revision:\n{report}{err}");
+
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs does NOT define alpha()",
+             "--why", "reversing the claim entirely"]);
+    sb.run(&["render", "--out", m]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "stale evidence must fail the machine check:\n{combined}");
+    assert!(combined.contains("[stale-evidence]"), "got:\n{combined}");
+    assert!(combined.contains("graded different text"), "got:\n{combined}");
+    // The memo matches its snapshot, so drift is not what caught this.
+    assert!(!combined.contains("[provenance-drift]"), "drift must not be the catcher:\n{combined}");
+}
+
+/// Re-grounding after the revision clears it: the new record carries the
+/// new text's digest.
+#[test]
+fn re_grounding_a_revised_claim_clears_the_stale_finding() {
+    let sb = Sandbox::new("stale-cleared");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs defines exactly one function",
+             "--why", "narrowing"]);
+    sb.run(&["render", "--out", m]);
+    let (code, _r, _e) = sb.run(&["check", m]);
+    assert_eq!(code, 1, "stale first");
+
+    // The old record stays — the log is append-only — so the finding
+    // persists until the wording it graded is restored. Re-grounding adds
+    // a current record beside it; the stale one is still named, which is
+    // correct: it graded text this claim no longer carries.
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
+             "--note", "re-grounded against the narrowed wording"]);
+    let (_c, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(
+        combined.matches("[stale-evidence]").count(),
+        1,
+        "exactly the one superseded record is named, not the fresh one:\n{combined}"
+    );
+}

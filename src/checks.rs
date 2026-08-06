@@ -128,6 +128,10 @@ pub struct Findings {
     /// The check fired on the wrong claim and was silent on the right
     /// ones.
     pub qualified_claims: Vec<(String, String, String)>,
+    /// Evidence whose recorded proposition digest does not match the
+    /// claim's current text — the proposition was revised after being
+    /// graded. A machine failure; see [`analyze_ledger`].
+    pub stale_evidence: Vec<String>,
 }
 
 impl Findings {
@@ -139,6 +143,7 @@ impl Findings {
             || !self.cascade_failures.is_empty()
             || !self.ledger_errors.is_empty()
             || !self.verdict_disagreements.is_empty()
+            || !self.stale_evidence.is_empty()
             || self.provenance_failed()
     }
 
@@ -501,6 +506,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
         qualified_claims: Vec::new(),
+        stale_evidence: Vec::new(),
     }
 }
 
@@ -538,6 +544,7 @@ type LedgerFindings = (
     Vec<(String, String)>,
     Vec<String>,
     Vec<(String, String, String)>,
+    Vec<String>,
 );
 
 /// The checks this slice and the grounding-provenance slice on top of it
@@ -554,9 +561,44 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
     let mut attested_grounded = Vec::new();
     let mut disagreements = Vec::new();
     let mut qualified = Vec::new();
+    let mut stale_digests = Vec::new();
 
     for claim in claims {
         let records: Vec<&EvidenceRecord> = evidence.iter().filter(|e| e.claim_id == claim.id).collect();
+
+        // A record grades a *proposition*, not an id. The digest of the
+        // text it graded is written into every record; comparing it to
+        // the claim's current text is what stops evidence transferring to
+        // a rewritten claim.
+        //
+        // Without this, revising a proposition through the ordinary
+        // `claim --revise` + `render --out` path left its old evidence
+        // attached — including to the exact negation of what was graded,
+        // with the memo still matching its snapshot, no drift, and the
+        // machine partition clean. The tool reported evidence for a
+        // proposition nobody had examined, through the supported path,
+        // with nothing anywhere saying so.
+        //
+        // A machine failure: the record states which bytes it graded, the
+        // claim states its bytes, and they differ. No judgement involved.
+        let current = crate::evidence::sha256_hex(&claim.proposition);
+        for r in records.iter().filter(|r| {
+            !r.proposition_digest.is_empty() && r.proposition_digest != current
+        }) {
+            stale_digests.push(format!(
+                "{} — evidence from pass {} graded different text than this claim now carries \
+(recorded digest {}…, current {}…). The proposition was revised after it was graded, so this \
+record establishes nothing about what the claim says today. Re-ground it, or restore the wording \
+it was graded against.\n      that pass said: {} — {}",
+                claim.id,
+                r.pass,
+                &r.proposition_digest[..r.proposition_digest.len().min(12)],
+                &current[..current.len().min(12)],
+                r.verdict,
+                r.note.as_deref().unwrap_or("(no note)"),
+            ));
+        }
+
         if records.is_empty() {
             ungrounded.push((claim.id.clone(), claim.proposition.clone()));
             continue;
@@ -672,7 +714,7 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
         }
     }
 
-    (ungrounded, attested_grounded, disagreements, qualified)
+    (ungrounded, attested_grounded, disagreements, qualified, stale_digests)
 }
 
 /// One line per evidence record whose `source` designator is a path that

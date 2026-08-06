@@ -665,7 +665,17 @@ they are in the snapshot but nothing in the document rests on them"
 workspace captured) or `input` (ingested: extent typed by you)",
             })));
         };
-        match crate::record_file(Path::new(&p.memo), &input.to_string()) {
+        // A caller that JSON-encodes `input` into a string instead of
+        // passing an object gets the same result rather than a confusing
+        // "invalid type: string, expected struct RecordInput". Both
+        // shapes are unambiguous — a bare string is never a valid record
+        // — so accepting each costs nothing and removes a trap that has
+        // already cost one agent a run.
+        let input_json = match &input {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        match crate::record_file(Path::new(&p.memo), &input_json) {
             Ok(Ok(())) => Ok(CallToolResult::structured(json!({
                 "recorded": true,
                 "witnessed": false,
