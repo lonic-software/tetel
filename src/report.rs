@@ -5,6 +5,7 @@
 
 use crate::checks::Findings;
 use crate::parse::Document;
+use crate::snapshot::Provenance;
 
 /// Exit codes. 0 and 1 are the conventional pass/fail; 2 is the D8 state —
 /// "no tetel rows found" — which must never be confusable with clean.
@@ -39,9 +40,10 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.unsettled_failures.len()
         + findings.cascade_failures.len()
         + findings.ledger_errors.len()
-        + findings.verdict_disagreements.len();
+        + findings.verdict_disagreements.len()
+        + usize::from(findings.provenance_failed());
     let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
-dependency cascades, evidence-ledger import, verdict disagreement";
+dependency cascades, evidence-ledger import, verdict disagreement, provenance drift";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -67,6 +69,29 @@ dependency cascades, evidence-ledger import, verdict disagreement";
         for e in &findings.verdict_disagreements {
             out.push_str(&format!("  - [verdict-disagreement] {e}\n"));
         }
+        match &findings.provenance {
+            Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
+                let where_ = match first_diff_line {
+                    Some(n) => format!("first difference at line {n}"),
+                    None => "identical line-for-line but different lengths".to_string(),
+                };
+                out.push_str(&format!(
+                    "  - [provenance-drift] this document is not what its own snapshot renders \
+({where_}; snapshot {snapshot_lines} lines, document {memo_lines}). Either the document was \
+edited by hand after rendering, or the workspace moved on without a re-render — a reader \
+following a citation would land somewhere this text was never produced from. Re-render, or \
+recover the workspace the text really came from.\n"
+                ));
+            }
+            Provenance::Unreadable(e) => {
+                out.push_str(&format!(
+                    "  - [provenance-drift] a snapshot exists beside this document but could not \
+be rendered from ({e}) — reported rather than passed over, because an unreadable record is not \
+a matching one.\n"
+                ));
+            }
+            Provenance::Missing | Provenance::Matches => {}
+        }
     } else {
         out.push_str(&format!("machine-checked: clean — {scope}\n"));
     }
@@ -88,6 +113,13 @@ by attested (ingested) evidence, evidence sources that do not resolve, ledger cl
 declared scope at all, and tetel's own standing non-coverage \u{2014} none of this is settled \
 by a passing check\n",
     );
+    if matches!(findings.provenance, Provenance::Missing) && findings.cites_something {
+        out.push_str(
+            "  - no workspace snapshot beside this document: its citation ids are \
+workspace-relative, so without the workspace that minted them every citation here is a pointer \
+this repository cannot resolve. Re-render with `tetel render --out <this file>` to write one.\n",
+        );
+    }
     for (id, kind_status, claim) in &findings.human_owed_rows {
         out.push_str(&format!("  - {id} [{kind_status}]: {claim}\n"));
     }

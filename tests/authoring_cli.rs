@@ -501,3 +501,111 @@ fn a_rendered_documents_own_citations_are_not_reported_as_uncited() {
         "check must read render's own citation syntax; report was:\n{combined}"
     );
 }
+
+/// `render --out` must write the document and the snapshot its citations
+/// point into as one act, and the result must check clean.
+#[test]
+fn render_out_writes_a_snapshot_that_checks_clean() {
+    let sb = Sandbox::new("render-out");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha.");
+
+    let memo = sb.dir.join("memo.md");
+    let (code, out, err) = sb.run(&["render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "stderr was:\n{err}");
+    assert!(out.contains("snapshot in"), "got: {out}");
+
+    // The snapshot carries the whole workspace, not just what render read.
+    let snap = sb.dir.join("memo.md.tetel");
+    for f in ["facts.jsonl", "claims.jsonl", "prose.jsonl", "counters.json"] {
+        assert!(snap.join(f).exists(), "snapshot missing {f}");
+    }
+
+    // Writing the document must not change what it renders to.
+    let (_c, stdout_render, _e) = sb.run(&["render"]);
+    assert_eq!(
+        std::fs::read_to_string(&memo).unwrap(),
+        stdout_render,
+        "--out must write exactly what bare render prints"
+    );
+
+    let (_code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(!combined.contains("provenance-drift"), "should not drift:\n{combined}");
+    assert!(!combined.contains("no workspace snapshot"), "snapshot exists:\n{combined}");
+}
+
+/// Hand-editing a rendered memo makes it stop matching its own record.
+/// That is a machine failure, not a human-owed note: it is decidable
+/// without a human, and a reader following a citation would land
+/// somewhere the text was never produced from.
+#[test]
+fn hand_editing_a_rendered_memo_is_caught_as_drift() {
+    let sb = Sandbox::new("drift");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha.");
+
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    // The edit a human would actually make: strengthening a sentence in
+    // the document without touching the record behind it.
+    let text = std::fs::read_to_string(&memo).unwrap();
+    std::fs::write(&memo, text.replace("begins with alpha", "always begins with alpha")).unwrap();
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "drift must fail the check; report was:\n{combined}");
+    assert!(combined.contains("provenance-drift"), "got:\n{combined}");
+    assert!(combined.contains("first difference at line"), "got:\n{combined}");
+}
+
+/// A memo that cites nothing owes no snapshot; one that cites something
+/// and has none is reported, but not failed — every memo authored before
+/// `render --out` existed lacks one, and failing those would grade the
+/// tooling's history rather than the document.
+#[test]
+fn a_missing_snapshot_is_reported_only_when_the_memo_cites_something() {
+    let sb = Sandbox::new("missing-snapshot");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha.");
+
+    // The real missing-snapshot case: a rendered memo saved by shell
+    // redirect, so tetel never learned where it landed and wrote no
+    // record. This is every memo authored before `render --out` existed.
+    let (_c, rendered, _e) = sb.run(&["render"]);
+    sb.write("redirected.md", &rendered);
+    let (code, report, err) = sb.run(&["check", "redirected.md"]);
+    let combined = format!("{report}{err}");
+    assert!(combined.contains("no workspace snapshot"), "got:\n{combined}");
+    assert_ne!(code, 1, "a missing snapshot is human-owed, never a failure");
+
+    // A memo whose prose cites nothing still has a ledger, but has no
+    // workspace-relative pointer for a reader to fail to resolve — so it
+    // owes no snapshot and must not be nagged about one.
+    let sb2 = Sandbox::new("missing-snapshot-nocites");
+    sb2.write("a.txt", "alpha\n");
+    sb2.run(&["look", "a.txt"]);
+    sb2.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb2.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb2.run_stdin(&["prose"], "Prose that cites nothing at all.");
+
+    let (_c, rendered2, _e) = sb2.run(&["render"]);
+    assert!(!rendered2.contains("*cites:"), "fixture should carry no citations:\n{rendered2}");
+    sb2.write("nocites.md", &rendered2);
+    let (_code2, report2, err2) = sb2.run(&["check", "nocites.md"]);
+    let combined2 = format!("{report2}{err2}");
+    assert!(
+        !combined2.contains("no workspace snapshot"),
+        "a memo citing nothing owes no snapshot:\n{combined2}"
+    );
+}

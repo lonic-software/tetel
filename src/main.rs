@@ -169,7 +169,19 @@ enum Command {
     },
     /// Assemble the workspace's current prose into markdown on stdout.
     /// The only authoring command that produces the finished document.
-    Render,
+    Render {
+        /// Write the document to this path, and the workspace snapshot
+        /// its citations point into to `<path>.tetel/`, in one act.
+        ///
+        /// Without this, `render` prints to stdout and tetel never learns
+        /// where the document landed — so it cannot write the snapshot,
+        /// and `check` later has no record to grade the document against.
+        /// Prefer this over a shell redirect for anything you intend to
+        /// keep. See `tetel::snapshot` for why a rendered document is not
+        /// self-contained.
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+    },
     /// Plain, greppable, read-only inspection of facts, claims, prose,
     /// and dependency links. Never refuses.
     Query {
@@ -502,18 +514,53 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Render => {
+        Command::Render { out } => {
             let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            match tetel::compose::render(&workspace_dir) {
-                Ok(out) => {
-                    print!("{out}");
-                    ExitCode::from(0)
-                }
+            let rendered = match tetel::compose::render(&workspace_dir) {
+                Ok(r) => r,
                 Err(e) => {
                     eprintln!("tetel: error rendering: {e}");
-                    ExitCode::from(1)
+                    return ExitCode::from(1);
                 }
+            };
+            let Some(path) = out else {
+                print!("{rendered}");
+                return ExitCode::from(0);
+            };
+
+            // Document first, then snapshot: if the snapshot write fails
+            // the document still exists and `check` reports the missing
+            // record, which is a recoverable state. The reverse order
+            // could leave a snapshot claiming to describe a document that
+            // was never written.
+            if let Err(e) = std::fs::write(&path, &rendered) {
+                eprintln!("tetel: could not write {}: {e}", path.display());
+                return ExitCode::from(1);
             }
+            if let Err(e) = tetel::snapshot::write(&path, &workspace_dir) {
+                eprintln!(
+                    "tetel: wrote {} but could not write its snapshot: {e}",
+                    path.display()
+                );
+                return ExitCode::from(1);
+            }
+
+            // Warned, never refused: an author may have deliberately
+            // looked at something they chose not to cite, and only they
+            // can tell that from having forgotten to mint it.
+            let pending = tetel::snapshot::pending_count(&workspace_dir);
+            if pending > 0 {
+                eprintln!(
+                    "tetel: warning: {pending} observation(s) still pending, never minted into a \
+fact — they are in the snapshot but nothing in the document rests on them"
+                );
+            }
+            println!(
+                "{} written, snapshot in {}",
+                path.display(),
+                tetel::snapshot::snapshot_path(&path).display()
+            );
+            ExitCode::from(0)
         }
         Command::Workspaces => match tetel::workspace::list() {
             Ok(list) => {

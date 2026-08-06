@@ -216,6 +216,15 @@ struct ProseParams {
 struct RenderParams {
     /// The authoring workspace to assemble into markdown.
     workspace: String,
+    /// Write the document to this path, and the workspace snapshot its
+    /// citations point into to `<path>.tetel/`, in one act. Omit to get
+    /// the markdown back as text without writing anything.
+    ///
+    /// Use this for a document you intend to keep: the citation ids in a
+    /// rendered document are workspace-relative, so a document saved
+    /// without its snapshot cites evidence nobody else can resolve.
+    #[serde(default)]
+    out: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -381,10 +390,45 @@ impl TetelServer {
     #[tool(description = "Assemble the workspace's current prose into the finished markdown document, plus a checkable evidence ledger. `workspace` is required (never defaulted).")]
     async fn render(&self, Parameters(p): Parameters<RenderParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
-        match compose::render(&dir) {
-            Ok(out) => text_result(out),
-            Err(e) => Err(ErrorData::internal_error(format!("error rendering: {e}"), None)),
+        let rendered = match compose::render(&dir) {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(ErrorData::internal_error(format!("error rendering: {e}"), None))
+            }
+        };
+        let Some(out) = p.out else {
+            return text_result(rendered);
+        };
+
+        // Same ordering as the CLI: document first, then snapshot, so a
+        // failed snapshot leaves a recoverable state rather than a record
+        // describing a document that was never written.
+        let path = Path::new(&out);
+        if let Err(e) = std::fs::write(path, &rendered) {
+            return Err(ErrorData::internal_error(
+                format!("could not write {out}: {e}"),
+                None,
+            ));
         }
+        if let Err(e) = crate::snapshot::write(path, &dir) {
+            return Err(ErrorData::internal_error(
+                format!("wrote {out} but could not write its snapshot: {e}"),
+                None,
+            ));
+        }
+        let pending = crate::snapshot::pending_count(&dir);
+        let warning = if pending > 0 {
+            format!(
+                "\nwarning: {pending} observation(s) still pending, never minted into a fact — \
+they are in the snapshot but nothing in the document rests on them"
+            )
+        } else {
+            String::new()
+        };
+        text_result(format!(
+            "{out} written, snapshot in {}{warning}",
+            crate::snapshot::snapshot_path(path).display()
+        ))
     }
 
     #[tool(description = "Plain, greppable, read-only inspection of facts, claims, prose, or an id's dependencies. Never refuses. `workspace` is required (never defaulted); ids are workspace-relative only.")]

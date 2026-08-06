@@ -92,6 +92,14 @@ pub struct Findings {
     /// cell. A machine failure — an unresolved contradiction, the same
     /// shape as the unsettled-citation check.
     pub verdict_disagreements: Vec<String>,
+    /// Whether the memo still matches the workspace snapshot beside it.
+    /// See [`crate::snapshot`] for why a rendered document is not
+    /// self-contained and what a mismatch means.
+    pub provenance: crate::snapshot::Provenance,
+    /// Whether the memo cites anything at all. A document with no
+    /// citations owes no snapshot, so a missing one is only worth
+    /// reporting when something in the text points into a workspace.
+    pub cites_something: bool,
 }
 
 impl Findings {
@@ -103,6 +111,23 @@ impl Findings {
             || !self.cascade_failures.is_empty()
             || !self.ledger_errors.is_empty()
             || !self.verdict_disagreements.is_empty()
+            || self.provenance_failed()
+    }
+
+    /// Drift and an unreadable snapshot are machine failures: both are
+    /// objective contradictions between a document and the record it
+    /// claims to rest on, decidable without a human.
+    ///
+    /// A *missing* snapshot is deliberately not a failure. Every memo
+    /// authored before `render --out` existed lacks one, and turning that
+    /// into a hard failure would grade the tooling's own history rather
+    /// than the document. It is reported as human-owed instead.
+    pub fn provenance_failed(&self) -> bool {
+        matches!(
+            self.provenance,
+            crate::snapshot::Provenance::Drifted { .. }
+                | crate::snapshot::Provenance::Unreadable(_)
+        )
     }
 }
 
@@ -431,6 +456,11 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         unresolved_evidence_sources: Vec::new(),
         no_scope_claims: Vec::new(),
         verdict_disagreements: Vec::new(),
+        // `analyze` grades a parsed document in isolation and never
+        // touches the filesystem; provenance needs the memo's path, so
+        // `check_file` fills both in.
+        provenance: crate::snapshot::Provenance::Missing,
+        cites_something: false,
     }
 }
 

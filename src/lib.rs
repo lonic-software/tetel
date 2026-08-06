@@ -19,6 +19,7 @@ pub mod pending;
 pub mod prose;
 pub mod query;
 pub mod report;
+pub mod snapshot;
 pub mod workspace;
 pub mod worldstate;
 
@@ -66,6 +67,12 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     findings.unresolved_evidence_sources = checks::unresolved_evidence_sources(&ledger.claims, &evidence_records);
     findings.no_scope_claims = checks::claims_without_declared_scope(&ledger.claims);
     findings.verdict_disagreements = disagreements;
+    // Provenance is graded against the same bytes every other check saw,
+    // never a re-read of the file.
+    findings.provenance = snapshot::check(path, &source);
+    // A document with no citations owes no snapshot; only one that points
+    // at workspace-relative ids has a record to be missing.
+    findings.cites_something = !citations::scan_citations(&doc.body).is_empty();
 
     Ok(report::render(&path.display().to_string(), &doc, &findings))
 }
