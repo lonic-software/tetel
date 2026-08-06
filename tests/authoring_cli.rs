@@ -641,3 +641,56 @@ fn a_fact_cited_from_prose_resolves_in_the_rendered_document() {
         "a cited fact must resolve; report was:\n{combined}"
     );
 }
+
+/// `review` assembles the pairing that catching prose-claim drift needs.
+/// Its motivating failure, from the FORK-94 memo: a paragraph opening
+/// "never worse … a strict improvement" cited a claim about something
+/// else entirely. Nothing detects that mechanically — the value is that
+/// the two appear together instead of forty lines apart.
+#[test]
+fn review_puts_each_paragraph_beside_the_claims_it_cites() {
+    let sb = Sandbox::new("review");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--heading", "A heading", "--level", "2"], "");
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha, and is therefore fine.");
+    sb.run_stdin(&["prose"], "A paragraph resting on nothing at all.");
+
+    let (code, out, err) = sb.run(&["review"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    // The paragraph and its claim must both appear, so they can be read
+    // against each other.
+    assert!(out.contains("is therefore fine"), "paragraph text missing:\n{out}");
+    assert!(out.contains("cites C1: the file begins with alpha"), "claim text missing:\n{out}");
+
+    // A heading is structure, not an assertion, so it is not listed as
+    // owing a claim.
+    assert!(!out.contains("A heading"), "headings must not be listed:\n{out}");
+
+    // A paragraph citing nothing is the shape worth looking at hardest,
+    // so it is kept and grouped rather than dropped.
+    assert!(out.contains("paragraphs citing nothing"), "uncited section missing:\n{out}");
+    assert!(out.contains("resting on nothing at all"), "uncited paragraph missing:\n{out}");
+
+    // No score, no percentage, no aggregate anywhere in the output.
+    assert!(!out.contains('%'), "review must not report a score:\n{out}");
+}
+
+/// A fact cited from prose is legitimate but is not a claim; the pairing
+/// says so rather than silently listing one fewer row than the
+/// paragraph's own `*cites:*` line promises.
+#[test]
+fn review_names_a_cited_fact_rather_than_dropping_it() {
+    let sb = Sandbox::new("review-fact");
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1,F1"], "Both cited here.");
+
+    let (_code, out, _err) = sb.run(&["review"]);
+    assert!(out.contains("cites F1: not a claim in this workspace"), "got:\n{out}");
+}

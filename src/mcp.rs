@@ -1,6 +1,6 @@
 //! `tetel mcp` — an MCP server over stdio, exposing every CLI subcommand
-//! (`look`, `run`, `fact`, `claim`, `prose`, `render`, `query`, `check`,
-//! `brief`, `record`) as a tool. Both halves — authoring and
+//! (`look`, `run`, `fact`, `claim`, `prose`, `render`, `review`,
+//! `query`, `workspaces`, `check`, `brief`, `record`) as a tool. Both halves — authoring and
 //! verification — live in this one server: a document `render` just
 //! produced is checkable by `check` in the same session, and splitting
 //! them across two installs would obscure that connection (see
@@ -481,6 +481,15 @@ they are in the snapshot but nothing in the document rests on them"
         match out {
             Ok(s) => text_result(s),
             Err(e) => Err(ErrorData::internal_error(format!("error querying: {e}"), None)),
+        }
+    }
+
+    #[tool(description = "Every paragraph beside the claims it cites, assembled for reading. Use this before `render --out`: read each paragraph against its propositions and ask whether the paragraph says what its claims say, no more. A paragraph asserting something none of its claims carries is the failure this is for — nothing detects it mechanically, and seeing the two together will. `workspace` is required (never defaulted).")]
+    async fn review(&self, Parameters(p): Parameters<RenderParams>) -> Result<CallToolResult, ErrorData> {
+        let dir = open_workspace(&p.workspace)?;
+        match crate::review::render(&dir) {
+            Ok(out) => text_result(out),
+            Err(e) => Err(ErrorData::internal_error(format!("error building review: {e}"), None)),
         }
     }
 

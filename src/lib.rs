@@ -19,6 +19,7 @@ pub mod pending;
 pub mod prose;
 pub mod query;
 pub mod report;
+pub mod review;
 pub mod scope;
 pub mod snapshot;
 pub mod workspace;

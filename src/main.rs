@@ -188,6 +188,12 @@ enum Command {
         #[command(subcommand)]
         what: QueryCommand,
     },
+    /// Every paragraph beside the claims it cites, for reading.
+    ///
+    /// Assembles the pairing that catching prose-claim drift needs, and
+    /// stops there — see `tetel::review` for why it presents rather than
+    /// scores.
+    Review,
     /// List every authoring workspace on this machine, with its fact,
     /// claim and prose counts.
     ///
@@ -196,7 +202,7 @@ enum Command {
     /// question that cannot be answered from inside one of them.
     Workspaces,
     /// Run an MCP server over stdio, exposing `look`/`run`/`fact`/
-    /// `claim`/`prose`/`render`/`query`/`workspaces`/`check`/`brief`/
+    /// `claim`/`prose`/`render`/`review`/`query`/`workspaces`/`check`/`brief`/
     /// `record` as tools. See `tetel::mcp` for why this exists and how
     /// refusals and workspace scoping are handled.
     Mcp,
@@ -572,6 +578,19 @@ fact — they are in the snapshot but nothing in the document rests on them"
                 tetel::snapshot::snapshot_path(&path).display()
             );
             ExitCode::from(0)
+        }
+        Command::Review => {
+            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
+            match tetel::review::render(&workspace_dir) {
+                Ok(out) => {
+                    print!("{out}");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: error building review: {e}");
+                    ExitCode::from(1)
+                }
+            }
         }
         Command::Workspaces => match tetel::workspace::list() {
             Ok(list) => {
