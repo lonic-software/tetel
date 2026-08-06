@@ -52,6 +52,23 @@
 //! description is what a model re-reads at every invocation, where a
 //! one-time brief has already been read once and compacted away.
 //!
+//! # Filesystem paths must be absolute
+//!
+//! Every path a tool takes (`look`'s `path`, `render`'s `out`,
+//! `check`/`brief`/`record`'s memo) is resolved against **this server's**
+//! working directory, which is wherever the client happened to start it —
+//! not the caller's, and not anything the caller can see or set. A
+//! relative path therefore resolves somewhere the caller cannot predict.
+//!
+//! This has already cost a run: an agent passed relative paths to
+//! `check` and `brief`, the server resolved them against its own
+//! directory, and the tools reported "no tetel rows found" and "no
+//! evidence ledger found" — accurate about what they read, and useless
+//! for working out why. Every path-taking parameter now says to pass an
+//! absolute path, and every message that names a path names the resolved
+//! absolute one, so a wrong directory is visible in the answer instead of
+//! having to be deduced.
+//!
 //! # Refusals are structured
 //!
 //! Every refusal surfaced from an [`AuthoringError`] comes back as
@@ -102,6 +119,23 @@ fn refusal(command: &str, workspace_name: &str, err: AuthoringError) -> CallTool
     }))
 }
 
+/// A caller-supplied path, resolved to absolute for every message that
+/// names it.
+///
+/// The server cannot know the caller's working directory, so a relative
+/// path silently means something different to each side. Nothing here
+/// changes *which* file is opened — that was always resolved against this
+/// process's directory — but it makes the resolution visible in the
+/// answer, so "no tetel rows found in /somewhere/unexpected/memo.md"
+/// diagnoses itself instead of reading as a fact about the document.
+fn resolved(path: &str) -> std::path::PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    std::env::current_dir().map(|d| d.join(p)).unwrap_or_else(|_| p.to_path_buf())
+}
+
 fn text_result(s: impl Into<String>) -> Result<CallToolResult, ErrorData> {
     Ok(CallToolResult::success(vec![ContentBlock::text(s.into())]))
 }
@@ -148,7 +182,9 @@ struct LookParams {
     /// The authoring workspace this observation is recorded into.
     workspace: String,
     /// The file to open (plain mode), or the file/directory to search
-    /// when `grep` is given.
+    /// when `grep` is given. **Pass an absolute path** — see this
+    /// module's doc comment on why a relative one resolves somewhere you
+    /// cannot predict.
     path: String,
     /// Restrict the open to this 1-based inclusive line range. Only
     /// valid without `grep`.
@@ -245,8 +281,10 @@ struct ProseParams {
 struct RenderParams {
     /// The authoring workspace to assemble into markdown.
     workspace: String,
-    /// Write the document to this path, and the workspace snapshot its
-    /// citations point into to `<path>.tetel/`, in one act. Omit to get
+    /// Write the document to this path (**absolute** — a relative path
+    /// resolves against this server's working directory, not yours), and
+    /// the workspace snapshot its citations point into to
+    /// `<path>.tetel/`, in one act. Omit to get
     /// the markdown back as text without writing anything.
     ///
     /// Use this for a document you intend to keep: the citation ids in a
@@ -292,13 +330,17 @@ struct QueryParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct CheckParams {
-    /// Path to the markdown memo to check.
+    /// Path to the markdown memo to check. **Absolute** — a relative
+     /// path resolves against this server's working directory, not
+     /// yours.
     file: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct BriefParams {
-    /// Path to the memo to brief. Omit only when `authoring` is true.
+    /// Path to the memo to brief, **absolute** — a relative path
+    /// resolves against this server's working directory, not yours. Omit
+    /// only when `authoring` is true.
     #[serde(default)]
     memo: Option<String>,
     /// Emit machine-readable JSON instead of the human-readable form.
@@ -315,7 +357,9 @@ struct BriefParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordParams {
-    /// Path to the memo the claim id must be defined in.
+    /// Path to the memo the claim id must be defined in. **Absolute** —
+    /// a relative path resolves against this server's working directory,
+    /// not yours.
     memo: String,
     /// One grounding result, shaped as `evidence::RecordInput`: `claim`,
     /// `pass`, `verdict` (`supports`|`refutes`|`qualifies`),
@@ -568,12 +612,12 @@ they are in the snapshot but nothing in the document rests on them"
 
     #[tool(description = "Check a markdown memo's `tetel` evidence rows and evidence ledger. Never writes any file, executes any command from the document, or makes a network call.")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
-        match crate::check_file(Path::new(&p.file)) {
+        match crate::check_file(&resolved(&p.file)) {
             Ok((code, report)) => {
                 let block = vec![ContentBlock::text(report)];
                 Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
             }
-            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", p.file), None)),
+            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", resolved(&p.file).display()), None)),
         }
     }
 
@@ -597,7 +641,7 @@ they are in the snapshot but nothing in the document rests on them"
                 "guidance": "tetel: `brief` requires a memo, or `authoring: true`",
             })));
         };
-        match crate::brief_file(Path::new(&memo), p.json) {
+        match crate::brief_file(&resolved(&memo), p.json) {
             Ok((code, out)) => {
                 let block = vec![ContentBlock::text(out)];
                 Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
@@ -636,7 +680,7 @@ they are in the snapshot but nothing in the document rests on them"
             };
             let dir = open_workspace(&ws)?;
             return match crate::record_from_fact_file(
-                Path::new(&p.memo),
+                &resolved(&p.memo),
                 &dir,
                 &claim,
                 verdict,
@@ -651,9 +695,10 @@ they are in the snapshot but nothing in the document rests on them"
                     "pass": identity,
                 }))),
                 Ok(Err(e)) => refused(e),
-                Err(e) => {
-                    Err(ErrorData::internal_error(format!("error reading {}: {e}", p.memo), None))
-                }
+                Err(e) => Err(ErrorData::internal_error(
+                    format!("error reading {}: {e}", resolved(&p.memo).display()),
+                    None,
+                )),
             };
         }
 
@@ -675,13 +720,13 @@ workspace captured) or `input` (ingested: extent typed by you)",
             serde_json::Value::String(s) => s.clone(),
             other => other.to_string(),
         };
-        match crate::record_file(Path::new(&p.memo), &input_json) {
+        match crate::record_file(&resolved(&p.memo), &input_json) {
             Ok(Ok(())) => Ok(CallToolResult::structured(json!({
                 "recorded": true,
                 "witnessed": false,
             }))),
             Ok(Err(e)) => refused(e),
-            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", p.memo), None)),
+            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", resolved(&p.memo).display()), None)),
         }
     }
 }

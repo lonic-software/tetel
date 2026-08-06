@@ -514,3 +514,76 @@ async fn every_cli_subcommand_has_an_mcp_tool() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// The server resolves paths against its own working directory, which
+/// the caller cannot see or set — so a relative path silently means
+/// something different to each side. That cost a run: an agent passed
+/// relative memo paths and got "no tetel rows found", accurate about
+/// what was read and useless for working out why.
+///
+/// Nothing here changes which file is opened. What it changes is that
+/// every message naming a path names the resolved absolute one, so a
+/// wrong directory diagnoses itself instead of reading as a fact about
+/// the document.
+#[tokio::test]
+async fn a_relative_path_is_reported_back_as_the_absolute_one_it_resolved_to() {
+    let sb = Sandbox::new("path-diagnostic");
+    sb.write("plain.md", "# Just prose\n\nNo ledger here.\n");
+    let client = sb.connect().await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("check").with_arguments(args(
+            serde_json::json!({"file": "plain.md"}),
+        )))
+        .await
+        .expect("the call must succeed at the protocol level");
+
+    let text: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect();
+
+    // The sandbox dir is the server's cwd, so the resolved path must name
+    // it — that is what makes a wrong directory visible.
+    let expected = sb.dir.join("plain.md");
+    assert!(
+        text.contains(&expected.display().to_string()),
+        "message must name the resolved absolute path.\nexpected to contain: {}\ngot: {text}",
+        expected.display()
+    );
+    assert!(!text.contains("in plain.md —"), "must not echo the bare relative path: {text}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// Every path-taking parameter must say so, since the rule cannot be
+/// enforced — the server has no way to reject a relative path that
+/// happens to resolve to a real file.
+#[tokio::test]
+async fn every_path_parameter_documents_that_it_wants_an_absolute_path() {
+    let sb = Sandbox::new("path-docs");
+    let client = sb.connect().await;
+    let tools = client.list_all_tools().await.expect("list tools");
+
+    for (tool, param) in [
+        ("look", "path"),
+        ("render", "out"),
+        ("check", "file"),
+        ("brief", "memo"),
+        ("record", "memo"),
+    ] {
+        let t = tools.iter().find(|t| t.name == tool).unwrap_or_else(|| panic!("{tool} missing"));
+        let schema = serde_json::to_value(&t.input_schema).expect("schema serialises");
+        let desc = schema["properties"][param]["description"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{tool}.{param} has no description"))
+            .to_lowercase();
+        assert!(
+            desc.contains("absolute"),
+            "{tool}.{param} must tell the caller to pass an absolute path; got: {desc}"
+        );
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
