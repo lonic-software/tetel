@@ -364,6 +364,17 @@ fn main() -> ExitCode {
             match tetel::facts::dispatch(&workspace_dir, req) {
                 Ok(tetel::facts::FactOutcome::Minted(fact)) => {
                     println!("{} minted.", fact.id);
+                    // Warned here as well as at check time, because this
+                    // is the moment the author still remembers whether
+                    // the location was context or a conclusion.
+                    for o in tetel::scope::outside_extent(std::slice::from_ref(&fact)) {
+                        eprintln!(
+                            "tetel: note names {}, outside this fact's extent ({}) — fine if \
+that's context, worth a second look if it's a conclusion",
+                            o.mentioned,
+                            o.extent_labels.join("; ")
+                        );
+                    }
                     ExitCode::from(0)
                 }
                 Ok(tetel::facts::FactOutcome::Revised { id }) => {

@@ -110,9 +110,20 @@ a matching one.\n"
 contains a proc:/external designator, the RUN command\u{2194}proposition correspondence, \
 cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
-declared scope at all, and tetel's own standing non-coverage \u{2014} none of this is settled \
-by a passing check\n",
+declared scope at all, facts whose note names a location outside their own captured extent, \
+and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
+    for o in &findings.notes_outside_extent {
+        out.push_str(&format!(
+            "  - {}: its note names {}, which this fact's extent does not cover (extent: {}) — \
+the extent was captured by the tool, the note was written, so the two disagreeing is worth a \
+reader's eye. A note may name a location as context; only you can tell that from a conclusion \
+drawn about code this fact never opened\n",
+            o.fact_id,
+            o.mentioned,
+            o.extent_labels.join("; ")
+        ));
+    }
     if matches!(findings.provenance, Provenance::Missing) && findings.cites_something {
         out.push_str(
             "  - no workspace snapshot beside this document: its citation ids are \

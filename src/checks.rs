@@ -100,6 +100,12 @@ pub struct Findings {
     /// citations owes no snapshot, so a missing one is only worth
     /// reporting when something in the text points into a workspace.
     pub cites_something: bool,
+    /// Facts whose note names a location their own captured extent does
+    /// not cover. Human-owed: see [`crate::scope`] for why this is a
+    /// scope check rather than a truth check, and why it never refuses.
+    /// Only populated when a snapshot shipped beside the memo, since
+    /// facts appear nowhere in the rendered document.
+    pub notes_outside_extent: Vec<crate::scope::OutsideExtent>,
 }
 
 impl Findings {
@@ -461,6 +467,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         // `check_file` fills both in.
         provenance: crate::snapshot::Provenance::Missing,
         cites_something: false,
+        notes_outside_extent: Vec::new(),
     }
 }
 

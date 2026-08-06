@@ -19,6 +19,7 @@ pub mod pending;
 pub mod prose;
 pub mod query;
 pub mod report;
+pub mod scope;
 pub mod snapshot;
 pub mod workspace;
 pub mod worldstate;
@@ -70,6 +71,15 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     // Provenance is graded against the same bytes every other check saw,
     // never a re-read of the file.
     findings.provenance = snapshot::check(path, &source);
+    // Facts live in the workspace, never in the rendered document, so the
+    // note-vs-extent check is only possible when a snapshot was shipped
+    // beside the memo. One more thing `render --out` buys a reviewer.
+    let snapshot_dir = snapshot::snapshot_path(path);
+    if snapshot_dir.is_dir() {
+        if let Ok(facts) = facts::load_all(&snapshot_dir) {
+            findings.notes_outside_extent = scope::outside_extent(&facts);
+        }
+    }
     // A document with no citations owes no snapshot; only one that points
     // at workspace-relative ids has a record to be missing.
     findings.cites_something = !citations::scan_citations(&doc.body).is_empty();
