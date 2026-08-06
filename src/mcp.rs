@@ -265,6 +265,19 @@ enum QueryWhat {
     Deps,
 }
 
+/// `review` takes a workspace and nothing else.
+///
+/// It used to borrow [`RenderParams`], which meant its published schema
+/// advertised an `out` parameter the handler silently ignored — a caller
+/// could reasonably ask `review` to write a file and get no file and no
+/// error. A tool's parameters are a promise; sharing a struct for
+/// convenience made this one lie.
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReviewParams {
+    /// The authoring workspace whose prose and claims to pair up.
+    workspace: String,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QueryParams {
     /// The authoring workspace to inspect.
@@ -520,7 +533,7 @@ they are in the snapshot but nothing in the document rests on them"
     }
 
     #[tool(description = "Every paragraph beside the claims it cites, assembled for reading. Use this before `render --out`: read each paragraph against its propositions and ask whether the paragraph says what its claims say, no more. A paragraph asserting something none of its claims carries is the failure this is for — nothing detects it mechanically, and seeing the two together will. `workspace` is required (never defaulted).")]
-    async fn review(&self, Parameters(p): Parameters<RenderParams>) -> Result<CallToolResult, ErrorData> {
+    async fn review(&self, Parameters(p): Parameters<ReviewParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         match crate::review::render(&dir) {
             Ok(out) => text_result(out),

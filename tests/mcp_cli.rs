@@ -465,3 +465,52 @@ async fn a_qualifies_with_no_note_is_refused_over_mcp() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// A tool's published schema is a promise. `review` used to borrow
+/// `render`'s parameters, so it advertised an `out` the handler silently
+/// ignored — ask it to write a file and you got no file and no error.
+/// Asserted against the schema the running server actually publishes,
+/// not against the source, because the source is what drifted.
+#[tokio::test]
+async fn review_does_not_advertise_parameters_it_ignores() {
+    let sb = Sandbox::new("schema-parity");
+    let client = sb.connect().await;
+
+    let tools = client.list_all_tools().await.expect("list tools");
+    let review = tools.iter().find(|t| t.name == "review").expect("review tool must exist");
+    let schema = serde_json::to_value(&review.input_schema).expect("schema serialises");
+    let props = schema["properties"].as_object().expect("schema has properties");
+
+    let mut names: Vec<&str> = props.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["workspace"],
+        "review must advertise exactly what it reads; got: {names:?}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// Every command the CLI offers is reachable over MCP. The two surfaces
+/// have drifted twice: the note-vs-extent warning reached only the CLI,
+/// and `record --from-fact` was CLI-only while the MCP server was being
+/// recommended for the very run that needed witnessed records.
+#[tokio::test]
+async fn every_cli_subcommand_has_an_mcp_tool() {
+    let sb = Sandbox::new("surface-parity");
+    let client = sb.connect().await;
+
+    let tools = client.list_all_tools().await.expect("list tools");
+    let names: std::collections::HashSet<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+
+    // `mcp` itself is the server, not a tool it can offer.
+    for expected in [
+        "look", "run", "fact", "claim", "prose", "render", "review", "query", "workspaces",
+        "check", "brief", "record",
+    ] {
+        assert!(names.contains(expected), "no MCP tool for `{expected}`; have {names:?}");
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
