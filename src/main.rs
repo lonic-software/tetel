@@ -196,9 +196,9 @@ enum Command {
     /// question that cannot be answered from inside one of them.
     Workspaces,
     /// Run an MCP server over stdio, exposing `look`/`run`/`fact`/
-    /// `claim`/`prose`/`render`/`query`/`check`/`brief`/`record` as
-    /// tools. See `tetel::mcp` for why this exists and how refusals and
-    /// workspace scoping are handled.
+    /// `claim`/`prose`/`render`/`query`/`workspaces`/`check`/`brief`/
+    /// `record` as tools. See `tetel::mcp` for why this exists and how
+    /// refusals and workspace scoping are handled.
     Mcp,
 }
 
