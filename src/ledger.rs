@@ -21,6 +21,17 @@ pub struct Claim {
     pub proposition: String,
     pub domain: String,
     pub extent: String,
+    /// Whether the source table had `Domain`/`Extent` columns at all.
+    ///
+    /// False for a ledger `compose::render` wrote. `tetel claim` has no
+    /// scope field — v1's `Domain ⊆ Extent` was retired on evidence (see
+    /// [`NO_SCOPE_DECLARED`]'s history), so a tetel-authored claim has
+    /// nothing to put in those cells and the table omits them.
+    ///
+    /// Kept as a field rather than inferred from empty strings because
+    /// "the author left this blank" and "this format has no such column"
+    /// are different facts, and only the first is about the author.
+    pub has_scope_columns: bool,
     /// Absent when the table's header has no `Kind` column at all (seen in
     /// the wild — not every ledger marks RUN/READING).
     pub kind: Option<String>,
@@ -50,16 +61,30 @@ pub struct LedgerImport {
 
 const HEADER_WITH_KIND: [&str; 6] = ["ID", "Proposition", "Domain", "Extent", "Kind", "Status"];
 const HEADER_WITHOUT_KIND: [&str; 5] = ["ID", "Proposition", "Domain", "Extent", "Status"];
+/// The shape `compose::render` writes for a tetel-authored ledger.
+///
+/// No `Domain`/`Extent`: v1's `Domain ⊆ Extent` was retired on evidence
+/// (S9 measured captured extent at 78% byte-identical against 80% for
+/// hand-authored rows — capture makes the extent honest, not the
+/// declaration independent), and `tetel claim` has carried no scope field
+/// since. Rendering two columns nothing can ever fill put dead wiring in
+/// front of every reader and made `check` print one unresolvable line per
+/// claim.
+const HEADER_AUTHORED: [&str; 3] = ["ID", "Proposition", "Status"];
 
-/// Sentinel `Domain`/`Extent` cell text `compose::render` writes for a
-/// claim minted with `tetel claim`: the authoring model (`claims.rs`) has
-/// no scope/domain field on a claim at all, and deriving one from the
-/// facts a claim cites would recreate exactly the vacuity this project
-/// measured and rejected once already — a field and its own check
-/// answered by one act. Writing this exact, recognisable string instead
-/// of a fabricated value is what lets `checks::claims_without_declared_scope`
-/// name the gap plainly rather than let an empty-seeming cell pass as an
-/// (unearned) claim of total coverage.
+/// Sentinel `Domain`/`Extent` cell text, for a ledger that *has* those
+/// columns and has nothing to put in them.
+///
+/// `compose::render` no longer writes it: a tetel-authored ledger omits
+/// the columns entirely ([`HEADER_AUTHORED`]), because the authoring
+/// model has no scope field and two permanently unfillable cells are
+/// dead wiring in a document a human reads.
+///
+/// Kept because a hand-maintained corpus ledger may carry the columns and
+/// legitimately declare nothing in them — there,
+/// `checks::claims_without_declared_scope` still names the gap plainly
+/// rather than let an empty-seeming cell pass as an unearned claim of
+/// total coverage.
 pub const NO_SCOPE_DECLARED: &str = "not declared (tetel's authoring model has no domain/extent field on a claim)";
 
 /// Split one `|`-delimited table row into its cells. Respects a backtick
@@ -214,7 +239,10 @@ pub fn import(body: &[String]) -> LedgerImport {
         let header_cells = split_row_cells(line);
         let has_kind = header_cells == HEADER_WITH_KIND;
         let no_kind = header_cells == HEADER_WITHOUT_KIND;
-        if !has_kind && !no_kind {
+        // The shape `compose::render` writes: no scope columns, because a
+        // tetel-authored claim has no scope field to put in them.
+        let authored = header_cells == HEADER_AUTHORED;
+        if !has_kind && !no_kind && !authored {
             // Some other table entirely (e.g. a spike ledger) — not ours.
             i += 1;
             continue;
@@ -259,6 +287,18 @@ pub fn import(body: &[String]) -> LedgerImport {
                     Some(cells[4].clone()),
                     cells[5].clone(),
                 )
+            } else if authored {
+                // No scope cells to read. `has_scope_columns: false` below
+                // is what carries that fact onward; the empty strings here
+                // are filler, never a declared-and-blank scope.
+                (
+                    cells[0].clone(),
+                    cells[1].clone(),
+                    String::new(),
+                    String::new(),
+                    None,
+                    cells[2].clone(),
+                )
             } else {
                 (
                     cells[0].clone(),
@@ -300,6 +340,7 @@ pub fn import(body: &[String]) -> LedgerImport {
                 kind,
                 status,
                 pin: pin.clone(),
+                has_scope_columns: !authored,
             });
             j += 1;
         }

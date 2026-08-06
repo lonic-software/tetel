@@ -106,6 +106,11 @@ pub struct Findings {
     /// Only populated when a snapshot shipped beside the memo, since
     /// facts appear nowhere in the rendered document.
     pub notes_outside_extent: Vec<crate::scope::OutsideExtent>,
+    /// True when the memo's ledger has no scope columns for any claim to
+    /// declare into — a tetel-authored ledger. Reported once at document
+    /// level rather than once per claim; see
+    /// [`claims_without_declared_scope`] for why that changed.
+    pub ledger_has_no_scope_columns: bool,
 }
 
 impl Findings {
@@ -476,6 +481,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         provenance: crate::snapshot::Provenance::Missing,
         cites_something: false,
         notes_outside_extent: Vec::new(),
+        ledger_has_no_scope_columns: false,
     }
 }
 
@@ -617,12 +623,37 @@ pub fn unresolved_evidence_sources(claims: &[Claim], evidence: &[EvidenceRecord]
 /// whose Domain/Extent text happens to coincide is not this crate's
 /// business to guess at, and `compose::render` always writes both cells
 /// identically, so a real match never falls short of both.
+/// Claims in a ledger that *has* scope columns but left them at the
+/// no-scope sentinel.
+///
+/// Deliberately narrowed. This used to fire on every claim of every
+/// tetel-authored memo, because `render` wrote the sentinel into two
+/// columns unconditionally — eight identical lines on the first real
+/// memo, saying the same structural fact about tetel rather than anything
+/// about the document. A finding no author can ever discharge is not a
+/// finding; it dilutes the human-owed list this design says should
+/// *concentrate* reading.
+///
+/// A ledger with no scope columns at all now says so once, at document
+/// level (see [`Findings::ledger_has_no_scope_columns`]). This function is
+/// left for the case it was actually about: a table that offers the
+/// columns and carries the sentinel anyway.
 pub fn claims_without_declared_scope(claims: &[Claim]) -> Vec<(String, String)> {
     claims
         .iter()
-        .filter(|c| c.domain == crate::ledger::NO_SCOPE_DECLARED && c.extent == crate::ledger::NO_SCOPE_DECLARED)
+        .filter(|c| {
+            c.has_scope_columns
+                && c.domain == crate::ledger::NO_SCOPE_DECLARED
+                && c.extent == crate::ledger::NO_SCOPE_DECLARED
+        })
         .map(|c| (c.id.clone(), c.proposition.clone()))
         .collect()
+}
+
+/// Whether the memo's ledger is a tetel-authored one, whose format has no
+/// scope columns for any claim to declare into.
+pub fn ledger_has_no_scope_columns(claims: &[Claim]) -> bool {
+    !claims.is_empty() && claims.iter().all(|c| !c.has_scope_columns)
 }
 
 #[cfg(test)]

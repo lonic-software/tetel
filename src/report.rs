@@ -175,6 +175,17 @@ distinct from no evidence at all, but never enough on its own to move past vouch
             "  - {id}: no scope declared (tetel's authoring model has no domain/extent field on a claim) — no coverage claim of any strength is made — {proposition}\n"
         ));
     }
+    // Once, not once per claim. This is a fact about the authoring model,
+    // identical for every claim in the document and dischargeable by
+    // nobody; repeating it per row buried the findings that are about
+    // *this* document under a constant.
+    if findings.ledger_has_no_scope_columns {
+        out.push_str(
+            "  - no claim in this document declares a scope: `tetel claim` has no such field, \
+so no coverage claim of any strength is made by any row. What each claim rests on is in the \
+Facts table; whether it rests on enough is yours to judge\n",
+        );
+    }
     for item in NON_COVERAGE {
         out.push_str(&format!("  - tetel does not catch: {item}\n"));
     }

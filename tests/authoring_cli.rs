@@ -381,9 +381,19 @@ fn render_appends_a_checkable_evidence_ledger_without_altering_prose_bytes() {
         check_stdout.contains("C1: ungrounded"),
         "an unrecorded claim must show up as a real, human-owed finding:\n{check_stdout}"
     );
+    // The absent scope field must still be named plainly rather than
+    // silently passed — but exactly once. It is a fact about tetel's
+    // authoring model, identical for every claim and dischargeable by
+    // nobody; one line per claim buried the findings that are about this
+    // document under a constant.
     assert!(
-        check_stdout.contains("no scope declared"),
-        "the missing domain/extent field must be named plainly, not silently passed:\n{check_stdout}"
+        check_stdout.contains("no claim in this document declares a scope"),
+        "the absent scope field must be named plainly, not silently passed:\n{check_stdout}"
+    );
+    assert_eq!(
+        check_stdout.matches("declares a scope").count(),
+        1,
+        "said once, not once per claim:\n{check_stdout}"
     );
 }
 

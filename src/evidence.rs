@@ -413,6 +413,7 @@ mod tests {
             proposition: proposition.to_string(),
             domain: "d".to_string(),
             extent: "e".to_string(),
+            has_scope_columns: true,
             kind: None,
             status: "**VERIFIED**".to_string(),
             pin: None,

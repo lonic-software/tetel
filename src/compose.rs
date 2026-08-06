@@ -23,7 +23,6 @@ use std::io;
 use std::path::Path;
 
 use crate::claims;
-use crate::ledger;
 use crate::prose;
 
 pub fn render(workspace_dir: &Path) -> io::Result<String> {
@@ -149,14 +148,18 @@ fn ledger_cell(text: &str) -> String {
 /// when there are no claims: a document with nothing to cite has nothing
 /// to check either.
 ///
-/// Domain and Extent are always [`ledger::NO_SCOPE_DECLARED`], never a
-/// value derived from the facts a claim rests on: a claim minted by
-/// `tetel claim` (see `claims.rs`) has no scope/domain field of its own
-/// at all, and deriving one from its facts' extents would recreate
-/// exactly the vacuity this project measured and rejected once
-/// already — a field and its own check answered by one act.
-/// `checks::claims_without_declared_scope` turns that sentinel into a
-/// plain, human-owed line rather than a silent claim of full coverage.
+/// There are no Domain/Extent columns. A claim minted by `tetel claim`
+/// (see `claims.rs`) has no scope field of its own, because v1's
+/// `Domain ⊆ Extent` was retired on evidence — and deriving one from its
+/// facts' extents would recreate exactly the vacuity that measurement
+/// rejected: a field and its own check answered by one act.
+///
+/// Earlier this table carried the two columns anyway, filled with a
+/// sentinel, which put two permanently unfillable cells in front of every
+/// reader and made `check` print one undischargeable line per claim. The
+/// absence is now stated once, in the paragraph above the table and once
+/// in `check`'s human-owed list. What a claim rests on lives in the Facts
+/// table, where the extent beside it was captured rather than typed.
 ///
 /// Status is always `OWED`: a claim just authored has not been
 /// independently graded by anything this crate can see yet (that is
@@ -170,20 +173,17 @@ fn render_ledger(claims: &[claims::Claim]) -> String {
     let mut out = String::new();
     out.push_str("\n## Evidence ledger\n\n");
     out.push_str(
-        "Claims recorded with `tetel claim`. Domain/Extent below are not declared — the \
-authoring model has no such field on a claim — so no coverage claim of any strength is \
-made for any row; `tetel check` reports this plainly rather than treating an empty-seeming \
-cell as full coverage.\n\n",
+        "Claims recorded with `tetel claim`. No claim here declares a scope — the authoring \
+model has no such field, and no coverage claim of any strength is made for any row. What each \
+claim rests on is in the Facts table below.\n\n",
     );
-    out.push_str("| ID | Proposition | Domain | Extent | Status |\n");
-    out.push_str("|---|---|---|---|---|\n");
+    out.push_str("| ID | Proposition | Status |\n");
+    out.push_str("|---|---|---|\n");
     for c in rows {
         out.push_str(&format!(
-            "| {} | {} | {} | {} | OWED |\n",
+            "| {} | {} | OWED |\n",
             ledger_cell(&c.id),
             ledger_cell(&c.prop),
-            ledger::NO_SCOPE_DECLARED,
-            ledger::NO_SCOPE_DECLARED,
         ));
     }
     out
