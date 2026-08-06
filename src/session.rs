@@ -116,14 +116,39 @@ pub fn refuse(session_dir: &Path, cmd: &str, reason: impl Into<String>) -> Autho
 /// prose's `--text`/`--heading`) goes through this — see fix 3 in the
 /// design memo: shell interpolation has corrupted backtick- and
 /// quote-bearing text passed as a raw argument more than once, and the
-/// `-`/`@file` forms never go through that interpolation at all.
+/// `-`/`@file` forms never go through that interpolation at all. The
+/// literal-text branch cannot undo shell damage already done before this
+/// process started, so it can only warn (see [`warn_on_inline_backtick`])
+/// when a backtick still made it through — the first real design memo
+/// authored with this tool hit exactly this on every inline attempt,
+/// falling back to `@file` each time only after a failed call.
 pub fn resolve_text_value(raw: &str) -> io::Result<String> {
     if raw == "-" {
         read_stdin()
     } else if let Some(path) = raw.strip_prefix('@') {
         fs::read_to_string(path)
     } else {
+        warn_on_inline_backtick(raw);
         Ok(raw.to_string())
+    }
+}
+
+/// Warns to stderr, never refuses, when a value arrived as a literal
+/// command-line argument and contains a backtick: the shell has already
+/// evaluated command substitution by the time this process sees its
+/// argv, so a backtick surviving into `raw` either wasn't the one the
+/// author meant (the shell ate a matching one and ran its contents) or
+/// is a rarer, legitimate lone backtick — this can't tell which, so it
+/// names the risk rather than blocking a value that might be entirely
+/// intentional. Never called for `-`/`@file`, since neither passes
+/// through a shell's command-substitution step at all.
+fn warn_on_inline_backtick(raw: &str) {
+    if raw.contains('`') {
+        eprintln!(
+            "tetel: warning: this text was given inline on the command line and contains a backtick — \
+the shell may already have run it as command substitution before tetel ever saw the result; \
+pass text with backticks via stdin (`-`) or `@file` instead."
+        );
     }
 }
 

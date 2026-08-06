@@ -397,6 +397,33 @@ fn render_with_no_claims_appends_no_evidence_ledger() {
 }
 
 #[test]
+fn inline_backtick_warns_on_stderr_but_at_file_and_stdin_do_not() {
+    // Real first-use evidence: every substantial `--note`/`--prop` on
+    // this project hit shell command substitution on the very first
+    // inline attempt, always worked around afterward by falling back to
+    // `@file`. The warning must fire exactly on that inline path, and
+    // stay silent for the two paths that never touch a shell at all.
+    let sb = Sandbox::new("backtick-warning");
+    sb.write("src/lib.rs", "content\n");
+
+    sb.run(&["look", "src/lib.rs"]);
+    let (code, _out, err) = sb.run(&["fact", "--note", "uses `backticks` inline"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(err.contains("backtick"), "an inline backtick must warn on stderr:\n{err}");
+
+    sb.run(&["look", "src/lib.rs"]);
+    let note_path = sb.write("note.txt", "uses `backticks` via file");
+    let (code, _out, err) = sb.run(&["fact", "--note", &format!("@{}", note_path.display())]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(!err.contains("backtick"), "`@file` must never warn:\n{err}");
+
+    sb.run(&["look", "src/lib.rs"]);
+    let (code, _out, err) = sb.run_stdin(&["fact", "--note", "-"], "uses `backticks` via stdin");
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(!err.contains("backtick"), "stdin must never warn:\n{err}");
+}
+
+#[test]
 fn brief_authoring_mode_needs_no_memo_and_is_self_contained() {
     let sb = Sandbox::new("brief-authoring");
     let (code, out, err) = sb.run(&["brief", "--authoring"]);

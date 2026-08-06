@@ -92,15 +92,18 @@ enum Command {
     /// or `tetel run`.
     Fact {
         /// The fact's note: literal text, `-` for stdin, or `@file`.
-        /// Required to mint a fact; also how a `--revise`'s new note is
-        /// given.
+        /// Backticks in the text must come via `-` or `@file`, never
+        /// inline — the shell eats them first. Required to mint a fact;
+        /// also how a `--revise`'s new note is given.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         note: Option<String>,
         /// Revise this fact's note instead of minting a new fact.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
         /// Required with `--revise`: why the note is changing. Literal
-        /// text, `-` for stdin, or `@file`.
+        /// text, `-` for stdin, or `@file`. Backticks in the text must
+        /// come via `-` or `@file`, never inline — the shell eats them
+        /// first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
@@ -108,7 +111,8 @@ enum Command {
     /// an existing claim.
     Claim {
         /// The claim's proposition: literal text, `-` for stdin, or
-        /// `@file`.
+        /// `@file`. Backticks in the text must come via `-` or `@file`,
+        /// never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         prop: Option<String>,
         /// Comma-separated fact ids the claim rests on.
@@ -121,7 +125,8 @@ enum Command {
         #[arg(long, value_name = "ID")]
         withdraw: Option<String>,
         /// Required with `--revise`/`--withdraw`: why. Literal text,
-        /// `-` for stdin, or `@file`.
+        /// `-` for stdin, or `@file`. Backticks in the text must come
+        /// via `-` or `@file`, never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
@@ -132,11 +137,15 @@ enum Command {
     /// `--text` to read it from stdin (the default).
     Prose {
         /// The paragraph's text: literal text, `-` for stdin, or
-        /// `@file`. Omit to read from stdin.
+        /// `@file`. Backticks in the text must come via `-` or `@file`,
+        /// never inline — the shell eats them first. Omit to read from
+        /// stdin.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         text: Option<String>,
         /// Mint a heading instead of a paragraph, at `--level`'s depth.
-        /// Literal text, `-` for stdin, or `@file`.
+        /// Literal text, `-` for stdin, or `@file`. Backticks in the
+        /// text must come via `-` or `@file`, never inline — the shell
+        /// eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         heading: Option<String>,
         /// The heading's markdown depth, 1..=6. Required with `--heading`.
@@ -149,7 +158,8 @@ enum Command {
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
         /// Required with `--revise`: why. Literal text, `-` for stdin,
-        /// or `@file`.
+        /// or `@file`. Backticks in the text must come via `-` or
+        /// `@file`, never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
