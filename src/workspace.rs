@@ -22,14 +22,35 @@
 //!
 //! # Where workspace state lives
 //!
-//! State never lives inside the repository being authored. Dropping a
-//! `.tetel/` directory into a tree under design would pollute `git
-//! status` for a document that isn't finished, and there is no existing
-//! convention in this crate for a dotfile directory living inside a
-//! project it's reasoning about — `check`/`brief`/`record` never write
-//! anywhere but `<memo>.evidence.jsonl`, a file sitting next to a memo
-//! whose author opted in by having a memo there at all. Authoring state
-//! exists *before* there is a memo, so it has nowhere equivalent to sit.
+//! Working state never lives inside a repository. Two separate arguments
+//! support that, and it is worth keeping them apart, because an earlier
+//! version of this comment ran them together and got the right answer for
+//! a fuzzy reason.
+//!
+//! The first is an **observer effect**, and it applies specifically to the
+//! tree under design. `look` and `run` capture what they find there —
+//! including `git status --porcelain` and a world-state pin derived from
+//! that tree (see [`crate::worldstate`]). Writing tetel's own state into
+//! that tree changes what tetel then observes about it: the instrument
+//! would be recording its own presence, and the pin would move because
+//! tetel was there. That is a correctness failure, not untidiness.
+//!
+//! The second is **temporal**, and it is the one that generalises to every
+//! repository, including the one a memo is written into. Working state
+//! churns on every command, exists before any memo does, and carries
+//! half-consumed intermediates — a pending buffer of observations not yet
+//! minted into facts, a refusals log written whenever a command is
+//! refused. None of that is a record anyone should be committing.
+//!
+//! So the distinction that matters is **working state versus shipped
+//! record**, not planning repository versus code repository. Working state
+//! lives here, outside every repository. A finished document's provenance
+//! is a different artifact with different rules — written once, from a
+//! workspace whose pending buffer is empty, immutable thereafter, and
+//! sitting beside the memo under the same `<memo>.<suffix>` convention
+//! `<memo>.evidence.jsonl` already established. See [`crate::snapshot`],
+//! which owns that half and explains why a rendered document is not
+//! self-contained without it.
 //!
 //! Instead, workspace state lives under a state-home directory, resolved
 //! in this order:
