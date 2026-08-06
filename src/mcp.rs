@@ -355,6 +355,49 @@ struct BriefParams {
     authoring: bool,
 }
 
+/// The published shape of `record`'s `input`.
+///
+/// `input` deserialises as a bare [`serde_json::Value`] so that both an
+/// object and a JSON-encoded string are accepted — but `Value`'s own
+/// generated schema carries **no `type` at all**, just a description. A
+/// client with nothing telling it this is an object reasonably
+/// serialises one into a string, and then `record` refuses with
+/// "invalid type: string, expected struct RecordInput". That happened
+/// three times to one agent before this existed.
+///
+/// So the runtime type stays permissive and the *schema* is declared
+/// here, field by field, mirroring [`crate::evidence::RecordInput`]. A
+/// caller now sees what to send instead of guessing from prose.
+#[derive(Debug, Deserialize, JsonSchema)]
+struct IngestedRecord {
+    /// The claim id this result grades — must exist in the memo's ledger.
+    claim: String,
+    /// Which grounding pass this is. Free text on this path, and
+    /// validated only for being non-empty: nothing can check it. Use
+    /// `from_fact` instead if you want independence to be derivable.
+    pass: String,
+    /// `supports` | `refutes` | `qualifies`. A `qualifies` requires
+    /// `note`.
+    verdict: String,
+    /// What kind of act you say this was: `run` | `reading` | `observed`
+    /// | `attested`. Recorded verbatim and never consulted when standing
+    /// is derived — the tool witnessed the saying, not the act, so every
+    /// ingested record caps at attested regardless of what this says.
+    reported_kind: String,
+    /// Where the act is recorded: a file path, or
+    /// `proc:<session-or-agent>` for a transcript-only act. Required — a
+    /// record naming nothing preserved anywhere is refused.
+    source: String,
+    /// What the act examined. Typed by you on this path, which is exactly
+    /// what marks the record as reported rather than witnessed.
+    #[serde(default)]
+    extent: Vec<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    pin: Option<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordParams {
     /// Path to the memo the claim id must be defined in. **Absolute** —
@@ -374,6 +417,7 @@ struct RecordParams {
     /// record caps at attested standing. Prefer `from_fact` below for
     /// anything you observed yourself through this server.
     #[serde(default)]
+    #[schemars(with = "Option<IngestedRecord>")]
     input: Option<serde_json::Value>,
     /// Ground `claim` on a fact **this workspace captured** — the
     /// witnessed path. The extent is copied from the fact, where
