@@ -1,4 +1,4 @@
-# # TET-28 design: the modification-target census, and where its refusal can decidably live
+# TET-28 design: the modification-target census, and where its refusal can decidably live
 
 All code observations in this memo were taken against the tetel repository at commit 57bd0e2 ("ci: make the guards authoritative for the repository, not just for one editor"); at the start of authoring the working tree was clean, and the memo you are reading plus its snapshot are the one addition this workspace makes to it. TET-28 asks for a refusal: a memo that tells an implementer to modify a symbol must carry a repo-wide census of that symbol, captured by the tool rather than typed, or the memo does not render. The motivating defect, as the ticket reports it from a private project's review trail and described here only by its shape: a memo recommended modifying a function and spent a repo-wide negative about its callers, while the author's actual caller sweep — honest in its own fact — was scoped to a single file; per the ticket, one workspace-rooted grep would have landed on a second production gate with a different mechanism, and the miss instead survived five review rounds before both attack passes found it independently. This memo settles the two questions the ticket leaves open — what the trigger is and whether it is decidable, and what "workspace-rooted" means decidably — and reaches a design that keeps the refusal format-level.
 
@@ -8,7 +8,7 @@ The answer, up front. The refusal can be built on-charter, but only after two re
 
 *cites: C14, C7, C2, C4*
 
-## ## What "workspace-rooted" can decidably mean
+## What "workspace-rooted" can decidably mean
 
 Start with the second question, because its answer constrains the first. The ticket's rule requires each modification target to cite a fact whose captured extent is a workspace-rooted `look --grep <symbol>`, captured by the tool rather than typed. TET-5's per-observation markers were believed to make "repo-wide or one file" decidable for the first time. That belief is half right, and the half that fails is the half a census lives in. When a grep finds matches, the captured extent is one entry per matched file, keyed on the matched file — deliberately not on the search root or the command line — so a repo-wide search and a single-file search that matched the same files are byte-identical in the record. A census of a symbol you are telling someone to modify always has matches, because the definition site matches. As captured today, the rooting half of TET-28's rule has nothing to check.
 
@@ -26,7 +26,7 @@ The predicate has one soundness worry worth retiring now: it compares a filesyst
 
 *cites: C10*
 
-## ## The trigger: declaration, not detection
+## The trigger: declaration, not detection
 
 The ticket's rule as written — refuse "a memo whose recommendation names a target" — has no decidable trigger, because tetel has no notion of a recommendation. Verified against the record types: a claim is a proposition with fact citations, a prose block is text with claim citations, and nothing on either surface types a record as an instruction — prose creation is deliberately ungated because prose is where the author talks, not where they are audited. So the rule's subject denotes no set of records a check can enumerate, and deciding from English that a sentence tells an implementer to modify something is a heuristic read, which the charter forbids as a refusal trigger. The obvious repair — trigger on any symbol a claim's proposition mentions — is not merely off-charter, it is already measured dead in this repository: the note-outside-extent work tried string-matching symbol references and rejected the detector because it flagged a legitimate quotation while missing both real overreaches. Naming a symbol the code you read calls is normal; concluding about it is the failure; the two are not distinguishable by string matching, and a refusal wired to that detector would make honest memos unwritable. One consequence for the roadmap: the README's Direction entry for this feature currently reads "a workspace-rooted search behind a claim that names a symbol", which is the mention-triggered phrasing, and should be corrected to the declared-target shape when this ships.
 
@@ -44,13 +44,13 @@ The refusal lives at the earliest surface that can decide it: declaration. `tete
 
 *cites: C9*
 
-## ## The rule, precisely
+## The rule, precisely
 
 A modification target is an append-only record: a symbol string plus the id of the fact that censuses it, created by a new authoring verb (`tetel target <symbol> --cites F#`), withdrawable but not revisable — a changed symbol is a different census, so the honest edit is withdraw and redeclare. A declared target is censused when its cited fact's captured extent contains a search entry whose kind marks it as a whole-search record, whose pattern byte-equals the declared symbol, whose key byte-equals its own world_root, and whose world_root is git-backed — neither the no-git sentinel nor the empty value that marks an entry minted before the fields existed. Pattern byte-equality is the only sound comparison on offer: grep receives the pattern verbatim, so "pattern contains the symbol" would accept a search whose pattern embeds the symbol in a longer string and finds strictly fewer of its occurrences, and anything wider means deciding containment between regexes. Symbols that are not literal in the system grep's dialect are a stated limit, not a case the check judges. Everything else about the census — what the matches say, whether they were read, whether the root was the right tree — is deliberately outside the predicate: the refusal is about existence and rooting, never content, because content is the insincere-examination ceiling this project has already registered as out of reach.
 
 *cites: C11, C12*
 
-## ## What the census does not see, printed rather than implied
+## What the census does not see, printed rather than implied
 
 check's report already carries a standing non-coverage list, printed item by item, and this feature adds its own blind spots to it rather than leaving them implicit. A textual census cannot see dynamic dispatch, re-exports or aliased imports, or callers assembled by macros and string concatenation. Its traversal is the system grep's — tetel shells out precisely to avoid owning a subtly different regex dialect — so the platform's rules for symlinked directories and the binary-file skip bound what a repo-wide search physically visited. Rooting establishes where the search started, never which tree it should have started in: whether the censused root is the tree the memo designs against remains a reader's question, answerable from the per-root tree-state report the check already prints. Whether anyone read the census is the insincere-examination ceiling: a census is a list of sites, not an understanding of them. And under-declared targets are invisible by construction — the hole in the rendered section and the non-coverage line are their only trace.
 
@@ -60,7 +60,7 @@ One further limit deserves its own line rather than absorption into the ceiling 
 
 *cites: C15*
 
-## ## Sequencing, and what this memo does not decide
+## Sequencing, and what this memo does not decide
 
 The ticket asks that this ship before any TET-27 co-evolution run, on the argument that findings the census would have surfaced must not be double-credited to a prototype, which would make that run's "would existing machinery have caught this anyway" kill-arm unevaluable. The premise of that argument lives in the tickets and the private review trail, not in this repository, so this memo does not grade it; what this memo can establish is that the sequencing costs nothing. The feature's surface is one recorded entry in the grep path, two serde-defaulted fields on the extent record, one new record type and verb, one rendered section, one shared refusal, and one machine check with its printed limits — each an extension of a mechanism cited in this memo's facts, and none of them a code-to-graph link, a commit reference, or dependency propagation, the mechanisms the TET-27 ticket describes as its subject. Shipping first is therefore safe whether or not the double-crediting argument is right, and the design was not bent to accommodate it. What this memo deliberately does not decide: any implementation detail beyond the record shapes and predicates above, and any widening of the trigger — in particular, no future measurement of a mention-based advisory should be allowed to harden into a refusal, because the measured evidence in this repository says that detector cannot tell quotation from conclusion.
 
