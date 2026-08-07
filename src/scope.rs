@@ -72,6 +72,54 @@
 //! conclusion drawn without naming anything is not. That is a real
 //! ceiling, not a to-do.
 //!
+//! # The `proc:` exemption, and why it stayed wide
+//!
+//! A fact whose extent is entirely `proc:` — minted from `run` rather
+//! than `look` — is skipped. That exemption was suspected of being too
+//! wide, because the way this check's own motivating failure recurred was
+//! a fact minted against a **stale buffer**: two `look` calls failed on a
+//! malformed line range, left the pending buffer untouched, and the next
+//! mint folded a leftover command. The resulting note described source
+//! the extent never covered, and landed squarely inside the exemption.
+//!
+//! The proposed narrowing was: exempt a `proc:` fact only when the paths
+//! its note names appear in the command's own captured output — the file
+//! a command actually touched will be there, one the author brought from
+//! elsewhere will not.
+//!
+//! **Measured against a real store before building, and rejected.** Of 92
+//! facts, 14 had `proc:`-only extents; those name 3 paths that their own
+//! extent does not already cover, and so 3 that a narrowing could ever
+//! report. One is exempt under the proposed rule. **The remaining 2 are
+//! the entire yield, and both are false positives** — one measurement
+//! fact whose note says which files it added counters to, an edit the
+//! author made and saved as diffs beside the memo. The advice this check
+//! prints there ("`look` at it and mint a fact") is simply wrong.
+//!
+//! Most `proc:`-only notes name a path their command already contains —
+//! `awk`/`grep`/`sed` over a named file is how a grounding pass reads
+//! code with line numbers. Those never reach the exemption at all:
+//! the path is in the extent key, so `extent_covers` matches it. Assuming
+//! otherwise inflated this measurement's first run to 7 false positives,
+//! and both halves of the correction are pinned in `known_limits`.
+//!
+//! The decisive result is separate from the false-positive count. **The
+//! failure that prompted the narrowing is unreachable by any rule of this
+//! shape**: that note named no file at all — it discussed a request type
+//! and a command-line flag — so it yields zero path tokens even under a
+//! vocabulary that accepts every filename-shaped token. The narrowing
+//! would have added noise to catch a case it structurally cannot see.
+//!
+//! This is the same shape as the `module::symbol` refinement above: a
+//! plausible tightening, measured, and killed by the measurement. The
+//! harness that produced these numbers is kept in this module rather than
+//! described, so the next person to suspect the exemption can re-run it
+//! against their own store instead of re-deriving it.
+//!
+//! What the stale-buffer failure needed was not a narrower scope check.
+//! It was for the mint to say what it had just folded, which is where the
+//! fix landed.
+//!
 //! # Language-agnostic by construction
 //!
 //! Tetel documents systems in any language, so nothing here may be tuned
@@ -304,6 +352,12 @@ fn outside_extent_in(subjects: &[Fact], corpus: &[Fact]) -> Vec<OutsideExtent> {
         // measurement fact while telling a reader nothing they cannot
         // see. `check` already routes every `proc:` extent to human-owed
         // on its own.
+        //
+        // Measured and kept as-is — see the module doc's "The `proc:`
+        // exemption" section. The proposed narrowing scored zero true
+        // positives against every `proc:`-only fact in a real store, and
+        // the failure that prompted it is unreachable by any rule of this
+        // shape.
         if f.extent.iter().all(|e| e.label.starts_with("proc:")) {
             continue;
         }
@@ -482,6 +536,93 @@ the same parents field, so there is no separate source.",
     }
 }
 
+/// Measurement harness for the `proc:`-only exemption (TET-24 part 2).
+///
+/// Not a test of behaviour — it asserts nothing about the corpus, which
+/// lives outside this repository and differs per machine. It exists so
+/// the candidate narrowing is measured with **the scanner that would
+/// actually ship**, not a reimplementation of it in another language.
+/// Measuring a copy is how the two sides of a pair come to disagree, and
+/// this project has already paid for that three times.
+///
+/// Run against a real store:
+///
+/// ```text
+/// TETEL_MEASURE_STORE=~/.local/state/tetel/workspaces \
+///   cargo test --lib proc_exemption -- --ignored --nocapture
+/// ```
+///
+/// Prints one row per path that a `proc:`-only fact's note names and its
+/// extent does not already cover — that is, per path that could actually
+/// become a finding if the exemption were narrowed. Each row reports
+/// whether the path occurs in the command line and in the captured
+/// output, the two haystacks the candidate rule could key on.
+/// Classifying the rows is a human's job; the harness only finds them.
+#[cfg(test)]
+mod measure {
+    use super::*;
+    use crate::facts;
+
+    #[test]
+    #[ignore = "reads a real workspace store; set TETEL_MEASURE_STORE"]
+    fn proc_exemption_candidates() {
+        let Ok(store) = std::env::var("TETEL_MEASURE_STORE") else {
+            eprintln!("TETEL_MEASURE_STORE unset — nothing to measure");
+            return;
+        };
+        let mut workspaces: Vec<_> = std::fs::read_dir(&store)
+            .expect("store must be readable")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        workspaces.sort();
+
+        let (mut proc_facts, mut all_facts, mut rows) = (0usize, 0usize, 0usize);
+        for ws in &workspaces {
+            let Ok(fs_) = facts::load_all(ws) else { continue };
+            let known = observed_extensions(&fs_);
+            all_facts += fs_.len();
+            for f in &fs_ {
+                if f.extent.is_empty() || !f.extent.iter().all(|e| e.label.starts_with("proc:")) {
+                    continue;
+                }
+                proc_facts += 1;
+                let cmd: String = f.extent.iter().map(|e| e.label.clone()).collect::<Vec<_>>().join(" ");
+                for m in mentioned_paths(&f.note, &known) {
+                    // Only a path the extent does not already cover can
+                    // ever become a finding. Counting the rest overstates
+                    // the narrowing's cost enormously: a command that
+                    // names its file — `awk … audit_utils.rs`, `grep …
+                    // src/prose.rs` — puts that path in the extent key, so
+                    // `extent_covers` matches it and the exemption is not
+                    // what kept the check quiet. Measuring exemption
+                    // misses rather than findings is how this harness
+                    // first reported 7 false positives where there are 2.
+                    if extent_covers(f, &m) {
+                        continue;
+                    }
+                    rows += 1;
+                    println!(
+                        "\n--- {} {} | in_cmd={} in_output={}\n  path:   {}\n  cmd:    {}\n  note:   {}",
+                        ws.file_name().unwrap().to_string_lossy(),
+                        f.id,
+                        cmd.contains(&m),
+                        f.output.contains(&m),
+                        m,
+                        cmd,
+                        f.note,
+                    );
+                }
+            }
+        }
+        println!(
+            "\n=== {} workspace(s), {all_facts} fact(s), {proc_facts} proc-only, {rows} candidate row(s)",
+            workspaces.len()
+        );
+    }
+}
+
 #[cfg(test)]
 mod known_limits {
     use super::tests_support::fact;
@@ -504,6 +645,98 @@ mod known_limits {
         assert!(
             outside_extent(&[f]).is_empty(),
             "if this now fires, the vocabulary learned to generalise — update the module doc"
+        );
+    }
+
+    /// Reading a file through a command is not an overreach, and the
+    /// `proc:` exemption is **not** what keeps it quiet.
+    ///
+    /// `run` is not only a measurement verb: `awk`/`grep`/`sed` over a
+    /// named path is how a grounding pass gets numbered lines. That path
+    /// lands in the extent key, so `extent_covers` matches it and no
+    /// finding is possible however the exemption is tuned.
+    ///
+    /// Pinned because assuming otherwise corrupted the measurement that
+    /// decided TET-24 part 2: counting these as things the exemption was
+    /// hiding reported 7 false positives where the corpus has 2.
+    #[test]
+    fn a_command_that_names_the_file_it_read_is_covered_by_its_extent() {
+        let f = fact(
+            "F12",
+            "Exact numbered lines of crates/util/audit_utils.rs 1399-1445: the base_root \
+construction is exactly lines 1422-1425.",
+            &[(
+                "awk NR>=1399 && NR<=1445 /repo/crates/util/audit_utils.rs",
+                "proc: awk NR>=1399 && NR<=1445 /repo/crates/util/audit_utils.rs (exit 0)",
+            )],
+        );
+        assert!(extent_covers(&f, "crates/util/audit_utils.rs"), "the command names the file");
+        assert!(outside_extent(&[f]).is_empty());
+    }
+
+    /// The one shape a narrowed exemption really would flag, and the
+    /// measured reason not to narrow it: a measurement fact whose note
+    /// says where the author placed instrumentation. Those files appear
+    /// in neither the command nor its output, so every candidate rule
+    /// fires — and the advice it would print ("`look` at it and mint a
+    /// fact") is wrong, because the author is describing an edit they
+    /// made themselves, saved as diffs beside the memo.
+    ///
+    /// This is the whole corpus's yield: 2 findings, both this shape,
+    /// both false. Unlike the test above, this one genuinely depends on
+    /// the exemption — narrow it and this fails, which is the point.
+    /// Re-run `measure::proc_exemption_candidates` before touching it.
+    ///
+    /// The corpus argument is load-bearing and was got wrong twice. A
+    /// `run`-only fact graded against itself teaches the vocabulary only
+    /// its own command's extension — here `.sh` — so `.rs` is filtered
+    /// out and the test passes without the exemption doing anything. Real
+    /// workspaces mix `look` and `run`, so the corpus must too, or this
+    /// tripwire is decorative.
+    #[test]
+    fn a_measurement_note_naming_where_it_instrumented_stays_silent() {
+        let f = fact(
+            "F10",
+            "One shared counter, incremented once per call to load_tree, plus two \
+measurement-only writes: one bracketing the client's loop in remote_utils.rs, one bracketing \
+the server's verify call in server.rs's ref_update handler.",
+            &[("bash measure/repro.sh", "proc: bash measure/repro.sh (exit 0)")],
+        );
+        let opened_rust = fact("F1", "unrelated", &[("/repo/src/other.rs", "src/other.rs")]);
+        let corpus = vec![f, opened_rust];
+
+        // The premises this test would otherwise pass vacuously on.
+        assert_eq!(
+            mentioned_paths(&corpus[0].note, &observed_extensions(&corpus)),
+            vec!["remote_utils.rs", "server.rs"],
+            "the vocabulary must actually admit these, or nothing is being tested"
+        );
+        assert!(
+            !extent_covers(&corpus[0], "remote_utils.rs"),
+            "neither file is in the command — the exemption is the only thing keeping this quiet"
+        );
+
+        assert!(outside_extent_in(&corpus[0..1], &corpus).is_empty());
+    }
+
+    /// The measurement that decided TET-24 part 2, pinned: the failure
+    /// that prompted narrowing the `proc:` exemption **names no file**, so
+    /// no rule keyed on paths can reach it however the exemption is
+    /// tuned. Verbatim from the fact that produced it.
+    ///
+    /// The empty vocabulary is the point — this is not the observed-
+    /// extension filter declining to recognise an extension. There is
+    /// nothing filename-shaped in the note at all.
+    #[test]
+    fn the_stale_buffer_overreach_names_no_path_to_check() {
+        let note = "`prose --revise` cannot change a block's citations. ProseRequest::Revise \
+carries only { id, text, why } — no cite field — while the CLI's Prose subcommand defines \
+`--cites` at the command level, so `--cites` is accepted alongside `--revise`, parsed, and \
+silently discarded. Observed live during this memo: revising P12 with `--cites C5` reported \
+\"P12 revised\" and left the block uncited.";
+        assert!(
+            mentioned_paths(note, &[]).is_empty(),
+            "if this now finds a path, re-run the measurement — the narrowing may be reachable"
         );
     }
 
