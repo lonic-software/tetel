@@ -87,14 +87,23 @@
 //! a command actually touched will be there, one the author brought from
 //! elsewhere will not.
 //!
-//! **Measured against a real store before building, and rejected.** Of 92
-//! facts, 14 had `proc:`-only extents; those name 3 paths that their own
-//! extent does not already cover, and so 3 that a narrowing could ever
-//! report. One is exempt under the proposed rule. **The remaining 2 are
-//! the entire yield, and both are false positives** — one measurement
-//! fact whose note says which files it added counters to, an edit the
-//! author made and saved as diffs beside the memo. The advice this check
-//! prints there ("`look` at it and mint a fact") is simply wrong.
+//! **Measured against a real store before building, and rejected on
+//! precision.** As of 2026-08-07, on a store of 20 workspaces and 130
+//! facts: 18 had `proc:`-only extents, naming 4 paths their own extent
+//! does not already cover — 4 that a narrowing could ever report. Two are
+//! exempt under the proposed rule. **The other 2 are the entire yield and
+//! both are false positives** — one measurement fact whose note says
+//! which files it added counters to, an edit the author made and saved as
+//! diffs beside the memo. The advice this check prints there ("`look` at
+//! it and mint a fact") is simply wrong.
+//!
+//! The count only means something against the check's own yield, which
+//! the harness therefore prints beside it: **9 findings on `look`-minted
+//! facts in the same corpus.** So the narrowing would take this check
+//! from 9 findings to 11, adding no signal and two pieces of wrong
+//! advice. That comparison is the argument. Re-run the harness rather
+//! than trusting these numbers — the store grows, and they moved once
+//! within a single day.
 //!
 //! Most `proc:`-only notes name a path their command already contains —
 //! `awk`/`grep`/`sed` over a named file is how a grounding pass reads
@@ -103,18 +112,23 @@
 //! otherwise inflated this measurement's first run to 7 false positives,
 //! and both halves of the correction are pinned in `known_limits`.
 //!
-//! The decisive result is separate from the false-positive count. **The
-//! failure that prompted the narrowing is unreachable by any rule of this
-//! shape**: that note named no file at all — it discussed a request type
-//! and a command-line flag — so it yields zero path tokens even under a
-//! vocabulary that accepts every filename-shaped token. The narrowing
-//! would have added noise to catch a case it structurally cannot see.
+//! **What this does not establish.** The failure that prompted the
+//! narrowing named no file at all — it discussed a request type and a
+//! command-line flag — so it yields zero path tokens even under a
+//! vocabulary accepting every filename-shaped token, and no path-keyed
+//! rule could have caught *that instance*. But a stale-buffer note that
+//! does happen to name a file is perfectly reachable, and a synthetic
+//! replay confirms such a rule fires on it. The evidence here supports
+//! "the only measured yield is noise", not "unreachable in principle" —
+//! and an earlier draft of this doc claimed the latter.
 //!
 //! This is the same shape as the `module::symbol` refinement above: a
 //! plausible tightening, measured, and killed by the measurement. The
 //! harness that produced these numbers is kept in this module rather than
 //! described, so the next person to suspect the exemption can re-run it
-//! against their own store instead of re-deriving it.
+//! against their own store instead of re-deriving it. It grades facts **as
+//! minted**, never as revised — see `measure::as_minted` for why that
+//! distinction decides the answer.
 //!
 //! What the stale-buffer failure needed was not a narrower scope check.
 //! It was for the mint to say what it had just folded, which is where the
@@ -578,11 +592,19 @@ mod measure {
             .collect();
         workspaces.sort();
 
-        let (mut proc_facts, mut all_facts, mut rows) = (0usize, 0usize, 0usize);
+        let (mut proc_facts, mut all_facts, mut rows, mut baseline) = (0usize, 0usize, 0usize, 0usize);
         for ws in &workspaces {
-            let Ok(fs_) = facts::load_all(ws) else { continue };
+            let Ok(fs_) = as_minted(ws) else { continue };
             let known = observed_extensions(&fs_);
             all_facts += fs_.len();
+
+            // The denominator this rate has to beat: what the check
+            // already reports on `look`-minted facts in the same corpus.
+            // Printed because a false-positive count means nothing on its
+            // own — two bad findings against a large true yield and two
+            // against none are opposite verdicts.
+            baseline += outside_extent(&fs_).len();
+
             for f in &fs_ {
                 if f.extent.is_empty() || !f.extent.iter().all(|e| e.label.starts_with("proc:")) {
                     continue;
@@ -617,9 +639,36 @@ mod measure {
             }
         }
         println!(
-            "\n=== {} workspace(s), {all_facts} fact(s), {proc_facts} proc-only, {rows} candidate row(s)",
+            "\n=== {} workspace(s), {all_facts} fact(s) as minted, {proc_facts} proc-only, \
+{rows} candidate row(s) vs {baseline} baseline finding(s) on look-minted facts",
             workspaces.len()
         );
+    }
+
+    /// Facts as they were **minted**, ignoring every later `Revise`.
+    ///
+    /// [`facts::load_all`] replays revisions, which is right everywhere
+    /// else and wrong here: in a real store most revisions are this very
+    /// check firing and the author repairing the note. Grading current
+    /// text therefore erases precisely the population being measured —
+    /// including the failure this module was written for, whose revision
+    /// reason begins "The note's final sentence drew a conclusion about
+    /// graph_utils.rs, which this fact's extent does not cover".
+    ///
+    /// A harness that graded healed notes would have reported that the
+    /// motivating case does not exist in the corpus.
+    fn as_minted(workspace_dir: &std::path::Path) -> std::io::Result<Vec<Fact>> {
+        let events: Vec<facts::FactEvent> =
+            crate::workspace::read_jsonl(&workspace_dir.join("facts.jsonl"))?;
+        Ok(events
+            .into_iter()
+            .filter_map(|ev| match ev {
+                facts::FactEvent::Create { id, note, extent, output, pin, .. } => {
+                    Some(Fact { id, note, extent, output, pin, revisions: 0 })
+                }
+                facts::FactEvent::Revise { .. } => None,
+            })
+            .collect())
     }
 }
 
@@ -719,16 +768,24 @@ the server's verify call in server.rs's ref_update handler.",
         assert!(outside_extent_in(&corpus[0..1], &corpus).is_empty());
     }
 
-    /// The measurement that decided TET-24 part 2, pinned: the failure
-    /// that prompted narrowing the `proc:` exemption **names no file**, so
-    /// no rule keyed on paths can reach it however the exemption is
-    /// tuned. Verbatim from the fact that produced it.
+    /// The one real stale-buffer overreach **named no file**, so no
+    /// path-keyed rule could have caught it. Verbatim from the fact that
+    /// produced it.
     ///
     /// The empty vocabulary is the point — this is not the observed-
     /// extension filter declining to recognise an extension. There is
     /// nothing filename-shaped in the note at all.
+    ///
+    /// Scope of the claim, since an earlier draft overstated it: this is
+    /// about *this instance*, not the class. A stale-buffer note that does
+    /// name a file is reachable by such a rule. What decided TET-24 part 2
+    /// was precision on the measured corpus, not unreachability. Note also
+    /// that the ticket's own summary said the note "described the contents
+    /// of `src/prose.rs` and `src/main.rs`" — that wording comes from the
+    /// author's later revision reason, not from the note, which is why
+    /// reading the original text mattered.
     #[test]
-    fn the_stale_buffer_overreach_names_no_path_to_check() {
+    fn the_one_real_stale_buffer_overreach_named_no_path() {
         let note = "`prose --revise` cannot change a block's citations. ProseRequest::Revise \
 carries only { id, text, why } — no cite field — while the CLI's Prose subcommand defines \
 `--cites` at the command level, so `--cites` is accepted alongside `--revise`, parsed, and \
