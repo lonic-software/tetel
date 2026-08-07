@@ -1072,6 +1072,98 @@ fn a_claim_with_only_stale_evidence_still_fails() {
     assert!(combined.contains("[stale-evidence]"), "got:\n{combined}");
     assert!(combined.contains("Nothing grades what this claim says today"), "got:\n{combined}");
 }
+/// The second instance of the same defect: `stale-evidence` was made
+/// digest-aware and `verdict-disagreement` was not, so a contradiction
+/// against text that no longer exists failed the check forever.
+///
+/// This is the loop the whole apparatus exists to produce — a pass
+/// refutes a claim, the author fixes the wording, a later pass grounds
+/// the new wording unanimously — and it ended in a permanent red. The
+/// only escape was withdrawing the claim and re-issuing it under a fresh
+/// id, which erases the refutation from the rendered ledger: the one
+/// trail this loop exists to preserve.
+#[test]
+fn a_contradiction_against_superseded_text_is_cleared_by_re_grounding() {
+    let sb = Sandbox::new("verdict-superseded");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    // Two passes disagree about the original wording.
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "refutes",
+             "--note", "alpha.rs also defines beta()"]);
+    let (code, report, err) = sb.run(&["check", m]);
+    assert_eq!(code, 1, "the live contradiction must fail:\n{report}{err}");
+
+    // The author resolves it by rewriting the claim, then re-grounds.
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs defines at least one function",
+             "--why", "the refutation was right; widening to what both passes agree on"]);
+    sb.run(&["render", "--out", m]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
+             "--note", "re-grounded against the widened wording"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_ne!(code, 1, "the current wording is unanimously supported:\n{combined}");
+    assert!(!combined.contains("[verdict-disagreement]"), "got:\n{combined}");
+    assert!(!combined.contains("[stale-evidence]"), "got:\n{combined}");
+    // Erasing the disagreement is not the remedy — it must still print.
+    assert!(combined.contains("superseded evidence"), "the trail must survive:\n{combined}");
+    assert!(combined.contains("alpha.rs also defines beta()"), "the refutation's note must survive:\n{combined}");
+}
+
+/// The converse: a contradiction among records that all grade the
+/// *current* wording is still P and not-P, and still fails. Digest
+/// awareness must not become a way to launder a live disagreement.
+#[test]
+fn a_contradiction_survives_a_revision_that_does_not_resolve_it() {
+    let sb = Sandbox::new("verdict-still-live");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs defines exactly one function",
+             "--why", "narrowing"]);
+    sb.run(&["render", "--out", m]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "refutes",
+             "--note", "there is a second function"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "both records grade the current text:\n{combined}");
+    assert!(combined.contains("[verdict-disagreement]"), "got:\n{combined}");
+}
+
+/// A qualification is human-owed, not a machine failure — but it is
+/// still *about* a wording. Once the author has revised the text the
+/// qualification was written against and re-grounded, the claim must
+/// stop reading as qualified, or the human partition accumulates the
+/// same undischargeable residue the machine one just shed. The record
+/// itself stays, under superseded evidence.
+#[test]
+fn a_qualification_against_superseded_text_stops_reading_as_qualified() {
+    let sb = Sandbox::new("verdict-qualified-superseded");
+    let memo = one_claim_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "qualifies",
+             "--note", "holds only on the single-threaded path"]);
+    let (_c, report, err) = sb.run(&["check", m]);
+    assert!(format!("{report}{err}").contains("C1: QUALIFIED"), "qualified first:\n{report}{err}");
+
+    sb.run(&["claim", "--revise", "C1", "--proposition", "alpha.rs defines alpha() on the single-threaded path",
+             "--why", "folding the qualification into the claim"]);
+    sb.run(&["render", "--out", m]);
+    sb.run(&["record", m, "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
+             "--note", "the condition is now stated in the claim"]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_ne!(code, 1, "nothing here is a machine failure:\n{combined}");
+    assert!(!combined.contains("C1: QUALIFIED"), "the qualification was discharged:\n{combined}");
+    assert!(combined.contains("single-threaded path"), "but the record stays visible:\n{combined}");
+}
+
 #[test]
 fn a_revision_can_attach_citations_to_a_paragraph_that_had_none() {
     let sb = Sandbox::new("revise-cites");

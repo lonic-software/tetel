@@ -633,14 +633,49 @@ because it is what an earlier pass actually found, and the log is append-only.",
             continue;
         }
 
-        // Distinct from "ungrounded": at least one record exists, and
-        // every one of them derives to `Attested` for standing purposes.
-        // Today that's unconditionally true — ingestion is the only write
-        // path, and `derived_kind` never returns anything else for an
-        // ingested record — but the check is written against
-        // `derived_kind`, not against "has any evidence", so it keeps
-        // working once a witnessed grounding can also land here.
-        if records.iter().all(|r| r.derived_kind() == Kind::Attested) {
+        // Every check below asks what the evidence says about *what this
+        // claim says now*, so every one of them reads this set rather
+        // than `records`.
+        //
+        // Making only the stale/superseded partition digest-aware and
+        // leaving the verdict checks comparing all records was the same
+        // defect one layer down, and it punished exactly the loop this
+        // crate exists to produce: a pass refutes a claim, the author
+        // fixes the wording, a later pass grounds the new wording
+        // unanimously — and `verdict-disagreement` still fired, forever,
+        // on a supports/refutes pair against text that no longer exists.
+        // The only escape was withdrawing the claim and re-issuing it
+        // under a fresh id, which erases the refutation from the rendered
+        // ledger — the one trail the loop exists to preserve. An
+        // undischargeable red that can only be cleared by destroying
+        // evidence is worse than the one it replaced.
+        //
+        // A record with no digest at all predates the field. It is
+        // treated as grading the current text rather than dropped:
+        // dropping it would silently retire these checks for every
+        // document written before digests existed, turning a live
+        // contradiction into a clean report. Grandfathering can at worst
+        // report a disagreement that a revision has since resolved —
+        // which is the direction that fails loudly.
+        let grading_current: Vec<&EvidenceRecord> = records
+            .iter()
+            .copied()
+            .filter(|r| r.proposition_digest.is_empty() || r.proposition_digest == current)
+            .collect();
+
+        // Distinct from "ungrounded": at least one record grades the
+        // current text, and every one that does derives to `Attested` for
+        // standing purposes. Today that's unconditionally true — ingestion
+        // is the only write path, and `derived_kind` never returns
+        // anything else for an ingested record — but the check is written
+        // against `derived_kind`, not against "has any evidence", so it
+        // keeps working once a witnessed grounding can also land here.
+        //
+        // The emptiness guard is not redundant: a claim whose records all
+        // grade superseded text has already been reported as a machine
+        // failure by the partition above, and `all` over nothing is true,
+        // so without it that claim would also be announced as grounded.
+        if !grading_current.is_empty() && grading_current.iter().all(|r| r.derived_kind() == Kind::Attested) {
             attested_grounded.push((claim.id.clone(), claim.proposition.clone()));
         }
 
@@ -680,9 +715,9 @@ because it is what an earlier pass actually found, and the log is append-only.",
         // proposition is a formal contradiction regardless of who wrote
         // both.
         let supporting: Vec<&&EvidenceRecord> =
-            records.iter().filter(|r| r.verdict == Verdict::Supports).collect();
+            grading_current.iter().filter(|r| r.verdict == Verdict::Supports).collect();
         let refuting: Vec<&&EvidenceRecord> =
-            records.iter().filter(|r| r.verdict == Verdict::Refutes).collect();
+            grading_current.iter().filter(|r| r.verdict == Verdict::Refutes).collect();
         if !supporting.is_empty() && !refuting.is_empty() {
             let side = |rs: &[&&EvidenceRecord]| -> String {
                 rs.iter()
@@ -712,7 +747,14 @@ because it is what an earlier pass actually found, and the log is append-only.",
         // where it qualified a single premise of a multi-premise argument
         // was the one that reddened. The check fired on the wrong claim
         // and said nothing about the right ones.
-        for r in records.iter().filter(|r| r.verdict == Verdict::Qualifies) {
+        //
+        // Digest-scoped for the same reason the machine half is: folding
+        // a qualification into the claim's wording and re-grounding is
+        // how an author *discharges* one, and a line that survived it
+        // would leave the human partition accumulating exactly the
+        // undischargeable residue the machine partition just shed. The
+        // record itself still prints, under superseded evidence.
+        for r in grading_current.iter().filter(|r| r.verdict == Verdict::Qualifies) {
             qualified.push((
                 claim.id.clone(),
                 r.pass.clone(),
@@ -721,7 +763,7 @@ because it is what an earlier pass actually found, and the log is append-only.",
         }
 
         if let Some(author_verdict) = author_status_verdict(&claim.status) {
-            for record in &records {
+            for record in &grading_current {
                 let contradicts = matches!(
                     (author_verdict, record.verdict),
                     (Verdict::Supports, Verdict::Refutes) | (Verdict::Refutes, Verdict::Supports)
