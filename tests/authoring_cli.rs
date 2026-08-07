@@ -1729,3 +1729,43 @@ fn a_grep_of_a_single_file_is_keyed_by_that_file_not_by_a_line_number() {
         "the marker must name the searched file's tree, not the directory we stood in: {root}"
     );
 }
+
+#[test]
+fn a_single_file_grep_overlaps_a_plain_read_of_the_same_file() {
+    // `pending.rs` documents that `look`, `look --lines` and `look --grep`
+    // all key on the resolved path, so "any two observations of the same
+    // file overlap regardless of what range or pattern produced them".
+    // That contract was false for a *single-file* grep, whose key was the
+    // line number it matched on — so such an observation overlapped
+    // nothing at all, silently. The behaviour is pinned here rather than
+    // left resting on the missing-`-H` fix being remembered.
+    let sb = Sandbox::new("overlap-single-file-grep");
+    sb.write("src/lib.rs", "fn alpha() {}\nfn beta() {}\n");
+    sb.write("src/other.rs", "fn gamma() {}\n");
+
+    // F1: a grep of one specific file — the shape that was broken.
+    let (code, _, err) = sb.run(&["look", "src/lib.rs", "--grep", "beta"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let (code, _, err) = sb.run(&["fact", "--note", "lib.rs defines beta"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    // F2: a plain read of the same file.
+    let (code, _, err) = sb.run(&["look", "src/lib.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let (code, _, err) = sb.run(&["fact", "--note", "the whole of lib.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    // F3: an unrelated file, which must never be reported.
+    let (code, _, err) = sb.run(&["look", "src/other.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let (code, _, err) = sb.run(&["fact", "--note", "an unrelated file"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "lib.rs defines beta", "--cites", "F1"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(
+        out.contains("F2"),
+        "a plain read of the file a single-file grep searched must overlap it:\n{out}"
+    );
+    assert!(!out.contains("F3"), "an unrelated file's fact must never overlap:\n{out}");
+}
