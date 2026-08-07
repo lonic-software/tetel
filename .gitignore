@@ -1,6 +1,12 @@
 /target
 .idea/
-.claude/
+
+# Claude Code settings. `settings.json` is committed on purpose — it carries
+# the hook that runs the pair-guards, and a guard that lives in one person's
+# untracked config is not a guard the project has. Everything else under
+# `.claude/` is personal (`settings.local.json`, transcripts, scratch).
+.claude/*
+!.claude/settings.json
 # macOS Finder metadata.
 .DS_Store
 
