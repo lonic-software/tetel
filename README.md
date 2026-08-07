@@ -1,24 +1,32 @@
 # Tetel
 
-Tetel is a tool for authoring design documents in which **every factual claim carries executable
-evidence**.
+**Prevention at authoring time, not review afterwards.** Tetel is a tool for authoring design work in
+which every factual claim carries the executable evidence that holds it up — and in which the
+evidence cannot be typed, only captured.
 
-Most of this document is the **intent** it was built against, written before the first line of code
-so that code was written against a decision rather than a memory. It is kept in that tense on
-purpose. See [Status](#status) for what actually exists, and [Building and
-installing](#building-and-installing) to run it.
+## The problem it exists for
+
+An AI can produce a long, fluent, confident design document faster than anyone can check one. The
+failure mode that matters is not invention. It is **inconsistency**: a claim resting on nothing, a
+section contradicting one four pages earlier, a fix in §7 quietly invalidating the premise §3 was
+built on, a number nobody re-ran, evidence described rather than gathered.
+
+Those defects are cheap to produce and expensive to find, and review scales badly against them —
+which is precisely the wrong way round when generation is the cheap part.
+
+**The long-term goal is making AI-authored work consistent with itself.** Tetel's bet is that the
+consistency has to be *structural* rather than *reviewed*: if a claim cannot be written down without
+the observation it rests on, then a document that contradicts itself has to do so in the open, where
+a machine can point at it.
 
 ## The one property everything else follows from
 
-**Prevention at authoring time, not detection afterwards.**
-
 A linter reads a finished document and reports what is wrong with it. Tetel aims earlier — but the
-promise has to be stated at the right strength, because the file is plain markdown and nothing stops
-anyone typing anything into it. Three layers, and only two of them are enforceable:
+promise has to be stated at the right strength. Three layers, and only two of them are enforceable:
 
-- **Format-level prevention is real.** A claim's scope is a set of things you name, not a sentence, so
-  a scope ranging wider than what you opened is a set comparison rather than a judgement call. A
-  required field cannot be omitted — the document does not parse.
+- **Format-level prevention is real.** A fact's *extent* — what was actually opened or executed — is
+  captured by the tool. There is no flag anywhere that supplies one, and that absence is the whole
+  guarantee. A required field cannot be omitted; the document does not parse.
 - **Numbers are held by re-execution, not by provenance.** You *can* type a value instead of running
   the command. It buys nothing: the checker re-runs the command, and a disagreement is a loud failure
   a human resolves. Whether the author or the checker executed it was never the property that
@@ -30,59 +38,116 @@ anyone typing anything into it. Three layers, and only two of them are enforceab
 The mental model is **a lab notebook whose every recorded result gets re-measured, and which says so
 loudly when the measurement stops agreeing.**
 
-The reason this matters more than better checking: a refutation that arrives *while* a design is being
-authored changes the design. The same refutation arriving afterwards produces a finding that gets
-patched around. Prevention converts the second into the first.
+The reason this beats better review: a refutation that arrives *while* a design is being authored
+changes the design. The same refutation arriving afterwards produces a finding that gets patched
+around. Prevention converts the second into the first.
 
-## Shape
+## What exists today
 
-Three pieces, each doing what it is good at:
+Run `tetel --help` for the authoritative surface. The shape of a session:
 
-1. **A markdown file** — prose plus fenced evidence rows. Plain markdown on purpose: agents read the
-   raw file, tooling greps it, and review happens in a diff. A structured blob format would break all
-   three, which is the `.ipynb` failure and it is disqualifying here.
-2. **A checker** — re-runs stored commands and fails loudly on a mismatch. Constraint queries
-   (does a claim's scope exceed what was opened? does anything still depend on this?) run against a
-   derived index, never a checked-in database.
-3. **An MCP server** — the write path mints rows from actual executions, which removes the
-   transcription step but is not where the guarantee lives; the query path answers dependency
-   questions cheaply. **The read path stays the file.**
+```sh
+tetel look src/parser.rs --lines 40:80     # observe — into a pending buffer
+tetel run cargo test --lib                 # observe — output captured verbatim
+tetel fact --note "the retry path is unbounded"
+                                           # mint F1: extent, output and pin are
+                                           #   captured here and never revisable
+tetel claim --proposition "retries can loop forever" --cites F1
+tetel prose --text "The failure is unbounded retry. See [C1]."
+tetel render --out design.md               # the document, plus its snapshot
+tetel check design.md                      # two partitions, never one verdict
+```
 
-One rule generates the format: **each fact has exactly one home, and everything else points at it.**
-There is no metadata section. Dependency is derived from citations already present in the prose rather
-than stored a second time. References run one way only.
+Authoring is `look` / `run` → `fact` → `claim` → `prose` → `render`. A fact's note is revisable with a
+required reason; its **extent, output and pin are not, ever**. Claims rest on facts, prose cites
+claims, and dependency is derived from those citations rather than stored a second time.
+
+Verification is `check`, `brief` and `record`. `brief` emits every claim with its scope **withheld**,
+so an independent pass grades the proposition without seeing what the author declared it ranged over.
+`record` appends that pass's verdict to the ledger.
+
+Everything is also exposed over **MCP** (`tetel mcp`), which is how agents author with it — arguments
+arrive as JSON with no shell in the path, so text that a shell would corrupt survives byte-exact.
+
+### Where things live
+
+| artifact | what it is |
+|---|---|
+| `design.md` | the rendered document — prose plus evidence rows, plain markdown so agents read it, tooling greps it, and review happens in a diff |
+| `design.md.evidence.jsonl` | the grounding ledger: append-only [in-toto](https://in-toto.io) statements, one per claim per pass, each carrying a digest of the exact proposition text it graded |
+| `design.md.tetel/` | the snapshot — the workspace state that produced the document, shipped beside it so a citation resolves in a repository that never had the workspace |
+| `~/.local/state/tetel/workspaces/<name>/` | live authoring state: facts, claims, prose, refusals, identity |
+
+Markdown is what `render` emits, not what tetel is about. **The render target is the most replaceable
+piece here**; the evidence and the claims resting on it are not.
 
 ## Vocabulary
 
-Borrowed from the proof house, where a gun barrel is stamped only after surviving an actual
-overpressure firing — the mark cannot exist without the test having been fired.
-
 | term | meaning here |
 |---|---|
-| **proof** | the execution behind a claim |
-| **mark** | the evidence row it mints |
-| **view mark** | the you-actually-opened-it check |
-| **out of proof** | a stored value no longer matching a re-run |
-| **reprove** | re-running to restore a claim's standing |
+| **observation** | one `look` or `run`, captured into the pending buffer |
+| **fact** | observations folded into an immutable record: extent, output, pin. The note is authored; everything else is captured |
+| **extent** | what a fact actually opened or executed. Machine-captured — there is no way to type one |
+| **pin** | a content fingerprint over a fact's extent, output and the working tree it was taken against |
+| **claim** | a proposition resting on one or more facts |
+| **grounding** | an independent pass grading claims from source alone, with the author's scope withheld |
+| **witnessed / ingested** | whether the tool captured the act itself, or only captured someone *reporting* the act |
+
+## What `check` tells you
+
+Two labelled partitions, each stating its own scope, and **never a single document-level verdict**:
+
+- **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
+  citations, dependency cascades, evidence-ledger import, verdict disagreement, evidence graded
+  against text a claim no longer carries, and provenance drift between a document and its own
+  snapshot. These fail the run.
+- **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
+  was graded by the workspace that authored it or an independent one, notes reaching past their
+  fact's extent, refusals recorded in a fact's mint window, and tetel's own standing non-coverage.
+  **None of it is settled by a passing check**, and none of it fails the run.
+
+Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean
+run.
 
 ## Constraints — the things this must not become
 
-- **No auto-bless.** A stored value that silently updates to match a fresh run turns
-  *"the claim still holds"* into *"the command exited zero"*. Those are different propositions, and
-  the second one certifies drift with a green checkmark. A mismatch is always a loud failure a human
-  resolves.
+- **No auto-bless.** A stored value that silently updates to match a fresh run turns *"the claim still
+  holds"* into *"the command exited zero"*. Those are different propositions, and the second certifies
+  drift with a green checkmark. A mismatch is always a loud failure a human resolves.
 - **No green wall.** Mechanical green on the checkable claims leaks confidence onto a document whose
-  worst defects are the uncheckable ones. Output must partition into machine-verified and human-owed,
-  and print the human-owed list item by item. **The job is to concentrate human reading on the
-  residue, not to shrink it.**
+  worst defects are the uncheckable ones. Output partitions, and prints the human-owed list item by
+  item. **The job is to concentrate human reading on the residue, not to shrink it.**
 - **Never paraphrase.** If a tool returns a clause, it returns the clause's prose. The moment the
   server summarises, every downstream reader inherits the tool's reading of the document instead of
   the document — silently.
 - **Prose is never generated from fields.** Facts may be captured and interpolated; arguments may not
   be assembled out of structure. A format that constrains what a design can express constrains what
   can be argued about it, and the strongest refutations on record came from readers engaging prose
-  with full generality. Whoever writes it — person or agent — writes the argument themselves; the
-  typing was never the point.
+  with full generality. Whoever writes it — person or agent — writes the argument themselves.
+- **Refusals are format-level, never heuristic.** "You did not point at your evidence" is a decidable
+  question. "This looks wrong" is not, and belongs in the human-owed partition or nowhere.
+
+## Direction
+
+Roughly in order, and each gated on measurement rather than enthusiasm — several proposed refusals
+have already been built, measured against a real corpus, and **rejected on precision**:
+
+- **Make the guards authoritative.** A commit hook runs the pair-guards locally today; CI would make
+  them hold for a contributor who is not using the same setup.
+- **More authoring-time refusals, where they are decidable.** Requiring a workspace-rooted search
+  behind a claim that names a symbol; requiring a transplanted mechanism to carry its donor's stated
+  premises; reporting prose revised since its claims were last grounded.
+- **Supporting-span selection.** At mint time, point at the span of captured output that supports the
+  assertion — refused unless it is a verbatim substring of a cited fact. The dual of the extent
+  guarantee: the author cannot type an extent, and here could not invent support, only select it.
+- **An obligation ledger.** Today a warning is a printed string with no lifecycle, so a warning that
+  was ignored and one that was correctly resolved are indistinguishable in every artifact. Warnings
+  raised, discharged with a *type*, and what is still owed reported by `check`.
+- **Then, and only then, an optional model advisory pass** — a smaller model warning that a claim
+  looks unsupported by its evidence, so the author verifies during authoring rather than discovering
+  it after half the design was built on it. Deliberately last: it is worth building only once the
+  deterministic layers have narrowed the question from *"does this transcript support this note?"* to
+  *"does this span support this sentence?"*, and it must never become a gate.
 
 ## What it will not solve, stated up front
 
@@ -98,12 +163,6 @@ overpressure firing — the mark cannot exist without the test having been fired
 Hungarian *tétel*: a **line item in a ledger**, and a **proposition** in logic. The evidence rows are
 ledger entries that are propositions, so the word already names the central object rather than
 describing it by analogy. Short, unambiguous to pronounce, and free of prior meaning in English.
-
-## Decisions
-
-- **Licence — MIT**, matching [pult](https://github.com/lonic-software/pult). Tetel is a free tool.
-- **Implementation language — Rust**, matching pult. The checker prototype that motivated this is
-  Python; it stays a prototype.
 
 ## Building and installing
 
@@ -140,14 +199,21 @@ Confirm with `claude mcp get tetel`, which should report `Status: ✔ Connected`
 
 ## Status
 
-**Built and in use, on its own development.** The evidence rows, the checker, and the MCP server all
-exist; run `tetel --help` for the current surface. This README's earlier sections still describe the
-intent rather than the shipped behaviour, and where the two differ the tool's own `--help` and module
-documentation are authoritative.
+**Built, and in use on its own development** — including on the work that produced the features
+listed above, which is where most of its defects have been found. Not released, not versioned beyond
+`0.1.0`, and the surface still moves.
 
-The kill condition registered before the first deliverable was written still stands and has not yet
-been evaluated: **if the next two real documents yield only findings an existing lint would have
-surfaced anyway, it did not earn its keep.**
+The kill condition registered before the first line of code still stands and **has not yet been
+fairly evaluated**: *if the next two real documents yield only findings an existing lint would have
+surfaced anyway, it did not earn its keep.* Documents written under it so far have been about tetel
+itself, which is the weakest possible evidence base; the honest test is a design that has nothing to
+do with this tool.
+
+## Decisions
+
+- **Licence — MIT**, matching [pult](https://github.com/lonic-software/pult). Tetel is a free tool.
+- **Implementation language — Rust**, matching pult. The checker prototype that motivated this is
+  Python; it stays a prototype.
 
 ## Licence
 
