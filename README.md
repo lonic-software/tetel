@@ -27,10 +27,13 @@ promise has to be stated at the right strength. Three layers, and only two of th
 - **Format-level prevention is real.** A fact's *extent* — what was actually opened or executed — is
   captured by the tool. There is no flag anywhere that supplies one, and that absence is the whole
   guarantee. A required field cannot be omitted; the document does not parse.
-- **Numbers are held by re-execution, not by provenance.** You *can* type a value instead of running
-  the command. It buys nothing: the checker re-runs the command, and a disagreement is a loud failure
-  a human resolves. Whether the author or the checker executed it was never the property that
-  mattered.
+- **Values are captured; the sentence about them is still written.** A fact's output is recorded by
+  the tool and cannot be typed. The prose a human writes *about* that output can still say anything,
+  and nothing today checks that a number in a sentence appears in the evidence beneath it. That gap
+  is real, it is what supporting-span selection is meant to close, and until then it is human-owed.
+  **`check` does not re-run anything** — it never executes a command a document names, deliberately,
+  since a checked-in memo would otherwise be a way to run code on whoever checks it. Drift between a
+  captured value and today's reality is closed by observing again, not by the checker.
 - **Wrong-but-green evidence is not addressed, and never will be.** A command can run cleanly and
   fail to establish what its author believed. That residue is human-owed permanently, and the job is
   to keep it visible rather than to shrink it.
