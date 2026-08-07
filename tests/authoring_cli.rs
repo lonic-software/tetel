@@ -1444,3 +1444,244 @@ fn a_log_without_anchors_still_replays_in_append_order() {
     );
     assert!(a < b && b < c, "append order must be preserved:\n{out}");
 }
+
+// --- TET-5: the marker must describe the tree that was read ------------
+
+/// Make `dir` a git repository with one commit, so `worldstate` has
+/// something to resolve. Identity is passed per-command rather than
+/// configured, so the test never depends on the machine's git config.
+fn init_repo(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git must be on PATH for this test")
+            .status
+            .success();
+        assert!(ok, "git {args:?} failed in {}", dir.display());
+    };
+    git(&["init", "-q"]);
+    std::fs::write(dir.join("f.txt"), "original\n").unwrap();
+    git(&["add", "f.txt"]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+}
+
+/// Every `(world_root, world_state)` pair in the pending buffer, in order.
+fn pending_markers(sb: &Sandbox) -> Vec<(String, String)> {
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json"))
+        .expect("pending buffer must exist");
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["world_root"].as_str().unwrap_or_default().to_string(),
+                e["world_state"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_marker_tracks_the_tree_that_was_read_not_the_one_the_process_stood_in() {
+    // The defect this replaced: `worldstate` ran `git` in the process's
+    // own working directory and stamped that answer onto every
+    // observation. Measured directly, the marker moved when a repository
+    // nobody had read changed and stayed put when the one being read did.
+    // A unit test could not see this — the old one asserted only that a
+    // marker came back — so it is asserted end to end, through the binary.
+    let sb = Sandbox::new("worldstate-follows-the-read");
+    let a = sb.dir.join("repoA");
+    let b = sb.dir.join("repoB");
+    init_repo(&a);
+    init_repo(&b);
+
+    // The sandbox dir itself is the process's cwd; put a repo under it and
+    // run from there so "where we stand" and "what we read" differ.
+    let run_in_a = |args: &[&str]| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        cmd.args(args);
+        cmd.current_dir(&a);
+        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        let out = cmd.output().expect("failed to run tetel");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+
+    let b_file = b.join("f.txt");
+    run_in_a(&["look", b_file.to_str().unwrap()]);
+
+    // Dirty the repository we are standing in but did not read.
+    std::fs::write(a.join("f.txt"), "A is now dirty\n").unwrap();
+    run_in_a(&["look", b_file.to_str().unwrap()]);
+
+    // Now dirty the one we actually read.
+    std::fs::write(&b_file, "B is now dirty\n").unwrap();
+    run_in_a(&["look", b_file.to_str().unwrap()]);
+
+    let m = pending_markers(&sb);
+    assert_eq!(m.len(), 3, "three observations expected: {m:?}");
+
+    // Premise: git resolved at all. Without this the two assertions below
+    // would both hold vacuously on a machine with no usable git.
+    assert!(
+        m.iter().all(|(root, _)| root.ends_with("repoB")),
+        "every marker must name the tree that was read: {m:?}"
+    );
+
+    assert_eq!(
+        m[0].1, m[1].1,
+        "an unread repository going dirty must not move the marker: {m:?}"
+    );
+    assert_ne!(
+        m[1].1, m[2].1,
+        "the repository that was read going dirty must move the marker: {m:?}"
+    );
+}
+
+#[test]
+fn a_run_marker_names_the_tree_the_command_ran_in() {
+    // `run` is the deliberate exception: a command names no path, and it
+    // genuinely executed in this process's working directory.
+    let sb = Sandbox::new("worldstate-run-uses-cwd");
+    let a = sb.dir.join("repoA");
+    init_repo(&a);
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
+    cmd.args(["run", "--", "echo", "hello"]);
+    cmd.current_dir(&a);
+    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    let out = cmd.output().expect("failed to run tetel");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let m = pending_markers(&sb);
+    assert_eq!(m.len(), 1);
+    assert!(m[0].0.ends_with("repoA"), "run must name the tree it ran in: {m:?}");
+}
+
+#[test]
+fn check_reports_which_facts_saw_which_tree_state() {
+    let sb = Sandbox::new("worldstate-check-divergence");
+    let a = sb.dir.join("repoA");
+    init_repo(&a);
+
+    let run_in_a = |args: &[&str]| -> String {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        cmd.args(args);
+        cmd.current_dir(&a);
+        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        let out = cmd.output().expect("failed to run tetel");
+        assert!(
+            out.status.code() == Some(0) || out.status.code() == Some(1),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let f = a.join("f.txt");
+    let fs_ = f.to_str().unwrap();
+
+    // F1 against the committed tree.
+    run_in_a(&["look", fs_]);
+    run_in_a(&["fact", "--note", "the file says original"]);
+
+    // F2 against a modified one — the ticket's F3/F8 shape: two facts
+    // about one file, taken against opposite states of one tree.
+    std::fs::write(&f, "replaced\n").unwrap();
+    run_in_a(&["look", fs_]);
+    run_in_a(&["fact", "--note", "the file says replaced"]);
+
+    run_in_a(&["claim", "--proposition", "the file has a value", "--cites", "F1"]);
+    run_in_a(&["prose", "--text", "See [C1]."]);
+
+    let memo = sb.dir.join("memo.md");
+    run_in_a(&["render", "--out", memo.to_str().unwrap()]);
+    let report = run_in_a(&["check", memo.to_str().unwrap()]);
+
+    assert!(
+        report.contains("different working-tree states"),
+        "check must report the divergence: {report}"
+    );
+    assert!(report.contains("F1"), "and which facts saw which state: {report}");
+    assert!(report.contains("F2"), "and which facts saw which state: {report}");
+    // Never a failure — this is a record, not a defect.
+    assert!(
+        report.contains("machine-checked: clean") || !report.contains("[world"),
+        "tree divergence must never enter the machine-checked partition: {report}"
+    );
+}
+
+#[test]
+fn a_witnessed_record_carries_the_tree_it_graded_and_an_ingested_one_cannot() {
+    // The second run behind TET-5: a grounding pass read the live working
+    // tree while the memo pinned an older commit, and nothing in any
+    // artifact said so. This is the field that makes that answerable.
+    let sb = Sandbox::new("witnessed-world");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+
+    let in_repo = |args: &[&str]| -> (i32, String, String) {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        cmd.args(args);
+        cmd.current_dir(&repo);
+        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        let out = cmd.output().expect("failed to run tetel");
+        (
+            out.status.code().unwrap(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+
+    in_repo(&["--workspace", "author", "look", "f.txt"]);
+    in_repo(&["--workspace", "author", "fact", "--note", "f.txt says original"]);
+    in_repo(&["--workspace", "author", "claim", "--proposition", "f.txt says original", "--cites", "F1"]);
+    in_repo(&["--workspace", "author", "prose", "--text", "See [C1]."]);
+    let memo = sb.dir.join("memo.md");
+    in_repo(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+
+    in_repo(&["--workspace", "grounder", "look", "f.txt"]);
+    in_repo(&["--workspace", "grounder", "fact", "--note", "read independently"]);
+    let (code, _, err) = in_repo(&[
+        "--workspace", "grounder", "record", memo.to_str().unwrap(),
+        "--from-fact", "F1", "--claim", "C1", "--verdict", "supports",
+    ]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let raw = std::fs::read_to_string(sb.dir.join("memo.md.evidence.jsonl")).unwrap();
+    let witnessed: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+    let world = witnessed["predicate"]["world"].as_array().expect("witnessed records carry `world`");
+    assert_eq!(world.len(), 1, "one repository in one state, said once: {world:?}");
+    assert!(
+        world[0]["root"].as_str().unwrap().ends_with("repo"),
+        "the marker must name the tree that was read: {world:?}"
+    );
+    assert!(world[0]["state"].as_str().unwrap().starts_with("git:"), "{world:?}");
+
+    // The ingested path has no way to supply one, and says so by being
+    // empty rather than by carrying whatever a caller typed.
+    let input = serde_json::json!({
+        "claim": "C1", "pass": "someone-else", "verdict": "supports",
+        "reported_kind": "reading", "source": "notes.md",
+        "extent": ["f.txt"],
+        "world": [{"root": "/invented", "state": "git:deadbeef"}],
+    });
+    let (code, _, err) = sb.run_stdin(
+        &["record", memo.to_str().unwrap()],
+        &serde_json::to_string(&input).unwrap(),
+    );
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let raw = std::fs::read_to_string(sb.dir.join("memo.md.evidence.jsonl")).unwrap();
+    let ingested: serde_json::Value =
+        serde_json::from_str(raw.lines().last().unwrap()).unwrap();
+    assert_eq!(ingested["predicateType"], tetel::evidence::INGESTED_PREDICATE_TYPE);
+    assert_eq!(
+        ingested["predicate"]["world"].as_array().map(Vec::len),
+        Some(0),
+        "a typed marker must not survive into the record: {ingested}"
+    );
+}

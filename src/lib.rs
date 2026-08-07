@@ -99,6 +99,12 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     if snapshot_dir.is_dir() {
         if let Ok(facts) = facts::load_all(&snapshot_dir) {
             findings.notes_outside_extent = scope::outside_extent(&facts);
+            // Which working trees these facts saw, and in how many states.
+            // Read from the same shipped `facts.jsonl`; nothing derived is
+            // stored, and a re-run recomputes it.
+            let trees = worldstate::tree_report(&facts);
+            findings.tree_states = trees.divergent;
+            findings.tree_ungradable = trees.ungradable_facts;
         }
         // The refusals recorded in each fact's mint window, recovered
         // from the two files the snapshot already ships: `facts.jsonl`'s

@@ -406,6 +406,7 @@ pub(crate) mod tests_support {
                 .map(|(k, l)| ExtentEntry {
                     key: k.to_string(),
                     label: l.to_string(),
+                    world_root: String::new(),
                     world_state: String::new(),
                 })
                 .collect(),

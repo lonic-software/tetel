@@ -118,7 +118,8 @@ a matching one.\n"
     // --- human-owed partition -----------------------------------------
     out.push_str(
         "human-owed: every READING/OBSERVED/ATTESTED row, every row whose domain or extent \
-contains a proc:/external designator, the RUN command\u{2194}proposition correspondence, \
+contains a proc:/external designator, the working-tree states this memo's facts were taken \
+against, the RUN command\u{2194}proposition correspondence, \
 cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
 declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
@@ -160,6 +161,28 @@ refusal fell on cannot be recovered — it is listed under both adjacent facts r
 guessed at)\n",
             );
         }
+    }
+    for r in &findings.tree_states {
+        out.push_str(&format!(
+            "  - {} was observed in {} different working-tree states by this memo's facts. Not a \
+defect — a tree moves while a design is written — but it is what tells you whether two facts \
+about the same code disagree about the world or about the same world, which their notes alone \
+cannot say:\n",
+            r.root,
+            r.states.len()
+        ));
+        for (state, ids) in &r.states {
+            out.push_str(&format!("      {state}  ←  {}\n", ids.join(", ")));
+        }
+    }
+    if !findings.tree_ungradable.is_empty() {
+        out.push_str(&format!(
+            "  - [{}]: minted before an observation's tree marker named which tree it described, \
+so their recorded state is this tool's own working directory at capture time and not the tree they \
+read. Nothing can be compared against it — reported rather than passed over, because an ungradable \
+record is not a matching one. Re-observing under the current build is the only repair\n",
+            findings.tree_ungradable.join(", ")
+        ));
     }
     for o in &findings.notes_outside_extent {
         out.push_str(&format!(

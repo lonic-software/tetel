@@ -37,8 +37,18 @@ pub struct PendingEntry {
     /// The human-readable line shown in a fact's extent list.
     pub label: String,
     pub output: String,
-    /// The working-tree state marker at the moment this observation was
-    /// captured — see `worldstate.rs` and fix 1 in the design memo.
+    /// The working tree this observation was taken against, and the state
+    /// it was in — see `worldstate.rs` and fix 1 in the design memo. Both
+    /// halves are needed: comparing states across two different roots
+    /// reports a difference that means nothing, and half the workspaces in
+    /// the store read more than one repository.
+    ///
+    /// `world_root` is defaulted for entries written before it existed.
+    /// Those carry a state resolved from the process's working directory
+    /// rather than from what they read, so they are not comparable with
+    /// anything and an empty root is what says so.
+    #[serde(default)]
+    pub world_root: String,
     pub world_state: String,
     /// Unix seconds at capture.
     ///

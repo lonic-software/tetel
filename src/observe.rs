@@ -2,8 +2,16 @@
 //! adds to its pending observation buffer (see `pending.rs`). Mirrors
 //! the prototype's `tlook`/`trun`, with two changes: `--lines A:B` is
 //! new (see the module's `look_path` doc comment), and every recorded
-//! observation carries a `world_state` marker alongside its content
+//! observation carries a working-tree marker alongside its content
 //! (fix 1 in the design memo — see `worldstate.rs`).
+//!
+//! Each observation resolves its **own** marker, from what it touched: a
+//! `look` from the file it opened, a `--grep` match from the file it
+//! matched in, a bounded negative from the search root, and a `run` from
+//! this process's working directory, which is where the command actually
+//! ran. Resolving one marker per call and attaching it to everything was
+//! the original shape and it described the wrong tree — see the measured
+//! table in `worldstate.rs`.
 
 use std::fs;
 use std::io::Read;
@@ -61,7 +69,9 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
     }
     let contents = fs::read_to_string(p).map_err(|e| AuthoringError::Io(e.to_string()))?;
     let key = resolve_key(p);
-    let world_state = worldstate::compute();
+    // Resolved from the file being read, never from this process's working
+    // directory — see `worldstate.rs` for the measurement that forced this.
+    let world = worldstate::Session::new().for_path(p);
 
     let (shown, label) = match lines {
         None => (contents.clone(), path.to_string()),
@@ -88,7 +98,14 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
     }
 
     let entry = PendingEntry {
-        kind: ObservationKind::Path, key, label, output: shown, world_state, captured_at: workspace::now_unix() };
+        kind: ObservationKind::Path,
+        key,
+        label,
+        output: shown,
+        world_root: world.root,
+        world_state: world.state,
+        captured_at: workspace::now_unix(),
+    };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
     pending::save(workspace_dir, &buf)?;
@@ -112,7 +129,11 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     if !root_path.exists() {
         return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
     }
-    let world_state = worldstate::compute();
+    // One session for the whole search: a recursive grep can match in
+    // dozens of files, and each matched file resolves its own marker
+    // (a search root can span a submodule or a nested worktree), but
+    // files sharing a directory resolve once between them.
+    let mut world = worldstate::Session::new();
 
     let mut args: Vec<&str> = Vec::new();
     if root_path.is_dir() {
@@ -134,6 +155,9 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     let mut buf = pending::load(workspace_dir)?;
 
     if stdout.trim().is_empty() {
+        // A bounded negative is about the tree it searched, so its marker
+        // comes from the search root.
+        let m = world.for_path(root_path);
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
@@ -141,7 +165,8 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
             key: resolve_key(root_path),
             label: format!("no-match: {pattern} in {root}"),
             output: String::new(),
-            world_state,
+            world_root: m.root,
+            world_state: m.state,
         });
     } else {
         printed.push_str(&stdout);
@@ -152,13 +177,15 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
             }
         }
         for (file, matches) in by_file {
+            let m = world.for_path(Path::new(&file));
             buf.push(PendingEntry {
-            captured_at: workspace::now_unix(),
+                captured_at: workspace::now_unix(),
                 kind: ObservationKind::GrepMatch,
                 key: resolve_key(Path::new(&file)),
                 label: format!("{file} (grep: {pattern})"),
                 output: matches.join("\n"),
-                world_state: world_state.clone(),
+                world_root: m.root,
+                world_state: m.state,
             });
         }
     }
@@ -223,7 +250,10 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     if argv.is_empty() {
         return Err(workspace::refuse(workspace_dir, "run", "no command given"));
     }
-    let world_state = worldstate::compute();
+    // `run` is the one case where the process's own working directory is
+    // the right answer rather than a fallback: a command names no path in
+    // general, and it genuinely executed here.
+    let world = worldstate::Session::new().for_cwd();
     let cmdline = argv.join(" ");
 
     let mut child = Command::new(&argv[0])
@@ -266,7 +296,8 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         key: cmdline.clone(),
         label: format!("proc: {cmdline} (exit {exit_code})"),
         output: output_text.clone(),
-        world_state,
+        world_root: world.root,
+        world_state: world.state,
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);

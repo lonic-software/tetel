@@ -157,6 +157,22 @@ struct Predicate {
     /// see the doc comment on [`INGESTED_PREDICATE_TYPE`].
     #[serde(default)]
     extent: Vec<String>,
+    /// The working trees the grounding observations were taken against.
+    ///
+    /// Deliberately **not** on [`RecordInput`]: there is no way to type
+    /// one, exactly as there is no way to type a fact's extent. An
+    /// ingested record always writes this empty, and that emptiness is
+    /// honest — the tool witnessed someone saying an act happened, and
+    /// has no idea what tree they were standing in.
+    ///
+    /// Nothing reads it yet. It is written now so the question it exists
+    /// for — *was this claim graded against the same tree the memo was
+    /// written against?* — becomes measurable at all. Before this,
+    /// grounding against a working tree several commits past the one the
+    /// design pinned was invisible in every artifact the tool produced,
+    /// which is one of the two runs behind TET-5.
+    #[serde(default)]
+    world: Vec<crate::worldstate::Marker>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -292,6 +308,9 @@ fn build_statement(claim: &Claim, input: &RecordInput, verdict: Verdict) -> Stat
             reported_kind: input.reported_kind.clone(),
             source: input.source.clone(),
             extent: input.extent.clone(),
+            // Always empty on the ingested path, and there is no input
+            // field that could make it otherwise. See the field's doc.
+            world: Vec::new(),
             note: input.note.clone(),
             pin: input.pin.clone(),
             timestamp: now_unix(),
@@ -363,6 +382,19 @@ condition the proposition holds under, or what you could not establish".to_strin
             // and, once shipped, in the memo's snapshot beside it.
             source: format!("proc:workspace-{}", identity.id),
             extent: fact.extent.iter().map(|e| e.label.clone()).collect(),
+            // Deduplicated: a fact folding thirty observations of one
+            // repository in one state should say that once. Order is the
+            // extent's, so the first tree read stays first.
+            world: fact.extent.iter().fold(Vec::<crate::worldstate::Marker>::new(), |mut acc, e| {
+                let m = crate::worldstate::Marker {
+                    root: e.world_root.clone(),
+                    state: e.world_state.clone(),
+                };
+                if !acc.contains(&m) {
+                    acc.push(m);
+                }
+                acc
+            }),
             note,
             pin: Some(fact.pin.clone()),
             timestamp: now_unix(),

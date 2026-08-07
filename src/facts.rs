@@ -20,12 +20,26 @@ use crate::pending;
 use crate::workspace::{self, AuthoringError, Kind};
 
 /// One observation folded into a fact's extent — the label a human
-/// reads, the key overlap detection compares, and the world-state
-/// marker it was captured under (fix 1 in the design memo).
+/// reads, the key overlap detection compares, and the world-tree marker
+/// it was captured under (fix 1 in the design memo).
+///
+/// The marker is two fields, not one. `world_state` alone cannot be
+/// compared across observations of different repositories, and half the
+/// workspaces in the store on 2026-08-07 read more than one; only
+/// "same `world_root`, different `world_state`" is a finding. See
+/// `worldstate.rs`.
+///
+/// `world_root` is `#[serde(default)]` for entries minted before it
+/// existed. An empty root is not "unknown repository" — it marks a state
+/// that was resolved from the process's working directory rather than
+/// from what the observation touched, and is therefore comparable with
+/// nothing. `check` treats it that way rather than guessing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtentEntry {
     pub key: String,
     pub label: String,
+    #[serde(default)]
+    pub world_root: String,
     pub world_state: String,
 }
 
@@ -266,15 +280,22 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
 
     let extent: Vec<ExtentEntry> = buf
         .iter()
-        .map(|e| ExtentEntry { key: e.key.clone(), label: e.label.clone(), world_state: e.world_state.clone() })
+        .map(|e| ExtentEntry {
+            key: e.key.clone(),
+            label: e.label.clone(),
+            world_root: e.world_root.clone(),
+            world_state: e.world_state.clone(),
+        })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");
 
     // The pin: a content fingerprint over every entry's label, output
-    // and world-state marker — the prototype's compute_pin hashed
-    // extent labels and captured output; folding the world-state marker
-    // in too means a fact minted against a different tree state pins
-    // differently even if its labels/output happen to coincide. The
+    // and world-tree marker — the prototype's compute_pin hashed
+    // extent labels and captured output; folding the marker in too means
+    // a fact minted against a different tree state pins differently even
+    // if its labels/output happen to coincide. Both halves of the marker
+    // go in: two observations of the same path under the same state but
+    // in two different checkouts are two different observations. The
     // marker itself is still carried separately in `extent` (see
     // `ExtentEntry`), since a hash alone can't be compared by a human
     // without recomputing it — fix 1 is about visibility, not just
@@ -282,6 +303,8 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
     let mut hash_input = String::new();
     for e in &buf {
         hash_input.push_str(&e.label);
+        hash_input.push('\n');
+        hash_input.push_str(&e.world_root);
         hash_input.push('\n');
         hash_input.push_str(&e.world_state);
         hash_input.push('\n');

@@ -113,6 +113,20 @@ pub struct Findings {
     /// when a snapshot shipped beside the memo, and only as complete as
     /// the log inside it.
     pub mint_windows: Vec<crate::facts::MintWindow>,
+    /// Working trees this memo's facts observed in more than one state,
+    /// and the facts that saw each. A record rather than a warning — two
+    /// facts seeing one repository in two states is the normal condition
+    /// of any design that outlives an edit. What it settles is whether
+    /// two facts asserting opposite things about the same code disagree
+    /// about the world or about the same world, which before this the
+    /// ledger could not answer at all. Same snapshot dependency as
+    /// `mint_windows`.
+    pub tree_states: Vec<crate::worldstate::RootStates>,
+    /// Facts whose markers predate roots being recorded, so their tree
+    /// state describes the process's working directory rather than what
+    /// they read. Reported rather than passed over: an ungradable record
+    /// is not a matching one.
+    pub tree_ungradable: Vec<String>,
     /// True when the memo's ledger has no scope columns for any claim to
     /// declare into — a tetel-authored ledger. Reported once at document
     /// level rather than once per claim; see
@@ -514,6 +528,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         provenance: crate::snapshot::Provenance::Missing,
         cites_something: false,
         notes_outside_extent: Vec::new(),
+        tree_states: Vec::new(),
+        tree_ungradable: Vec::new(),
         mint_windows: Vec::new(),
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
