@@ -141,6 +141,17 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     }
     args.push("-I");
     args.push("-n");
+    // `-H` unconditionally, because grep only prints the filename when it
+    // was given more than one file to search. Without it a search of a
+    // *single* file returns `<line>:<match>`, and the `split_once(':')`
+    // below then read the line number as the filename: every such
+    // observation was keyed on a bare integer, overlapped nothing, and —
+    // since a bare integer has no parent directory — resolved its
+    // world-tree marker from this process's working directory, which is
+    // precisely the defect TET-5 removed everywhere else. Found by the
+    // grounding pass over TET-5's own design memo, in that memo's own
+    // extent.
+    args.push("-H");
     args.push("-e");
     args.push(pattern);
     args.push(root);

@@ -18,13 +18,14 @@
 //! the second was learned by measurement rather than assumed.
 //!
 //! The state alone is what this module recorded first, and it does not
-//! survive contact with real workspaces: **12 of the 23 workspaces in the
-//! store on 2026-08-07 observed more than one git repository** — every
-//! `fork94` attacker pass read both `lonic-forklift` and `lonic-planning`,
-//! and three grounding passes also read a separate worktree. Comparing
-//! bare state hashes across those observations reports a difference on
-//! every one of them, and the difference means nothing: two repositories
-//! are *supposed* to be in different states. Only "one root, two states"
+//! survive contact with real workspaces: **9 of the 23 workspaces in the
+//! store on 2026-08-07 observed more than one git repository** — five of
+//! the seven `fork94` attacker passes read both `lonic-forklift` and
+//! `lonic-planning`, and four grounding passes also read a separate
+//! worktree. Comparing bare state hashes across those observations
+//! reports a difference on every one of them, and the difference means
+//! nothing: two repositories are *supposed* to be in different states.
+//! Only "one root, two states"
 //! is a finding, and recovering that needs the root recorded.
 //!
 //! # It must describe the tree that was read, not the one you stood in
@@ -52,10 +53,28 @@
 //! `run` is the exception, and honestly so: a command names no path in
 //! general, and it genuinely executed in this process's working
 //! directory, so [`Session::for_cwd`] is the right answer there rather
-//! than a fallback. It is also by far the commonest observation kind —
-//! 106 of 130 extent entries in one grounding workspace — so a reader
-//! should know that a great many markers describe the directory a
-//! command ran in and not a file anyone opened.
+//! than a fallback. Counting extent entries whose label begins `proc: `,
+//! it was **123 of 978 — 12.6%** across the store on 2026-08-07, so a
+//! reader should know that some markers describe the directory a command
+//! ran in and not a file anyone opened. (The grounding pass, measuring
+//! the same thing minutes earlier against a store still being written to,
+//! got 119 of 967. Two honest counts of a moving population; the method
+//! is stated so either can be re-derived rather than believed.)
+//!
+//! Read that answer with its ceiling in view: over MCP the working
+//! directory is the *server's*, which is wherever the client started it
+//! and need not be the repository under design. Three `tetel mcp`
+//! servers were running on this machine at once with three unrelated
+//! working directories. The marker is then still accurate about where the
+//! command ran; it is simply less informative than a reader might assume,
+//! and that is a property of `run` over MCP rather than of the marker.
+//!
+//! An earlier draft of this comment put the share at "106 of 130 in one
+//! grounding workspace", roughly seven times the true figure. The 106
+//! were not `proc:` entries: 92 of them were grep matches whose keys had
+//! been mangled into bare line numbers by a missing `-H` (fixed in
+//! `look_grep`, found by the grounding pass over this module's own design
+//! memo). Both the count and its cause were wrong.
 //!
 //! # Implementation choice
 //!
@@ -314,7 +333,7 @@ mod tests {
 
     #[test]
     fn two_repositories_in_their_own_states_are_not_a_divergence() {
-        // The measured shape: 12 of 23 workspaces read more than one
+        // The measured shape: 9 of 23 workspaces read more than one
         // repository. Without grouping by root this fires on all of them
         // and means nothing.
         let r = tree_report(&[

@@ -1685,3 +1685,47 @@ fn a_witnessed_record_carries_the_tree_it_graded_and_an_ingested_one_cannot() {
         "a typed marker must not survive into the record: {ingested}"
     );
 }
+
+#[test]
+fn a_grep_of_a_single_file_is_keyed_by_that_file_not_by_a_line_number() {
+    // grep prints a filename only when given more than one file to search,
+    // so a single-file search returned `<line>:<match>` and the line
+    // number was read as the filename. The consequences were silent and
+    // two: the observation overlapped nothing, and a bare integer has no
+    // parent directory, so its world-tree marker fell back to this
+    // process's working directory — the exact defect TET-5 removed.
+    let sb = Sandbox::new("grep-single-file-key");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/target.txt"), "alpha\nbeta\ngamma\n").unwrap();
+
+    // Stand in an unrelated repository, so a cwd-derived marker is
+    // distinguishable from a correctly resolved one.
+    let elsewhere = sb.dir.join("elsewhere");
+    init_repo(&elsewhere);
+
+    let target = repo.join("sub/target.txt");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
+    cmd.args(["look", target.to_str().unwrap(), "--grep", "beta"]);
+    cmd.current_dir(&elsewhere);
+    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    let out = cmd.output().expect("failed to run tetel");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let entries = v.as_array().unwrap();
+    assert_eq!(entries.len(), 1, "one matching file, one observation: {entries:?}");
+
+    let key = entries[0]["key"].as_str().unwrap();
+    assert!(
+        key.ends_with("target.txt"),
+        "the key must be the file, not the line it matched on: {key}"
+    );
+    let root = entries[0]["world_root"].as_str().unwrap();
+    assert!(
+        root.ends_with("repo"),
+        "the marker must name the searched file's tree, not the directory we stood in: {root}"
+    );
+}
