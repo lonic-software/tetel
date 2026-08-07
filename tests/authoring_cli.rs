@@ -1769,3 +1769,87 @@ fn a_single_file_grep_overlaps_a_plain_read_of_the_same_file() {
     );
     assert!(!out.contains("F3"), "an unrelated file's fact must never overlap:\n{out}");
 }
+
+// --- the pin: nothing asserted anything about it until this sweep -------
+
+/// Every `pin` in this workspace's log, in mint order.
+fn pins(sb: &Sandbox, workspace: &str) -> Vec<String> {
+    let p = sb.state_home().join("workspaces").join(workspace).join("facts.jsonl");
+    std::fs::read_to_string(p)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["event"] == "Create")
+        .map(|v| v["pin"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[test]
+fn two_facts_from_identical_observations_pin_identically() {
+    // The floor. Without this, "the pin changed" carries no information,
+    // because it might change for no reason at all.
+    let sb = Sandbox::new("pin-deterministic");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+
+    let run_in = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+
+    run_in(&["look", "f.txt"]);
+    run_in(&["fact", "--note", "first read"]);
+    run_in(&["look", "f.txt"]);
+    run_in(&["fact", "--note", "an identical read, different note"]);
+
+    let p = pins(&sb, "default");
+    assert_eq!(p.len(), 2);
+    assert_eq!(
+        p[0], p[1],
+        "same file, same tree, same output — the note is not part of the pin: {p:?}"
+    );
+}
+
+#[test]
+fn a_fact_taken_against_a_changed_tree_pins_differently() {
+    // The property TET-5 added and nothing verified: the working-tree
+    // marker is folded into the pin, so two facts whose *observed file* is
+    // byte-identical still pin apart when the tree around them moved.
+    //
+    // Written as a falsifier for that specific fold: the label, the output
+    // and the file are all identical between the two mints, so the marker
+    // is the only input that differs. Remove it from the hash and this is
+    // the test that fails.
+    let sb = Sandbox::new("pin-tracks-tree");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+
+    let run_in = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+
+    run_in(&["look", "f.txt"]);
+    run_in(&["fact", "--note", "before the tree moved"]);
+
+    // A different, unread file changes — so this fact's own extent, label
+    // and captured output are all unchanged.
+    std::fs::write(repo.join("unrelated.txt"), "the tree is now dirty\n").unwrap();
+    let ok = Command::new("git").arg("-C").arg(&repo).args(["add", "unrelated.txt"]).output().unwrap().status.success();
+    assert!(ok, "test setup: git add must succeed");
+
+    run_in(&["look", "f.txt"]);
+    run_in(&["fact", "--note", "after the tree moved"]);
+
+    let p = pins(&sb, "default");
+    assert_eq!(p.len(), 2);
+    assert_ne!(
+        p[0], p[1],
+        "the same file read against two tree states must not share a pin: {p:?}"
+    );
+}

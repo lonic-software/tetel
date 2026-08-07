@@ -7,9 +7,33 @@
 //! and in the snapshot beside a rendered document; the render target is
 //! the most replaceable thing here.
 //!
-//! It never writes a file itself outside of
-//! `tetel record`'s own append-only evidence log, never executes a
-//! command from the document, and makes no network calls.
+//! # What this crate writes, executes and reaches
+//!
+//! Stated per command, because a single sentence about the whole crate
+//! was wrong for months: it claimed nothing was written outside `record`'s
+//! evidence log, which was true when tetel was only a checker and false
+//! from the first authoring command onward.
+//!
+//! - **`check`, `brief`, `query`, `review`, `workspaces` write nothing.**
+//!   They read the document, its ledger and its snapshot, and return.
+//! - **`look`, `run`, `fact`, `claim`, `prose` write only inside the
+//!   workspace state directory** (`$TETEL_STATE_HOME` or
+//!   `~/.local/state/tetel`), never inside a repository — see
+//!   [`workspace`] for why that separation is load-bearing.
+//! - **`render --out` writes two things**: the named document, and the
+//!   snapshot directory beside it.
+//! - **`record` appends** one line to `<memo>.evidence.jsonl`, never
+//!   rewriting an existing one.
+//! - **Any command may append to its workspace's `refusals.log`** when it
+//!   refuses, which is the point of that log.
+//!
+//! Two properties hold across all of them, and both are deliberate:
+//! **nothing here ever executes a command named by a document** — a memo
+//! arriving in a pull request must not be able to run code on whoever
+//! checks it — and **there are no network calls anywhere**, which the
+//! dependency set enforces rather than the prose. `run` executes the
+//! command the *author* types, in the author's own session, and is the
+//! only process this crate spawns besides `git` for a tree marker.
 
 pub mod brief;
 pub mod buildid;
