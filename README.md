@@ -56,12 +56,17 @@ tetel fact --note "the retry path is unbounded"
                                            # mint F1: extent, output and pin are
                                            #   captured here and never revisable
 tetel claim --proposition "retries can loop forever" --cites F1
+tetel look --grep retry_with_backoff .        # a census: the whole worktree
+tetel fact --note "every use of the retry helper"
+tetel target retry_with_backoff --cites F2    # refused unless F2's search
+                                              #   was rooted at the worktree
 tetel prose --text "The failure is unbounded retry. See [C1]."
 tetel render --out design.md               # the document, plus its snapshot
 tetel check design.md                      # two partitions, never one verdict
 ```
 
-Authoring is `look` / `run` → `fact` → `claim` → `prose` → `render`. A fact's note is revisable with a
+Authoring is `look` / `run` → `fact` → `claim` → `prose` → `render`, with `target` alongside for
+symbols the design tells someone to change. A fact's note is revisable with a
 required reason; its **extent, output and pin are not, ever**. Claims rest on facts, prose cites
 claims, and dependency is derived from those citations rather than stored a second time.
 
@@ -99,12 +104,14 @@ anywhere that supplies one.
 | **pin** | a content fingerprint over a fact's extent, output and the working tree it was taken against |
 | **claim** | a proposition resting on one or more facts |
 | **grounding** | an independent pass grading claims from source alone, with the author's scope withheld |
+| **modification target** | a symbol the design tells an implementer to modify, declared as a record rather than detected in prose |
+| **census** | the search behind a target: one grep of the whole worktree for that exact symbol. Declaring a target without one is refused |
 | **out of proof** | a claim whose every record grades a wording it no longer carries. The stamp no longer certifies this barrel — a machine failure |
 | **reprove** | ground a claim again against what it now says. The only thing that clears *out of proof*, and it adds a record rather than editing one |
 | **superseded** | the marks from before a claim was reproved. History, human-owed, never a failure |
 | **witnessed / ingested** | whether the tool captured the act itself, or only captured someone *reporting* the act |
 
-Those three describe one state machine: revise a claim and it falls **out of proof**; **reprove** it
+*Out of proof*, *reprove* and *superseded* describe one state machine: revise a claim and it falls **out of proof**; **reprove** it
 and the earlier records become **superseded**. The ledger is append-only, so nothing is ever cleared
 by editing — only by adding a later proof.
 
@@ -114,7 +121,8 @@ Two labelled partitions, each stating its own scope, and **never a single docume
 
 - **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
   citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof,
-  and provenance drift between a document and its own snapshot. These fail the run.
+  modification targets whose census does not hold up against the snapshot, and provenance drift
+  between a document and its own snapshot. These fail the run.
 - **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
   was graded by the workspace that authored it or an independent one, notes reaching past their
   fact's extent, refusals recorded in a fact's mint window, and tetel's own standing non-coverage.
@@ -146,11 +154,8 @@ run.
 Roughly in order, and each gated on measurement rather than enthusiasm — several proposed refusals
 have already been built, measured against a real corpus, and **rejected on precision**:
 
-- **Make the guards authoritative.** A commit hook runs the pair-guards locally today; CI would make
-  them hold for a contributor who is not using the same setup.
-- **More authoring-time refusals, where they are decidable.** Requiring a workspace-rooted search
-  behind a claim that names a symbol; requiring a transplanted mechanism to carry its donor's stated
-  premises; reporting prose revised since its claims were last grounded.
+- **More authoring-time refusals, where they are decidable.** Requiring a transplanted mechanism to
+  carry its donor's stated premises; reporting prose revised since its claims were last grounded.
 - **Supporting-span selection.** At mint time, point at the span of captured output that supports the
   assertion — refused unless it is a verbatim substring of a cited fact. The dual of the extent
   guarantee: the author cannot type an extent, and here could not invent support, only select it.

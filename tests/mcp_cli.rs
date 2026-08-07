@@ -545,12 +545,36 @@ async fn every_cli_subcommand_has_an_mcp_tool() {
     let tools = client.list_all_tools().await.expect("list tools");
     let names: std::collections::HashSet<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
 
-    // `mcp` itself is the server, not a tool it can offer.
-    for expected in [
-        "look", "run", "fact", "claim", "prose", "render", "review", "query", "workspaces",
-        "check", "brief", "record",
-    ] {
-        assert!(names.contains(expected), "no MCP tool for `{expected}`; have {names:?}");
+    // Read the CLI's own subcommand list rather than restating it. A
+    // hand-maintained list here asserted only that twelve named tools
+    // existed, so a thirteenth subcommand could be added CLI-only and
+    // this test would still pass — the paired-artifact drift it exists
+    // to catch, in the guard itself.
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_tetel"))
+        .arg("--help")
+        .output()
+        .expect("tetel --help must run");
+    let help = String::from_utf8_lossy(&help.stdout);
+    let subcommands: Vec<String> = help
+        .lines()
+        .skip_while(|l| !l.starts_with("Commands:"))
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty() && l.starts_with("  "))
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_string)
+        // `mcp` is the server, not a tool it can offer; `help` is clap's.
+        .filter(|c| c != "mcp" && c != "help")
+        .collect();
+
+    assert!(
+        subcommands.len() >= 12,
+        "premise: the CLI's subcommand list must have parsed, got {subcommands:?}"
+    );
+    for expected in &subcommands {
+        assert!(
+            names.contains(expected.as_str()),
+            "no MCP tool for `{expected}`; CLI offers {subcommands:?}, MCP offers {names:?}"
+        );
     }
 
     client.cancel().await.expect("clean shutdown");

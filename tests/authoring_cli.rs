@@ -1978,3 +1978,169 @@ fn a_search_entry_survives_the_fold_into_a_fact() {
         "per-file hits must still be recorded: {extent:#?}"
     );
 }
+
+// --- TET-28: the census refusal ----------------------------------------
+
+/// A repository with a symbol used from two directories, so a sweep of
+/// one of them is honest and still too narrow — the motivating defect's
+/// shape.
+fn repo_with_two_users(sb: &Sandbox) -> std::path::PathBuf {
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("core")).unwrap();
+    std::fs::create_dir_all(repo.join("edge")).unwrap();
+    std::fs::write(repo.join("core/a.rs"), "fn gate() {}\nfn main() { gate(); }\n").unwrap();
+    // The second caller, in a directory a core-only sweep never opens.
+    std::fs::write(repo.join("edge/b.rs"), "fn other() { gate(); }\n").unwrap();
+    repo
+}
+
+#[test]
+fn a_target_is_refused_when_its_census_swept_less_than_the_worktree() {
+    // The defect this exists for: a memo recommended modifying a symbol
+    // and spent a repo-wide negative about its callers, while the caller
+    // sweep behind it was scoped to one directory. The fact was honest —
+    // its own note said so — and nothing compared the sweep's width to
+    // what was claimed from it.
+    let sb = Sandbox::new("tet28-narrow-sweep-refused");
+    let repo = repo_with_two_users(&sb);
+
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
+    };
+
+    // An honest sweep of one directory.
+    assert!(run(&["look", "--grep", "gate", "core"]).0);
+    assert!(run(&["fact", "--note", "callers of gate, by grep over core/"]).0);
+
+    let (ok, err) = run(&["target", "gate", "--cites", "F1"]);
+    assert!(!ok, "a sweep narrower than the worktree must not census a target");
+    assert!(
+        err.contains("rooted at") && err.contains("core"),
+        "the refusal must say which root fell short, not merely that one did: {err}"
+    );
+
+    // The remedy the refusal names, and nothing else, must clear it.
+    assert!(run(&["look", "--grep", "gate", "."]).0);
+    assert!(run(&["fact", "--note", "callers of gate, worktree-wide"]).0);
+    let (ok, err) = run(&["target", "gate", "--cites", "F2"]);
+    assert!(ok, "a worktree-rooted census must be accepted: {err}");
+}
+
+#[test]
+fn a_census_pattern_must_be_the_symbol_itself() {
+    // Containment would be unsound in the dangerous direction: a longer
+    // pattern finds strictly fewer occurrences, so accepting `fn gate`
+    // as a census of `gate` would accept a search that misses every
+    // caller and finds only the definition.
+    let sb = Sandbox::new("tet28-pattern-byte-equality");
+    let repo = repo_with_two_users(&sb);
+
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
+    };
+
+    // Rooted at the worktree, so only the pattern is wrong.
+    assert!(run(&["look", "--grep", "fn gate", "."]).0);
+    assert!(run(&["fact", "--note", "found the definition"]).0);
+    let (ok, err) = run(&["target", "gate", "--cites", "F1"]);
+    assert!(!ok, "a narrower pattern must not census the symbol");
+    assert!(err.contains("byte for byte"), "the refusal must name the comparison: {err}");
+}
+
+#[test]
+fn a_fact_that_was_read_rather_than_searched_censuses_nothing() {
+    let sb = Sandbox::new("tet28-read-not-searched");
+    let repo = repo_with_two_users(&sb);
+
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
+    };
+
+    assert!(run(&["look", "core/a.rs"]).0);
+    assert!(run(&["fact", "--note", "read the definition"]).0);
+    let (ok, err) = run(&["target", "gate", "--cites", "F1"]);
+    assert!(!ok, "reading a file is not censusing a symbol");
+    assert!(err.contains("no search at all"), "{err}");
+}
+
+#[test]
+fn a_target_row_the_snapshot_never_declared_fails_the_machine_partition() {
+    // `target` refuses at authoring time, so a workspace-authored memo
+    // cannot carry an uncensused target. This is the other direction: a
+    // document edited after rendering, which never passed through the
+    // refusing verb at all. A reviewer reads the table, so a table that
+    // can say what the record does not support is the lie that matters.
+    let sb = Sandbox::new("tet28-tampered-target-row");
+    let repo = repo_with_two_users(&sb);
+    let memo = sb.dir.join("memo.md");
+
+    let run = |args: &[&str]| -> bool {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.output().unwrap().status.success()
+    };
+
+    assert!(run(&["look", "--grep", "gate", "."]));
+    assert!(run(&["fact", "--note", "callers of gate, worktree-wide"]));
+    assert!(run(&["claim", "--proposition", "gate has two callers", "--cites", "F1"]));
+    assert!(run(&["prose", "--text", "Two callers. See [C1]."]));
+    assert!(run(&["target", "gate", "--cites", "F1"]));
+    assert!(run(&["render", "--out", memo.to_str().unwrap()]));
+
+    let clean = std::fs::read_to_string(&memo).unwrap();
+    assert!(clean.contains("| `gate` | F1 |"), "premise: the target rendered:\n{clean}");
+    let (code, out, _) = sb.run(&["check", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "premise: the honest document checks clean:\n{out}");
+
+    // Add a row nobody declared.
+    std::fs::write(
+        &memo,
+        clean.replace("| `gate` | F1 |", "| `gate` | F1 |\n| `never_declared` | F1 |"),
+    )
+    .unwrap();
+    let (code, out, _) = sb.run(&["check", memo.to_str().unwrap()]);
+    assert_eq!(code, 1, "an invented target row must fail:\n{out}");
+    assert!(
+        out.contains("[uncensused-target]") && out.contains("never_declared"),
+        "and must say which row and why:\n{out}"
+    );
+}
+
+#[test]
+fn the_targets_section_renders_when_it_is_empty() {
+    // Under-declaration is unreachable by any refusal — deciding a memo
+    // recommended something it never declared is the heuristic read the
+    // whole design rejects. Visibility is the substitute, so the section
+    // must not vanish when it would be embarrassing.
+    let sb = Sandbox::new("tet28-empty-section-renders");
+    let repo = repo_with_two_users(&sb);
+    let memo = sb.dir.join("memo.md");
+
+    let run = |args: &[&str]| -> bool {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.output().unwrap().status.success()
+    };
+
+    assert!(run(&["look", "core/a.rs"]));
+    assert!(run(&["fact", "--note", "read the definition"]));
+    assert!(run(&["claim", "--proposition", "gate should be rewritten", "--cites", "F1"]));
+    assert!(run(&["prose", "--text", "The implementer should rewrite it. See [C1]."]));
+    assert!(run(&["render", "--out", memo.to_str().unwrap()]));
+
+    let rendered = std::fs::read_to_string(&memo).unwrap();
+    assert!(
+        rendered.contains("## Modification targets") && rendered.contains("None declared"),
+        "a memo telling an implementer to rewrite something must show its empty census section:\n{rendered}"
+    );
+}
