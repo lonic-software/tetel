@@ -2,7 +2,7 @@
 name = "tetel"
 version = "0.1.0"
 edition = "2021"
-description = "A checker for markdown design documents whose factual claims carry executable evidence"
+description = "Prevention at authoring time, not review afterwards — designs whose factual claims cannot be written without the executable evidence that holds them up"
 license = "MIT"
 repository = "https://github.com/lonic-software/tetel"
 

@@ -1,5 +1,13 @@
-//! `tetel` — a checker for markdown design documents whose factual claims
-//! carry executable evidence. It never writes a file itself outside of
+//! `tetel` — prevention at authoring time, not review afterwards: designs
+//! whose factual claims cannot be written without the executable evidence
+//! that holds them up.
+//!
+//! Markdown is what `render` emits, not what this crate is about. The
+//! evidence, the claims and the facts they rest on live in the workspace
+//! and in the snapshot beside a rendered document; the render target is
+//! the most replaceable thing here.
+//!
+//! It never writes a file itself outside of
 //! `tetel record`'s own append-only evidence log, never executes a
 //! command from the document, and makes no network calls.
 
