@@ -1,0 +1,47 @@
+# The guards run locally via the PostToolUse hook in .claude/settings.json,
+# but that only helps whoever is editing with Claude Code. This makes them
+# authoritative for the repository — including for a contributor who has
+# never heard of that hook.
+#
+# Two platforms on purpose, not for portability theatre. `buildid.rs` and
+# `worldstate.rs` both document behaviour that differs between macOS and
+# Linux — `current_exe()` resolving through /proc/self/exe, and what a
+# rename-replace does to a running binary. Those claims were reasoned about
+# and never executed anywhere but macOS. This runs them.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false # a failure on one platform must not hide the other's result
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Recorded rather than assumed: the suite has no declared MSRV, so
+      # which compiler produced a green run is worth having in the log.
+      - name: Toolchain
+        run: |
+          rustc --version
+          cargo --version
+          git --version
+
+      # The MCP tests spawn the real binary as a child process and talk
+      # JSON-RPC over its stdio, and the staleness tests rename a copy of
+      # it out from under a running server. Neither had ever run off a
+      # macOS developer machine before this workflow existed.
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Release build
+        run: cargo build --release
