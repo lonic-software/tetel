@@ -1,10 +1,12 @@
 # Tetel
 
-**Nothing is built yet.** This repository holds the intent, so the first line of code is written
-against a decision rather than a memory.
-
 Tetel is a tool for authoring design documents in which **every factual claim carries executable
 evidence**.
+
+Most of this document is the **intent** it was built against, written before the first line of code
+so that code was written against a decision rather than a memory. It is kept in that tense on
+purpose. See [Status](#status) for what actually exists, and [Building and
+installing](#building-and-installing) to run it.
 
 ## The one property everything else follows from
 
@@ -103,12 +105,49 @@ describing it by analogy. Short, unambiguous to pronounce, and free of prior mea
 - **Implementation language — Rust**, matching pult. The checker prototype that motivated this is
   Python; it stays a prototype.
 
+## Building and installing
+
+Requires a [Rust toolchain](https://rustup.rs). From a clone of this repository:
+
+```sh
+cargo install --path .
+```
+
+That puts a `tetel` binary in `~/.cargo/bin`, which needs to be on your `PATH`.
+
+### Using it from Claude Code
+
+`tetel mcp` runs an MCP server over stdio, exposing the same authoring and checking commands as
+tools. With the binary installed and on your `PATH`, register it:
+
+```sh
+claude mcp add --scope user tetel -- tetel mcp
+```
+
+That reads as: server name `tetel`, running the command `tetel mcp`. Everything after `--` is the
+server command rather than an option to `claude` — not strictly required here, since `mcp` is a bare
+argument, but it is the form that keeps working once a command takes flags of its own.
+
+`--scope user` makes it available in every project; drop it to register only in the current one.
+Confirm with `claude mcp get tetel`, which should report `Status: ✔ Connected`.
+
+> **Rebuilding requires restarting Claude Code.** `cargo install` replaces the binary by rename, so
+> a server process already running keeps the file it opened — reinstalling does not reach it, and
+> neither does reloading plugins. Since a stale server would otherwise answer with an old build
+> rather than erroring, one that finds its binary replaced underneath it now **refuses every tool
+> call** and says so. `check` also names the build that graded it on its last line, so two runs that
+> disagree can be told apart.
+
 ## Status
 
-Design intent only — no code, no format specification, nothing piloted. **The first deliverable should
-be small enough to throw away**, and the kill condition should be registered before it is written: if
-the next two real documents yield only findings an existing lint would have surfaced anyway, it did
-not earn its keep.
+**Built and in use, on its own development.** The evidence rows, the checker, and the MCP server all
+exist; run `tetel --help` for the current surface. This README's earlier sections still describe the
+intent rather than the shipped behaviour, and where the two differ the tool's own `--help` and module
+documentation are authoritative.
+
+The kill condition registered before the first deliverable was written still stands and has not yet
+been evaluated: **if the next two real documents yield only findings an existing lint would have
+surfaced anyway, it did not earn its keep.**
 
 ## Licence
 
