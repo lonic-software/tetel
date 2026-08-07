@@ -1002,7 +1002,7 @@ mod tests {
         let doc = parse_document(source);
         let ledger = crate::ledger::import(&doc.body);
         let findings = analyze(&doc, &ledger.claims);
-        let (code, text) = render("test.md", &doc, &findings);
+        let (code, text) = render("test.md", &doc, &findings, "tetel test build");
         (code, text, findings)
     }
 

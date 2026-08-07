@@ -73,6 +73,47 @@ impl Sandbox {
         let transport = TokioChildProcess::new(cmd).expect("failed to spawn `tetel mcp`");
         DummyClientHandler.serve(transport).await.expect("mcp initialise handshake failed")
     }
+
+    /// Spawn `tetel mcp` from a *copy* of the test binary placed inside
+    /// this sandbox, and return the path it was launched from.
+    ///
+    /// The staleness tests need a binary they are allowed to replace
+    /// underneath a running process; `CARGO_BIN_EXE_tetel` is cargo's own
+    /// build output and must never be rewritten by a test.
+    async fn connect_from_a_copy(
+        &self,
+    ) -> (PathBuf, RunningService<RoleClient, DummyClientHandler>) {
+        let exe = self.dir.join("bin").join("tetel");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        // `fs::copy` carries the permission bits on Unix, so the copy is
+        // executable without a separate chmod.
+        std::fs::copy(env!("CARGO_BIN_EXE_tetel"), &exe).expect("failed to copy the test binary");
+
+        let mut cmd = tokio::process::Command::new(&exe);
+        cmd.arg("mcp");
+        cmd.current_dir(&self.dir);
+        cmd.env("TETEL_STATE_HOME", self.state_home());
+        let transport = TokioChildProcess::new(cmd).expect("failed to spawn the copied `tetel mcp`");
+        let client = DummyClientHandler
+            .serve(transport)
+            .await
+            .expect("mcp initialise handshake failed against the copied binary");
+        (exe, client)
+    }
+}
+
+/// Replace `exe` the way `cargo install` does — write the new content
+/// beside it and `rename` over the top — rather than by writing through
+/// the existing file, which the kernel refuses for a running executable
+/// (`ETXTBSY`) and which would not reproduce the defect anyway. The
+/// rename is the whole mechanism: it gives the path a new inode and
+/// leaves the running process holding the old one.
+fn replace_by_rename(exe: &std::path::Path, content: &[u8]) {
+    let staged = exe.with_extension("staged");
+    std::fs::write(&staged, content).expect("failed to stage the replacement binary");
+    let perms = std::fs::metadata(exe).unwrap().permissions();
+    std::fs::set_permissions(&staged, perms).unwrap();
+    std::fs::rename(&staged, exe).expect("failed to rename the replacement over the original");
 }
 
 impl Drop for Sandbox {
@@ -825,6 +866,121 @@ async fn a_refused_look_is_recorded_and_replayed_on_the_next_mint() {
         s["folded"].as_array().is_some_and(|f| !f.is_empty()),
         "the folding description must survive: {s}"
     );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+// --- TET-31: a stale server must refuse rather than answer -------------
+//
+// Both directions, because a detector that never fires is the same
+// failure one level up from the one it was built to fix.
+
+#[tokio::test]
+async fn a_server_whose_binary_was_replaced_refuses_every_tool() {
+    let sb = Sandbox::new("stale-server");
+    let (exe, client) = sb.connect_from_a_copy().await;
+
+    // Premise first: this server answers normally *before* the swap, so
+    // a refusal afterwards is attributable to the swap and not to having
+    // been launched from a copy.
+    let before = client
+        .call_tool(CallToolRequestParams::new("workspaces").with_arguments(args(serde_json::json!({}))))
+        .await
+        .expect("the call itself must succeed at the protocol level");
+    assert_ne!(before.is_error, Some(true), "the copied server must work before the swap: {before:?}");
+
+    // Now do what `cargo install` does to a running server.
+    let mut replacement = std::fs::read(env!("CARGO_BIN_EXE_tetel")).unwrap();
+    replacement.extend_from_slice(b"\n// a different build\n");
+    replace_by_rename(&exe, &replacement);
+
+    let after = client
+        .call_tool(CallToolRequestParams::new("workspaces").with_arguments(args(serde_json::json!({}))))
+        .await
+        .expect("a stale server must still speak the protocol — it refuses, it does not crash");
+
+    assert_eq!(after.is_error, Some(true), "a stale server must refuse: {after:?}");
+    let structured = after
+        .structured_content
+        .as_ref()
+        .expect("the staleness refusal must be structured, not prose an agent has to pattern-match");
+    assert_eq!(structured["error"], "refused");
+    assert_eq!(structured["command"], "workspaces", "the refusal must name the tool that was called");
+    assert_eq!(structured["binary"], exe.display().to_string());
+    assert_ne!(
+        structured["running_build"], structured["installed_build"],
+        "the two builds must be reported separately and must differ: {structured}"
+    );
+    let guidance = structured["guidance"].as_str().expect("guidance must be a readable string");
+    assert!(guidance.contains("no longer installed"), "guidance was: {guidance}");
+    assert!(guidance.contains("Restart"), "the remedy must be named: {guidance}");
+
+    // The gate sits in dispatch, so it covers the verdict-producing
+    // tools too — which is the whole reason it exists.
+    let memo = sb.write("stale.md", "# nothing\n");
+    let checked = client
+        .call_tool(CallToolRequestParams::new("check").with_arguments(args(serde_json::json!({
+            "file": memo.display().to_string(),
+        }))))
+        .await
+        .expect("protocol level");
+    assert_eq!(checked.is_error, Some(true), "a stale server must not return a verdict: {checked:?}");
+    assert_eq!(
+        checked.structured_content.as_ref().expect("structured")["error"],
+        "refused"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn reinstalling_the_identical_build_is_not_staleness() {
+    let sb = Sandbox::new("same-build-reinstall");
+    let (exe, client) = sb.connect_from_a_copy().await;
+
+    // A rename-replace with byte-identical content: new inode, new
+    // mtime, same build. A detector keyed on the file's identity rather
+    // than its content would call this stale, and a refusal that fires
+    // when nothing changed is a refusal that gets worked around.
+    let identical = std::fs::read(env!("CARGO_BIN_EXE_tetel")).unwrap();
+    replace_by_rename(&exe, &identical);
+
+    let after = client
+        .call_tool(CallToolRequestParams::new("workspaces").with_arguments(args(serde_json::json!({}))))
+        .await
+        .expect("protocol level");
+    assert_ne!(
+        after.is_error,
+        Some(true),
+        "re-installing the same build must not be reported as staleness: {after:?}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn check_names_the_build_that_graded_it() {
+    let sb = Sandbox::new("check-names-build");
+    let client = sb.connect().await;
+
+    let memo = sb.write("named.md", "# nothing here\n\njust prose.\n");
+    let result = client
+        .call_tool(CallToolRequestParams::new("check").with_arguments(args(serde_json::json!({
+            "file": memo.display().to_string(),
+        }))))
+        .await
+        .expect("protocol level");
+
+    let text = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect::<Vec<_>>()
+        .join("");
+    // Even the no-rows state names its checker: two runs disagreeing
+    // about whether a file is in scope is exactly the kind of dispute
+    // that needs attributing to a build.
+    assert!(text.contains("checked by tetel "), "check output must name its build: {text}");
 
     client.cancel().await.expect("clean shutdown");
 }

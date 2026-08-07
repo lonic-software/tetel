@@ -4,6 +4,7 @@
 //! command from the document, and makes no network calls.
 
 pub mod brief;
+pub mod buildid;
 pub mod checks;
 pub mod citations;
 pub mod claims;
@@ -40,7 +41,7 @@ pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
     let mut findings = checks::analyze(&doc, &ledger.claims);
     findings.ledger_claims_found = ledger.claims.len();
     findings.ledger_errors = ledger.errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect();
-    report::render(display_path, &doc, &findings)
+    report::render(display_path, &doc, &findings, &buildid::label())
 }
 
 /// Runs `check` against a file on disk: the five `tetel`-row checks, plus
@@ -110,7 +111,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     // at workspace-relative ids has a record to be missing.
     findings.cites_something = !citations::scan_citations(&doc.body).is_empty();
 
-    Ok(report::render(&path.display().to_string(), &doc, &findings))
+    Ok(report::render(&path.display().to_string(), &doc, &findings, &buildid::label()))
 }
 
 /// Runs `brief` against a file on disk: every claim in its evidence

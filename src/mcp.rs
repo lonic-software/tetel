@@ -69,6 +69,20 @@
 //! absolute one, so a wrong directory is visible in the answer instead of
 //! having to be deduced.
 //!
+//! # Rebuilding requires restarting the client
+//!
+//! `cargo install` replaces the binary by rename, so a server process
+//! already running keeps the file it opened: **reinstalling does not
+//! reach it, and neither does reloading plugins — only restarting the
+//! client does.** Every agent that reaches tetel through this server is
+//! otherwise grading with the old build and cannot tell.
+//!
+//! That step is no longer only documentation. A server whose binary has
+//! been replaced underneath it refuses every tool call with the reason
+//! and the remedy (see `call_tool` below and `buildid.rs`), and `check`
+//! names the build that graded it on its last line, so two disagreeing
+//! verdicts can be attributed rather than argued about.
+//!
 //! # Refusals are structured
 //!
 //! Every refusal surfaced from an [`AuthoringError`] comes back as
@@ -830,6 +844,47 @@ workspace captured) or `input` (ingested: extent typed by you)",
 // hand-duplicated and left to drift.
 #[tool_handler]
 impl ServerHandler for TetelServer {
+    /// Written out by hand rather than left to `#[tool_handler]` (which
+    /// generates it only when absent) so there is exactly one place every
+    /// tool call passes through, and the staleness gate can sit in it.
+    ///
+    /// Gating here rather than per-tool is the point: a guard repeated at
+    /// twelve call sites is twelve places to forget it, which is the
+    /// paired-artifact defect this codebase keeps finding in itself.
+    ///
+    /// **A stale server refuses rather than warns.** It cannot reload
+    /// itself, so a warning attached to an otherwise successful result
+    /// asks the caller to notice and stop — which is precisely what did
+    /// not happen on 2026-08-07, when a stale `check` verdict was
+    /// believed and relayed. The agents in this loop have no read path to
+    /// tetel except this server, so a warning they might not act on
+    /// leaves the whole authoring loop grading with an old checker. The
+    /// condition is objective (the file this process was launched from no
+    /// longer contains this process), the remedy is singular (restart the
+    /// client), and there is deliberately no override — an override is a
+    /// way to reintroduce exactly the silence this closes.
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, ErrorData> {
+        if let crate::buildid::Freshness::Stale { running, installed, path } =
+            crate::buildid::freshness()
+        {
+            return Ok(CallToolResult::structured_error(json!({
+                "error": "refused",
+                "command": request.name,
+                "guidance": crate::buildid::stale_guidance(&running, &installed, &path),
+                "running_build": running,
+                "installed_build": installed,
+                "binary": path,
+            }))
+            .into());
+        }
+        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("tetel", env!("CARGO_PKG_VERSION")))
@@ -839,13 +894,20 @@ impl ServerHandler for TetelServer {
                  same tool that wrote it. Every authoring tool requires an explicit `workspace` \
                  argument — there is no shared default, and ids it returns are workspace-relative \
                  only. See each tool's own description for details; those persist across calls \
-                 where this one-time text may not.",
+                 where this one-time text may not. `check` names the build that graded it on its \
+                 last line; if that build differs from one you are comparing against, the two \
+                 verdicts were not produced by the same checker.",
             )
     }
 }
 
 /// Serve `TetelServer` over stdio until the peer disconnects.
 pub async fn serve_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Before anything is served: fix what this process *is*, so that
+    // every later comparison has a baseline taken while the file on disk
+    // was still this build. See `buildid.rs` on why this cannot wait for
+    // the first call.
+    crate::buildid::capture();
     let server = TetelServer::new();
     let transport = stdio();
     server.serve(transport).await?.waiting().await?;

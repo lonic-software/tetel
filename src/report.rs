@@ -21,11 +21,18 @@ const NON_COVERAGE: &[&str] = &[
     "unfalsifiable-shaped claim phrasing",
 ];
 
-pub fn render(display_path: &str, doc: &Document, findings: &Findings) -> (i32, String) {
+/// `build` names the binary that produced this report (see `buildid.rs`).
+/// It is passed in rather than read here so this function stays a pure
+/// function of the document it grades — and it is *always* printed,
+/// including on the no-rows path, because the whole point is that two
+/// outputs which disagree can be told apart by their checker. A report
+/// that does not name its build cannot be disbelieved.
+pub fn render(display_path: &str, doc: &Document, findings: &Findings, build: &str) -> (i32, String) {
     if doc.row_groups_found == 0 && findings.ledger_claims_found == 0 {
         let msg = format!(
             "no tetel rows found in {display_path} — out of scope, nothing was checked. \
-This is a distinct state from a clean run, not a weaker way of spelling it (exit {EXIT_NO_ROWS}).\n"
+This is a distinct state from a clean run, not a weaker way of spelling it (exit {EXIT_NO_ROWS}).\n\
+\nchecked by {build}\n"
         );
         return (EXIT_NO_ROWS, msg);
     }
@@ -230,6 +237,8 @@ Facts table; whether it rests on enough is yours to judge\n",
     for item in NON_COVERAGE {
         out.push_str(&format!("  - tetel does not catch: {item}\n"));
     }
+
+    out.push_str(&format!("\nchecked by {build}\n"));
 
     let code = if failing { EXIT_CHECK_FAILED } else { EXIT_CLEAN };
     (code, out)
