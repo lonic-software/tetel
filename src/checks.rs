@@ -876,10 +876,30 @@ pub fn claims_without_declared_scope(claims: &[Claim]) -> Vec<(String, String)> 
 /// stays owed to a run protocol. This prints what it knows and names what
 /// it does not, rather than letting a witnessed record read as a stronger
 /// guarantee than it is.
+/// What the snapshot beside a memo can say about who authored it.
+///
+/// The two negative cases are deliberately distinct. They were one
+/// `None` and the report called both "no snapshot beside this memo",
+/// which sent a reader looking for a missing directory that was in fact
+/// present with six of its seven files — the message named a cause that
+/// was not the cause. They also differ in what a reader should do: a
+/// missing snapshot means the memo was never rendered by `render --out`,
+/// while a snapshot without an identity means it was rendered by a build
+/// that did not ship one, and cannot be repaired after the fact because
+/// minting an identity now would date the pass wrongly.
+pub enum AuthoringIdentity {
+    /// No snapshot directory beside the memo at all.
+    NoSnapshot,
+    /// A snapshot exists but carries no readable `identity.json`.
+    SnapshotWithoutIdentity,
+    /// The identity of the workspace that authored the memo.
+    Known(String),
+}
+
 pub fn grounding_provenance(
     claims: &[Claim],
     evidence: &[EvidenceRecord],
-    authoring_identity: Option<&str>,
+    authoring_identity: &AuthoringIdentity,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for claim in claims {
@@ -910,10 +930,15 @@ pub fn grounding_provenance(
             // could not tell the two apart would be reporting the wrong
             // thing confidently, which is worse than reporting nothing.
             let standing = match authoring_identity {
-                None => "no snapshot beside this memo, so whether the grounding workspace is also \
-the authoring one cannot be determined from here"
+                AuthoringIdentity::NoSnapshot => "no snapshot beside this memo, so whether the \
+grounding workspace is also the authoring one cannot be determined from here"
                     .to_string(),
-                Some(author) => {
+                AuthoringIdentity::SnapshotWithoutIdentity => "the snapshot beside this memo \
+carries no identity, so whether the grounding workspace is also the authoring one cannot be \
+determined from here — the memo was rendered by a build that did not ship one, and it cannot be \
+added now without re-dating the pass"
+                    .to_string(),
+                AuthoringIdentity::Known(author) => {
                     // Counted separately rather than collapsed to a
                     // single verdict: a claim can carry both a
                     // self-grounded record and an independent one, and
@@ -921,7 +946,7 @@ the authoring one cannot be determined from here"
                     // independent pass, while saying only "independently
                     // grounded" would hide that the author also graded
                     // their own work.
-                    let by_author = passes.iter().filter(|p| **p == author).count();
+                    let by_author = passes.iter().filter(|p| *p == author).count();
                     let by_others = passes.len() - by_author;
                     match (by_author, by_others) {
                         (0, _) => "independently grounded: no grounding workspace here is the one \

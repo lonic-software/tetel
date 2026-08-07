@@ -97,7 +97,30 @@ pub fn snapshot_path(memo: &Path) -> PathBuf {
 /// snapshot, since the snapshot's whole purpose is to match the memo
 /// currently on disk. A file absent from the workspace is skipped rather
 /// than erroring — a workspace with no refusals has no refusals log.
+///
+/// # Why this mints the workspace identity itself
+///
+/// `identity.json` is the one entry in [`SNAPSHOT_FILES`] that a
+/// workspace may not have yet, and skipping it is not harmless: without
+/// it `check` cannot tell an author grounding their own claims from an
+/// independent pass, which is the distinction the whole mechanism exists
+/// for.
+///
+/// It used to be minted by the caller, and only one of the two callers
+/// did it. Every memo authored over MCP therefore shipped a snapshot with
+/// no identity, and the self-versus-independent report was silently
+/// unavailable for exactly the surface the authoring agents use — while
+/// grounding workspaces got one anyway, via `record`, which hid the
+/// asymmetry from the side most likely to be inspected.
+///
+/// So the precondition lives here, with the code that depends on it,
+/// rather than in each caller. That removes the pair instead of
+/// synchronising it: a third caller cannot reintroduce the bug by
+/// forgetting, because there is nothing left to forget. Minting is
+/// idempotent — a workspace that already has an identity keeps it, so
+/// this can never re-date a pass.
 pub fn write(memo: &Path, workspace_dir: &Path) -> io::Result<()> {
+    crate::workspace::identity(workspace_dir)?;
     let dir = snapshot_path(memo);
     fs::create_dir_all(&dir)?;
     for name in SNAPSHOT_FILES {

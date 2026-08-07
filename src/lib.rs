@@ -72,12 +72,18 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     // Who authored this memo, read from the snapshot shipped beside it —
     // without which self-grounding and independent grounding are
     // indistinguishable.
-    let authoring_identity = workspace::identity_of(&snapshot::snapshot_path(path));
-    findings.grounding_provenance = checks::grounding_provenance(
-        &ledger.claims,
-        &evidence_records,
-        authoring_identity.as_deref(),
-    );
+    // The two absent cases are kept apart: a memo never rendered by
+    // `render --out` has no snapshot, while one rendered by a build that
+    // did not ship an identity has a snapshot without one. They call for
+    // different actions and only one of them is repairable.
+    let snapshot_dir = snapshot::snapshot_path(path);
+    let authoring_identity = match workspace::identity_of(&snapshot_dir) {
+        Some(id) => checks::AuthoringIdentity::Known(id),
+        None if snapshot_dir.is_dir() => checks::AuthoringIdentity::SnapshotWithoutIdentity,
+        None => checks::AuthoringIdentity::NoSnapshot,
+    };
+    findings.grounding_provenance =
+        checks::grounding_provenance(&ledger.claims, &evidence_records, &authoring_identity);
     findings.verdict_disagreements = disagreements;
     findings.qualified_claims = qualified;
     findings.stale_evidence = stale;

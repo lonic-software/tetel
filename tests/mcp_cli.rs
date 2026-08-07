@@ -680,3 +680,81 @@ async fn look_refuses_lines_combined_with_grep_as_the_cli_does() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// A memo authored entirely over MCP must ship an identity in its
+/// snapshot, so `check` can tell self-grounding from independent
+/// grounding.
+///
+/// This is the regression test for a real defect: the CLI's `render` arm
+/// minted the workspace identity before snapshotting and the MCP handler
+/// did not, so every memo produced by an agent — which reaches tetel only
+/// through this surface — shipped without one. The distinction the whole
+/// mechanism exists for (78% scope-equal self-grounded against 33%
+/// independent) was silently unavailable for exactly the population that
+/// needed it, and grounding workspaces got an identity anyway via
+/// `record`, which hid the asymmetry from the side most likely to be
+/// inspected.
+///
+/// It asserts the shipped artifact, not the call's success: the bug was
+/// never a failing call.
+#[tokio::test]
+async fn a_memo_authored_over_mcp_ships_an_identity_in_its_snapshot() {
+    let sb = Sandbox::new("mcp-identity");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    let client = sb.connect().await;
+
+    for (tool, params) in [
+        ("look", serde_json::json!({"workspace": "ws-id", "path": "alpha.rs"})),
+        ("fact", serde_json::json!({"workspace": "ws-id", "note": "alpha.rs defines alpha()"})),
+        ("claim", serde_json::json!({"workspace": "ws-id", "proposition": "alpha.rs defines alpha()", "cites": "F1"})),
+        ("prose", serde_json::json!({"workspace": "ws-id", "text": "It defines alpha().", "cites": "C1"})),
+    ] {
+        let r = client
+            .call_tool(CallToolRequestParams::new(tool).with_arguments(args(params)))
+            .await
+            .unwrap_or_else(|e| panic!("{tool} call failed at protocol level: {e}"));
+        assert_ne!(r.is_error, Some(true), "{tool} was refused: {:?}", r.structured_content);
+    }
+
+    let memo = sb.dir.join("memo.md");
+    let r = client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(serde_json::json!({
+            "workspace": "ws-id",
+            "out": memo.to_str().unwrap(),
+        }))))
+        .await
+        .expect("render call failed at protocol level");
+    assert_ne!(r.is_error, Some(true), "render was refused: {:?}", r.structured_content);
+
+    // The workspace itself must have an identity...
+    assert!(
+        sb.state_home().join("workspaces/ws-id/identity.json").is_file(),
+        "MCP authoring must mint a workspace identity"
+    );
+    // ...and, the part that actually shipped wrong, the snapshot must
+    // carry it. A snapshot is written file-by-file and skips what the
+    // workspace lacks, so the workspace having one does not imply this.
+    let snapshot_identity = sb.dir.join("memo.md.tetel/identity.json");
+    assert!(
+        snapshot_identity.is_file(),
+        "the snapshot beside an MCP-rendered memo must carry identity.json"
+    );
+
+    // And the end the user sees: `check` can now speak to independence
+    // rather than declining to.
+    let (_c, report) = {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_tetel"))
+            .arg("check")
+            .arg(&memo)
+            .env("TETEL_STATE_HOME", sb.state_home())
+            .output()
+            .expect("check must run");
+        (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    assert!(
+        !report.contains("cannot be determined from here"),
+        "check must be able to determine authorship from an MCP-rendered snapshot:\n{report}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}

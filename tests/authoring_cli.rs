@@ -889,6 +889,44 @@ fn without_a_snapshot_the_distinction_is_reported_as_undeterminable() {
     assert!(combined.contains("cannot be determined from here"), "got:\n{combined}");
 }
 
+/// A snapshot that exists but carries no identity must say so, and must
+/// not be reported as a missing snapshot.
+///
+/// The two were one case and both printed "no snapshot beside this
+/// memo". A reader who went looking for the missing directory found it
+/// present with six of its seven files — the message named a cause that
+/// was not the cause, and cost real time. They also call for different
+/// actions: a missing snapshot means the memo was never rendered by
+/// `render --out`, while a snapshot without an identity was rendered by
+/// a build that did not ship one and cannot be repaired now, since
+/// minting an identity later would date the pass wrongly.
+#[test]
+fn a_snapshot_without_an_identity_is_not_reported_as_a_missing_snapshot() {
+    let sb = Sandbox::new("snapshot-no-identity");
+    let memo = memo_authored_by(&sb);
+    let m = memo.to_str().unwrap();
+    sb.run(&["--workspace", "grounder", "look", "alpha.rs"]);
+    sb.run(&["--workspace", "grounder", "fact", "--note", "read independently"]);
+    sb.run(&["--workspace", "grounder", "record", m,
+             "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+
+    // Simulate a memo rendered by a build that shipped no identity.
+    let snapshot_identity = sb.dir.join("memo.md.tetel/identity.json");
+    assert!(snapshot_identity.is_file(), "render must ship an identity in the first place");
+    std::fs::remove_file(&snapshot_identity).unwrap();
+
+    let (_c, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert!(
+        combined.contains("carries no identity"),
+        "the real condition must be named:\n{combined}"
+    );
+    assert!(
+        !combined.contains("no snapshot beside this memo"),
+        "the snapshot is present — saying otherwise sends the reader after a phantom:\n{combined}"
+    );
+}
+
 /// Build a one-claim memo, returning its path. Fixtures for the
 /// verdict-policy tests are authored here rather than copied from any
 /// real corpus — this repo is public and must carry no private memo's
