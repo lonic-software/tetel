@@ -1715,8 +1715,13 @@ fn a_grep_of_a_single_file_is_keyed_by_that_file_not_by_a_line_number() {
 
     let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    let entries = v.as_array().unwrap();
-    assert_eq!(entries.len(), 1, "one matching file, one observation: {entries:?}");
+    let all = v.as_array().unwrap();
+    // The per-file hits, which is what this test is about. TET-28 added a
+    // whole-search record alongside them, keyed on the search root rather
+    // than on anything matched; `a_grep_that_matched_records_where_it_was_rooted`
+    // owns that one.
+    let entries: Vec<_> = all.iter().filter(|e| e["kind"] == "GrepMatch").collect();
+    assert_eq!(entries.len(), 1, "one matching file, one per-file observation: {all:?}");
 
     let key = entries[0]["key"].as_str().unwrap();
     assert!(
@@ -1851,5 +1856,125 @@ fn a_fact_taken_against_a_changed_tree_pins_differently() {
     assert_ne!(
         p[0], p[1],
         "the same file read against two tree states must not share a pin: {p:?}"
+    );
+}
+
+// --- TET-28: a search records where it was rooted ----------------------
+
+/// Every whole-search entry in a workspace's pending buffer, as
+/// `(key, world_root, pattern)`.
+///
+/// Read through the buffer rather than the fact log so the assertions
+/// below are about what capture recorded, not about what the fold kept.
+fn search_entries(sb: &Sandbox, workspace: &str) -> Vec<(String, String, String)> {
+    let raw = std::fs::read_to_string(
+        sb.state_home().join(format!("workspaces/{workspace}/pending.json")),
+    )
+    .expect("pending buffer must exist");
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e["kind"].as_str(), Some("Search") | Some("NoMatch")))
+        .map(|e| {
+            (
+                e["key"].as_str().unwrap_or_default().to_string(),
+                e["world_root"].as_str().unwrap_or_default().to_string(),
+                e["pattern"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_grep_that_matched_records_where_it_was_rooted() {
+    // The defect this closes, and the correction that produced TET-28's
+    // design: a grep that found matches recorded one entry per matched
+    // file and nothing about the search root, so a repo-wide search and a
+    // single-file search that hit the same file were byte-identical in the
+    // record. "Was this rooted at the worktree" — the whole of what a
+    // census asserts — had nothing to read. Only the zero-match case
+    // recorded a root.
+    //
+    // Asserted end to end through the binary, because the thing under test
+    // is what capture writes down.
+    let sb = Sandbox::new("tet28-search-rooting");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/deep.txt"), "needle lives here\n").unwrap();
+
+    let run_in = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+
+    // Three searches for the same pattern, finding the same file, differing
+    // only in where they started.
+    run_in(&["look", "--workspace", "wide", "--grep", "needle", "."]);
+    run_in(&["look", "--workspace", "subdir", "--grep", "needle", "sub"]);
+    run_in(&["look", "--workspace", "onefile", "--grep", "needle", "sub/deep.txt"]);
+
+    for w in ["wide", "subdir", "onefile"] {
+        let e = search_entries(&sb, w);
+        assert_eq!(e.len(), 1, "{w}: exactly one whole-search record expected: {e:?}");
+        assert_eq!(e[0].2, "needle", "{w}: the pattern must be stored structurally");
+        assert!(!e[0].1.is_empty(), "{w}: premise — git must have resolved a root");
+    }
+
+    // Premise: all three found the same file, so nothing below is
+    // discriminating on what was matched.
+    let wide = search_entries(&sb, "wide").remove(0);
+    let subdir = search_entries(&sb, "subdir").remove(0);
+    let onefile = search_entries(&sb, "onefile").remove(0);
+    assert_eq!(wide.1, subdir.1, "all three searched one worktree");
+    assert_eq!(wide.1, onefile.1, "all three searched one worktree");
+
+    // The discrimination that was impossible before this change.
+    assert_eq!(wide.0, wide.1, "a search rooted at the worktree keys on its own root");
+    assert_ne!(subdir.0, subdir.1, "a search rooted at a subdirectory is not worktree-rooted");
+    assert_ne!(onefile.0, onefile.1, "a single-file search is not worktree-rooted");
+}
+
+#[test]
+fn a_search_entry_survives_the_fold_into_a_fact() {
+    // An observation's kind and pattern used to be dropped at mint time —
+    // the extent kept key, label and marker, and what produced them was
+    // recoverable only by reading the label as prose. TET-28's predicate
+    // runs against a *fact*, read from the snapshot, so what matters is
+    // what survives the fold, not what capture wrote.
+    let sb = Sandbox::new("tet28-search-survives-fold");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+
+    let run_in = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        let o = c.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+
+    run_in(&["look", "--grep", "original", "."]);
+    run_in(&["fact", "--note", "a census of the symbol"]);
+
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/facts.jsonl")).unwrap();
+    let ev: serde_json::Value = serde_json::from_str(raw.lines().next().unwrap()).unwrap();
+    let extent = ev["extent"].as_array().unwrap();
+
+    let search: Vec<_> = extent.iter().filter(|e| e["kind"] == "Search").collect();
+    assert_eq!(search.len(), 1, "the whole-search record must survive the fold: {extent:#?}");
+    assert_eq!(search[0]["pattern"], "original", "the pattern must survive the fold");
+    assert_eq!(
+        search[0]["key"], search[0]["world_root"],
+        "and must still say it was worktree-rooted"
+    );
+
+    // The per-file hits survive as their own kind, so the predicate can
+    // tell a census from the matches it found.
+    assert!(
+        extent.iter().any(|e| e["kind"] == "GrepMatch"),
+        "per-file hits must still be recorded: {extent:#?}"
     );
 }

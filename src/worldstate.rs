@@ -305,6 +305,8 @@ mod tests {
                     label: String::new(),
                     world_root: root.to_string(),
                     world_state: state.to_string(),
+                    kind: None,
+                    pattern: String::new(),
                 })
                 .collect(),
             output: String::new(),

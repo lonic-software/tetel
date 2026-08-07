@@ -34,6 +34,36 @@ fn resolve_key(path: &Path) -> String {
     fs::canonicalize(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.display().to_string())
 }
 
+/// The key for a whole-search record: the resolved search root, spelled
+/// the way its own world marker spells the tree root **when the two name
+/// the same directory**.
+///
+/// TET-28's census predicate asks whether a search was rooted at the
+/// worktree, and answers it by comparing this key against the entry's own
+/// `world_root`. Both are captured, but by two different tools —
+/// `fs::canonicalize` here, `git rev-parse --show-toplevel` there — and
+/// nothing guarantees two tools spell one directory identically. Rather
+/// than have the predicate reason about that, the divergence is resolved
+/// once, here, where both spellings are in hand.
+///
+/// The comparison is on canonicalized forms, so it is about *which
+/// directory*, never about how either tool wrote it down. When they name
+/// different directories — a search rooted at a subdirectory, which is
+/// exactly the case the census exists to catch — the resolved root is
+/// kept verbatim and the predicate's byte comparison fails, correctly.
+fn search_key(root: &Path, world_root: &str) -> String {
+    let resolved = resolve_key(root);
+    if world_root.is_empty() {
+        return resolved;
+    }
+    let same = fs::canonicalize(root)
+        .ok()
+        .zip(fs::canonicalize(world_root).ok())
+        .map(|(a, b)| a == b)
+        .unwrap_or(false);
+    if same { world_root.to_string() } else { resolved }
+}
+
 pub struct LookOutcome {
     pub printed: String,
 }
@@ -105,6 +135,7 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         world_root: world.root,
         world_state: world.state,
         captured_at: workspace::now_unix(),
+        pattern: String::new(),
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
@@ -173,11 +204,12 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
-            key: resolve_key(root_path),
+            key: search_key(root_path, &m.root),
             label: format!("no-match: {pattern} in {root}"),
             output: String::new(),
             world_root: m.root,
             world_state: m.state,
+            pattern: pattern.to_string(),
         });
     } else {
         printed.push_str(&stdout);
@@ -187,6 +219,26 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
                 by_file.entry(file.to_string()).or_default().push(rest.to_string());
             }
         }
+        // One whole-search record beside the per-file hits. Without it a
+        // search that matched says only which files it hit, and where it
+        // was rooted — the thing a census turns on — is unrecoverable.
+        // Its marker comes from the search root, exactly as the
+        // zero-match record's always has.
+        let m = world.for_path(root_path);
+        let files = by_file.len();
+        buf.push(PendingEntry {
+            captured_at: workspace::now_unix(),
+            kind: ObservationKind::Search,
+            key: search_key(root_path, &m.root),
+            label: format!(
+                "search: {root} (grep: {pattern}) — {files} file{} matched",
+                if files == 1 { "" } else { "s" }
+            ),
+            output: String::new(),
+            world_root: m.root,
+            world_state: m.state,
+            pattern: pattern.to_string(),
+        });
         for (file, matches) in by_file {
             let m = world.for_path(Path::new(&file));
             buf.push(PendingEntry {
@@ -197,6 +249,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
                 output: matches.join("\n"),
                 world_root: m.root,
                 world_state: m.state,
+                pattern: pattern.to_string(),
             });
         }
     }
@@ -309,10 +362,64 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         output: output_text.clone(),
         world_root: world.root,
         world_state: world.state,
+        pattern: String::new(),
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
     pending::save(workspace_dir, &buf)?;
 
     Ok(RunOutcome { printed: output_text, exit_code })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reconciliation in [`search_key`] exists because two tools spell
+    /// the search root: `fs::canonicalize` here and `git rev-parse
+    /// --show-toplevel` in `worldstate`. On the machines this has been run
+    /// on they agree, so an end-to-end test cannot reach this branch —
+    /// removing the reconciliation entirely leaves the CLI tests green.
+    /// A symlinked directory forces the disagreement deterministically.
+    #[test]
+    fn a_search_root_reached_through_a_symlink_is_keyed_the_way_its_marker_spells_it() {
+        let base = std::env::temp_dir().join(format!("tetel-search-key-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let real = base.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // The divergence that matters runs this way round. `resolve_key`
+        // canonicalizes, so the search side is always canonical; it is
+        // *git* that can hand back a spelling with a symlink component,
+        // because it answers from the path it was invoked through. So the
+        // marker carries the link spelling and the search root is the real
+        // directory — one directory, two names.
+        //
+        // Building `world_root` by canonicalizing instead would make the
+        // two sides identical by construction and the assertion vacuous:
+        // an earlier draft of this test did exactly that and passed with
+        // the reconciliation deleted.
+        let world_root = link.display().to_string();
+
+        // Without reconciliation the census predicate — a byte comparison —
+        // would refuse an honest worktree-rooted search over a difference
+        // that means nothing.
+        let key = search_key(&real, &world_root);
+        assert_eq!(key, world_root, "same directory, so the marker's spelling wins");
+
+        // A genuinely different directory keeps its own spelling, so the
+        // predicate still fails — this is the case the census exists for.
+        let sub = real.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        let sub_key = search_key(&sub, &world_root);
+        assert_ne!(sub_key, world_root, "a subdirectory must not be reconciled into its parent");
+
+        // An unresolvable marker is left alone rather than guessed about.
+        assert_eq!(search_key(&real, ""), fs::canonicalize(&real).unwrap().display().to_string());
+
+        let _ = fs::remove_dir_all(&base);
+    }
 }

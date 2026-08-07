@@ -17,6 +17,17 @@ pub enum ObservationKind {
     GrepMatch,
     NoMatch,
     Proc,
+    /// One whole-search record per `look --grep`, keyed on the resolved
+    /// search root rather than on anything the search found — the entry
+    /// that says *where a search started* rather than *what it hit*.
+    ///
+    /// `NoMatch` was already this shape, because a bounded negative is
+    /// about the tree it searched. A search that matched recorded only
+    /// its per-file hits, so a repo-wide grep and a single-file grep that
+    /// hit the same files were byte-identical in the record and "was this
+    /// rooted at the worktree" had nothing to read. This makes the
+    /// matching case capture what the zero-match case always did.
+    Search,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +71,18 @@ pub struct PendingEntry {
     /// entries written before this field existed.
     #[serde(default)]
     pub captured_at: u64,
+    /// The search pattern, on `Search` and `NoMatch` entries only, and
+    /// empty everywhere else.
+    ///
+    /// It is already in `label` for a human to read, but a label is a
+    /// sentence an author's own pattern can make ambiguous to parse, and
+    /// TET-28's census predicate has to compare a pattern to a declared
+    /// symbol byte-for-byte. So it is stored structured rather than
+    /// recovered by taking a label apart. Defaulted for entries written
+    /// before this field existed — empty means *not recorded*, never
+    /// *searched for the empty string*.
+    #[serde(default)]
+    pub pattern: String,
 }
 
 fn path(workspace_dir: &Path) -> PathBuf {

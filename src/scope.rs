@@ -408,6 +408,8 @@ pub(crate) mod tests_support {
                     label: l.to_string(),
                     world_root: String::new(),
                     world_state: String::new(),
+                    kind: None,
+                    pattern: String::new(),
                 })
                 .collect(),
             output: String::new(),

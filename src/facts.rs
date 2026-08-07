@@ -41,6 +41,48 @@ pub struct ExtentEntry {
     #[serde(default)]
     pub world_root: String,
     pub world_state: String,
+    /// What kind of observation this entry came from, or `None` for one
+    /// minted before the field existed.
+    ///
+    /// An observation's kind did not use to survive the fold — the extent
+    /// kept key, label and marker, and what produced them was recoverable
+    /// only by reading the label as prose. TET-28's census predicate has
+    /// to distinguish a whole-search record from a per-file hit, so the
+    /// kind is carried structurally.
+    ///
+    /// `None` means *not recorded*, never *some default kind*: a fact
+    /// minted by an older build can therefore never satisfy a census
+    /// requirement, and the remedy is the cheap one — run the grep again.
+    #[serde(default)]
+    pub kind: Option<crate::pending::ObservationKind>,
+    /// The search pattern on a whole-search record, empty otherwise and
+    /// on entries minted before the field existed. See
+    /// [`crate::pending::PendingEntry::pattern`].
+    #[serde(default)]
+    pub pattern: String,
+}
+
+impl ExtentEntry {
+    /// Whether this entry is a whole-search record rooted at the tree it
+    /// was taken against — TET-28's census predicate, in one place.
+    ///
+    /// Both halves of the comparison are tool-captured: the key by
+    /// `observe::search_key`, the root by `worldstate`. No authoring
+    /// surface accepts an extent, so neither side can be typed.
+    ///
+    /// The `Search`/`NoMatch` pair is deliberate. A search that found
+    /// nothing is as complete a census as one that found everything —
+    /// the predicate is about existence and rooting, never about what was
+    /// found, so a symbol with no occurrences is censused by the grep
+    /// that established it has none.
+    pub fn censuses(&self, symbol: &str) -> bool {
+        use crate::pending::ObservationKind::{NoMatch, Search};
+        matches!(self.kind, Some(Search) | Some(NoMatch))
+            && self.pattern == symbol
+            && !self.world_root.is_empty()
+            && self.world_root != crate::worldstate::NO_GIT
+            && self.key == self.world_root
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,6 +327,8 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
             label: e.label.clone(),
             world_root: e.world_root.clone(),
             world_state: e.world_state.clone(),
+            kind: Some(e.kind),
+            pattern: e.pattern.clone(),
         })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");
