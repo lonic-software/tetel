@@ -758,3 +758,73 @@ async fn a_memo_authored_over_mcp_ships_an_identity_in_its_snapshot() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// A refusal on the MCP surface must land in the shipped record, and the
+/// next mint must replay it — the same two properties the CLI has.
+///
+/// Both halves were broken here. The `lines`+`grep` conflict was refused
+/// before the workspace was opened, so it could never reach
+/// `workspace::refuse`; and nothing read the log back. An agent authoring
+/// over MCP is the population this matters most for, since it has no
+/// terminal to have glanced at.
+#[tokio::test]
+async fn a_refused_look_is_recorded_and_replayed_on_the_next_mint() {
+    let sb = Sandbox::new("mcp-refusal-replay");
+    sb.write("a.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+
+    // Seed a leftover observation, then get a look refused.
+    let r = client
+        .call_tool(CallToolRequestParams::new("run").with_arguments(args(serde_json::json!({
+            "workspace": "ws-ref",
+            "command": ["echo", "leftover"],
+        }))))
+        .await
+        .expect("run must succeed at protocol level");
+    assert_ne!(r.is_error, Some(true), "run was refused: {:?}", r.structured_content);
+
+    let r = client
+        .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+            "workspace": "ws-ref",
+            "path": "a.rs",
+            "lines": {"start": 1, "end": 5},
+            "grep": "fn",
+        }))))
+        .await
+        .expect("the call itself must succeed at the protocol level");
+    assert_eq!(r.is_error, Some(true), "lines+grep must be refused");
+
+    // It reached the choke point: the shipped record has it.
+    let log = std::fs::read_to_string(
+        sb.state_home().join("workspaces/ws-ref/refusals.log"),
+    )
+    .expect("a refused look must be recorded in refusals.log");
+    assert!(log.contains("look"), "got: {log}");
+    assert!(log.contains("cannot be combined"), "got: {log}");
+
+    // And the next mint replays it beside what it folded.
+    let r = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": "ws-ref",
+            "note": "a.rs defines one function",
+        }))))
+        .await
+        .expect("fact must succeed at protocol level");
+    assert_ne!(r.is_error, Some(true), "fact was refused: {:?}", r.structured_content);
+    let s = r.structured_content.as_ref().expect("mint must return structured content");
+    let replayed = s["refused_since_previous_fact"]
+        .as_array()
+        .expect("the mint result must carry the refusal replay as an array");
+    assert_eq!(replayed.len(), 1, "got: {s}");
+    assert!(
+        replayed[0].as_str().unwrap_or_default().contains("cannot be combined"),
+        "the refusal must be replayed verbatim: {s}"
+    );
+    // And it still says what it folded — the two are complementary.
+    assert!(
+        s["folded"].as_array().is_some_and(|f| !f.is_empty()),
+        "the folding description must survive: {s}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}

@@ -115,7 +115,7 @@ contains a proc:/external designator, the RUN command\u{2194}proposition corresp
 cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
 declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
- captured extent, \
+ captured extent, refusals recorded in a fact's own mint window, \
 and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
     for e in &findings.superseded_evidence {
@@ -128,6 +128,31 @@ and tetel's own standing non-coverage \u{2014} none of this is settled by a pass
     }
     for line in &findings.grounding_provenance {
         out.push_str(&format!("  - {line}\n"));
+    }
+    for w in &findings.mint_windows {
+        let window = if w.is_first {
+            "before this fact, the first minted in its workspace"
+        } else {
+            "between this fact and the one before it"
+        };
+        out.push_str(&format!(
+            "  - {}: {} refusal(s) recorded {window} — what the author tried and could not do in \
+the window that produced it. Frequently innocent; worth a reader's eye when a note reaches past \
+its extent, because a refused `look` leaves the pending buffer untouched and the next mint folds \
+whatever was already there:\n",
+            w.fact_id,
+            w.refusals.len()
+        ));
+        for line in &w.refusals {
+            out.push_str(&format!("      {line}\n"));
+        }
+        if w.straddles_a_boundary {
+            out.push_str(
+                "      (a refusal here shares a second with a mint, so which side of it the \
+refusal fell on cannot be recovered — it is listed under both adjacent facts rather than \
+guessed at)\n",
+            );
+        }
     }
     for o in &findings.notes_outside_extent {
         out.push_str(&format!(

@@ -1,5 +1,5 @@
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -92,7 +92,16 @@ enum Command {
         path: Option<String>,
         /// A 1-based inclusive line range, `A:B`. Only valid without
         /// `--grep`.
-        #[arg(long, value_name = "A:B", conflicts_with = "grep")]
+        //
+        // Deliberately not `conflicts_with = "grep"`. Clap would refuse
+        // the combination before dispatch runs, which means before any
+        // workspace exists — so the refusal could never reach
+        // `workspace::refuse` and never appear in the shipped record,
+        // while the MCP surface's own check for the same combination
+        // could. The check now lives in the `Look` arm, after the
+        // workspace is open, so both surfaces refuse it identically and
+        // both record it.
+        #[arg(long, value_name = "A:B")]
         lines: Option<String>,
         /// Search `path` for `pattern` instead of opening it.
         #[arg(long, value_name = "PATTERN")]
@@ -363,6 +372,17 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
+            // Moved out of clap so it reaches the choke point; see the
+            // `lines` flag's declaration.
+            if lines.is_some() && grep.is_some() {
+                let e = tetel::workspace::refuse(
+                    &workspace_dir,
+                    "look",
+                    tetel::workspace::LINES_WITH_GREP,
+                );
+                eprintln!("tetel: {e}");
+                return ExitCode::from(1);
+            }
             let req = if let Some(pattern) = grep {
                 tetel::observe::LookRequest::Grep { pattern, root: path }
             } else {
@@ -370,7 +390,22 @@ fn main() -> ExitCode {
                     Some(spec) => match parse_lines(&spec) {
                         Ok(v) => Some(v),
                         Err(e) => {
-                            eprintln!("tetel: invalid --lines {spec:?}: {e}");
+                            // The path is named because the replay is
+                            // read later, out of context: "invalid
+                            // --lines" alone tells an author a look
+                            // failed but not which file they are missing,
+                            // which is the question the replay exists to
+                            // answer. Matches `observe.rs`'s own
+                            // `no such path: {path}` precedent.
+                            let e = tetel::workspace::refuse(
+                                &workspace_dir,
+                                "look",
+                                format!(
+                                    "invalid --lines {spec:?} for {}: {e}",
+                                    path.as_deref().unwrap_or("(no path given)")
+                                ),
+                            );
+                            eprintln!("tetel: {e}");
                             return ExitCode::from(1);
                         }
                     },
@@ -417,23 +452,17 @@ fn main() -> ExitCode {
                 }
             };
             let resolved_note = match &note {
-                Some(raw) => match tetel::workspace::resolve_text_value(raw) {
+                Some(raw) => match resolve_text(&workspace_dir, "fact", "--note", raw) {
                     Ok(s) => Some(s),
-                    Err(e) => {
-                        eprintln!("tetel: error reading --note: {e}");
-                        return ExitCode::from(1);
-                    }
+                    Err(code) => return code,
                 },
                 None => None,
             };
             let req = if let Some(id) = revise {
                 let resolved_why = match &why {
-                    Some(raw) => match tetel::workspace::resolve_text_value(raw) {
+                    Some(raw) => match resolve_text(&workspace_dir, "fact", "--why", raw) {
                         Ok(s) => Some(s),
-                        Err(e) => {
-                            eprintln!("tetel: error reading --why: {e}");
-                            return ExitCode::from(1);
-                        }
+                        Err(code) => return code,
                     },
                     None => None,
                 };
@@ -447,6 +476,10 @@ fn main() -> ExitCode {
             let folded = tetel::pending::load(&workspace_dir)
                 .map(|b| tetel::facts::describe_buffer(&b, tetel::workspace::now_unix()))
                 .unwrap_or_default();
+            // Read before the mint, because a successful mint becomes the
+            // new window boundary — afterwards this window no longer
+            // exists to ask about.
+            let refused = tetel::facts::refusals_since_last_mint(&workspace_dir);
             match tetel::facts::dispatch(&workspace_dir, req) {
                 // Warned at authoring time as well as at check time,
                 // because this is the moment the author still remembers
@@ -457,6 +490,18 @@ fn main() -> ExitCode {
                     println!("{} minted, folding:", fact.id);
                     for line in &folded {
                         println!("  {line}");
+                    }
+                    // What was folded, and what was refused in the window
+                    // that produced it. The second is not a warning about
+                    // this mint — a mint after a refusal is often
+                    // correct — it is the answer to "where is the file I
+                    // thought I just opened?", which nothing could
+                    // previously give.
+                    if !refused.is_empty() {
+                        println!("refused since the previous fact:");
+                        for line in &refused {
+                            println!("  {line}");
+                        }
                     }
                     for o in tetel::scope::for_fact(&workspace_dir, &fact.id) {
                         eprintln!("tetel: {}", tetel::scope::advice(&o));
@@ -484,12 +529,8 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            let resolve = |raw: &str| -> Result<String, ExitCode> {
-                tetel::workspace::resolve_text_value(raw).map_err(|e| {
-                    eprintln!("tetel: error reading text: {e}");
-                    ExitCode::from(1)
-                })
-            };
+            let resolve =
+                |raw: &str| -> Result<String, ExitCode> { resolve_text(&workspace_dir, "claim", "text", raw) };
             let resolve_opt = |raw: &Option<String>| -> Result<Option<String>, ExitCode> {
                 match raw {
                     Some(s) => resolve(s).map(Some),
@@ -562,40 +603,30 @@ fn main() -> ExitCode {
 
             let req = if let Some(id) = revise {
                 let why = match &why {
-                    Some(raw) => match tetel::workspace::resolve_text_value(raw) {
+                    Some(raw) => match resolve_text(&workspace_dir, "prose", "--why", raw) {
                         Ok(s) => Some(s),
-                        Err(e) => {
-                            eprintln!("tetel: error reading --why: {e}");
-                            return ExitCode::from(1);
-                        }
+                        Err(code) => return code,
                     },
                     None => None,
                 };
-                let new_text = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("tetel: error reading new text: {e}");
-                        return ExitCode::from(1);
-                    }
-                };
+                let new_text =
+                    match resolve_text_or_stdin(&workspace_dir, "prose", "new text", text.as_deref()) {
+                        Ok(s) => s,
+                        Err(code) => return code,
+                    };
                 tetel::prose::ProseRequest::Revise { id, text: new_text, why, cite }
             } else if let Some(heading_raw) = heading {
-                let heading_text = match tetel::workspace::resolve_text_value(&heading_raw) {
+                let heading_text = match resolve_text(&workspace_dir, "prose", "--heading", &heading_raw) {
                     Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("tetel: error reading --heading: {e}");
-                        return ExitCode::from(1);
-                    }
+                    Err(code) => return code,
                 };
                 tetel::prose::ProseRequest::Heading { text: heading_text, level, before }
             } else {
-                let body = match tetel::workspace::resolve_text_or_stdin(text.as_deref()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("tetel: error reading prose text: {e}");
-                        return ExitCode::from(1);
-                    }
-                };
+                let body =
+                    match resolve_text_or_stdin(&workspace_dir, "prose", "prose text", text.as_deref()) {
+                        Ok(s) => s,
+                        Err(code) => return code,
+                    };
                 tetel::prose::ProseRequest::Paragraph { text: body, cite, before }
             };
 
@@ -742,6 +773,50 @@ fact — they are in the snapshot but nothing in the document rests on them"
             }
         }
     }
+}
+
+/// Report a surface-layer refusal through the choke point.
+///
+/// The authoring arms of this file used to fail with a bare `eprintln!`
+/// wherever they refused *before* reaching a library module — resolving
+/// an `@file` that does not exist, parsing a line range. Those refusals
+/// printed to a terminal and were recorded nowhere, so `refusals.log`
+/// shipped inside every snapshot as an incomplete account of what the
+/// author had tried. This routes them through `workspace::refuse` while
+/// keeping the message the terminal has always shown.
+///
+/// Only for refusals that have a workspace in hand. `check` and `brief`
+/// operate on a memo path with no workspace in play, and `record`'s are
+/// deliberately excluded — its refusals concern a memo's evidence log
+/// rather than a workspace's observation record, and neither of its
+/// paths touches the pending buffer, so a silent one cannot leave
+/// anything behind for a later `fact` to fold.
+fn refuse_here(workspace_dir: &Path, cmd: &str, reason: impl Into<String>) -> ExitCode {
+    let e = tetel::workspace::refuse(workspace_dir, cmd, reason);
+    eprintln!("tetel: {e}");
+    ExitCode::from(1)
+}
+
+/// Resolve a `text|-|@file` value, recording a failure to read it.
+fn resolve_text(
+    workspace_dir: &Path,
+    cmd: &str,
+    what: &str,
+    raw: &str,
+) -> Result<String, ExitCode> {
+    tetel::workspace::resolve_text_value(raw)
+        .map_err(|e| refuse_here(workspace_dir, cmd, format!("error reading {what}: {e}")))
+}
+
+/// As [`resolve_text`], for the flags that also accept stdin.
+fn resolve_text_or_stdin(
+    workspace_dir: &Path,
+    cmd: &str,
+    what: &str,
+    raw: Option<&str>,
+) -> Result<String, ExitCode> {
+    tetel::workspace::resolve_text_or_stdin(raw)
+        .map_err(|e| refuse_here(workspace_dir, cmd, format!("error reading {what}: {e}")))
 }
 
 /// Parse a `--lines A:B` value into a 1-based inclusive `(start, end)`.

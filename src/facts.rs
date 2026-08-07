@@ -125,6 +125,128 @@ pub fn describe_buffer(entries: &[crate::pending::PendingEntry], now: u64) -> Ve
         .collect()
 }
 
+/// When this workspace last minted a fact, or `None` if it never has.
+///
+/// Reads the raw event log rather than [`load_all`], which discards
+/// `Create`'s timestamp when building its in-memory view. The timestamp
+/// is in the shipped file the whole time; only the view drops it.
+pub fn last_mint_timestamp(workspace_dir: &Path) -> Option<u64> {
+    let events: Vec<FactEvent> = workspace::read_jsonl(&log_path(workspace_dir)).ok()?;
+    events
+        .iter()
+        .filter_map(|e| match e {
+            FactEvent::Create { timestamp, .. } => Some(*timestamp),
+            FactEvent::Revise { .. } => None,
+        })
+        .max()
+}
+
+/// Every refusal this workspace recorded since its last mint, verbatim.
+///
+/// # Why a mint reports what it could not do
+///
+/// [`describe_buffer`] says what a mint *folded*. It cannot say why what
+/// the author expected to fold is missing — and that gap is the whole
+/// incident this exists for: two `look` calls were refused for a
+/// malformed line range, each left the pending buffer untouched, and the
+/// next mint folded a leftover observation from an earlier line of
+/// enquiry. The author saw a folding line with an age on it and nothing
+/// else. The refusals had happened, and nothing the tool ever consults
+/// had recorded them.
+///
+/// So the two halves are complementary and both are needed: what was
+/// folded, and what was refused in the window that produced it. Neither
+/// is a refusal itself, neither is counted, and neither carries a
+/// threshold — a mint following a refusal is often entirely correct.
+///
+/// One helper, called by both surfaces, so CLI and MCP cannot drift on
+/// which refusals a mint reports.
+pub fn refusals_since_last_mint(workspace_dir: &Path) -> Vec<String> {
+    workspace::refusals_since(workspace_dir, last_mint_timestamp(workspace_dir))
+}
+
+/// One fact's mint window: the refusals recorded between the previous
+/// mint and this one.
+pub struct MintWindow {
+    pub fact_id: String,
+    pub refusals: Vec<String>,
+    /// The first fact in the workspace, whose window has no previous mint
+    /// to open at and so runs from the beginning of the log.
+    pub is_first: bool,
+    /// At least one of these refusals shares a second with a mint
+    /// boundary, so it cannot be placed on one side of it. Such a refusal
+    /// appears in both adjacent windows — the same `>=` choice the
+    /// mint-time replay makes, for the same reason: showing twice is
+    /// recoverable, hiding once is the incident this exists for.
+    pub straddles_a_boundary: bool,
+}
+
+/// Every fact whose mint window contains a refusal, in mint order.
+///
+/// # Why this exists beside the mint-time line
+///
+/// [`refusals_since_last_mint`] prints at the moment of minting, and that
+/// is the only moment the defect is *preventable* rather than merely
+/// discoverable — a fact's extent is unrevisable, so nothing later can
+/// correct the evidence, only the note.
+///
+/// But a line printed at a terminal works only if it is read in the
+/// moment, and a memo built on a bad fact otherwise renders and checks
+/// clean. This recovers the same signal at grading time, when nobody is
+/// relying on the author's attention: `FactEvent::Create` carries a
+/// timestamp that ships in `facts.jsonl`, and the snapshot copies
+/// `refusals.log` beside it, so the windows are derivable from files
+/// every snapshot already contains. No schema change, nothing new stored.
+///
+/// Human-owed and verbatim: a mint following a refusal is frequently
+/// correct, and which of them matters is a reader's call. Nothing here
+/// counts, scores or ranks.
+///
+/// The listing is only ever as complete as the log beneath it — a
+/// snapshot written by a build that did not record surface-layer
+/// refusals simply has fewer lines, and this is silent about them. That
+/// is not a completeness claim in either direction: a verbatim listing
+/// asserts only what was recorded.
+pub fn mint_windows(snapshot_dir: &Path) -> Vec<MintWindow> {
+    let Ok(events) = workspace::read_jsonl::<FactEvent>(&log_path(snapshot_dir)) else {
+        return Vec::new();
+    };
+    let mints: Vec<(String, u64)> = events
+        .iter()
+        .filter_map(|e| match e {
+            FactEvent::Create { id, timestamp, .. } => Some((id.clone(), *timestamp)),
+            FactEvent::Revise { .. } => None,
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for (i, (id, minted_at)) in mints.iter().enumerate() {
+        // The window opens at the previous mint — or at the beginning of
+        // the log for the first fact, which owns everything refused
+        // before it.
+        let opened = if i == 0 { None } else { Some(mints[i - 1].1) };
+        let stamped: Vec<(u64, String)> = workspace::refusals_since(snapshot_dir, opened)
+            .into_iter()
+            .filter_map(|line| {
+                let ts = line.split_once('\t').and_then(|(ts, _)| ts.parse::<u64>().ok())?;
+                (ts <= *minted_at).then_some((ts, line))
+            })
+            .collect();
+        if !stamped.is_empty() {
+            let straddles_a_boundary = stamped
+                .iter()
+                .any(|(ts, _)| *ts == *minted_at || opened.is_some_and(|o| *ts == o));
+            out.push(MintWindow {
+                fact_id: id.clone(),
+                refusals: stamped.into_iter().map(|(_, line)| line).collect(),
+                is_first: i == 0,
+                straddles_a_boundary,
+            });
+        }
+    }
+    out
+}
+
 /// Mint a fact from the current pending buffer. Refuses if the buffer
 /// is empty (a fact needs a preceding `look`/`run`) or the note text is
 /// empty. Clears the buffer on success, exactly once, after the log
@@ -233,5 +355,104 @@ pub fn dispatch(workspace_dir: &Path, req: FactRequest) -> Result<FactOutcome, A
             })?;
             revise(workspace_dir, &id, &note, &why).map(|()| FactOutcome::Revised { id })
         }
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tetel-window-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Facts as raw `Create` events at chosen timestamps, plus a refusal
+    /// log at chosen timestamps — the two files a snapshot ships. Written
+    /// by hand because the whole point is controlling the seconds, which
+    /// an end-to-end run cannot do.
+    fn seed(dir: &Path, mints: &[(&str, u64)], refusals: &[(u64, &str)]) {
+        let facts: String = mints
+            .iter()
+            .map(|(id, ts)| {
+                format!(
+                    r#"{{"event":"Create","id":"{id}","note":"n","extent":[],"output":"","pin":"p","timestamp":{ts}}}"#
+                ) + "\n"
+            })
+            .collect();
+        std::fs::write(dir.join("facts.jsonl"), facts).unwrap();
+        let log: String =
+            refusals.iter().map(|(ts, r)| format!("{ts}\tlook\t{r}\n")).collect();
+        std::fs::write(dir.join("refusals.log"), log).unwrap();
+    }
+
+    #[test]
+    fn each_refusal_lands_in_the_window_of_the_mint_that_followed_it() {
+        let dir = scratch("attribution");
+        seed(&dir, &[("F1", 100), ("F2", 200)], &[(50, "before F1"), (150, "between F1 and F2")]);
+
+        let w = mint_windows(&dir);
+        assert_eq!(w.len(), 2, "both facts have a refusal in their window");
+        assert_eq!(w[0].fact_id, "F1");
+        assert!(w[0].is_first, "F1 has no previous mint to open at");
+        assert!(w[0].refusals[0].contains("before F1"));
+        assert_eq!(w[0].refusals.len(), 1, "F1 must not claim a refusal that followed it");
+        assert_eq!(w[1].fact_id, "F2");
+        assert!(!w[1].is_first);
+        assert!(w[1].refusals[0].contains("between F1 and F2"));
+        assert_eq!(w[1].refusals.len(), 1);
+        assert!(!w[0].straddles_a_boundary && !w[1].straddles_a_boundary, "no shared seconds here");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A refusal sharing a second with a mint cannot be placed on one
+    /// side of it. It is listed under both adjacent facts and the report
+    /// says why, rather than a guess being made silently — the same
+    /// choice the mint-time replay makes.
+    #[test]
+    fn a_refusal_sharing_a_second_with_a_mint_is_flagged_not_guessed() {
+        let dir = scratch("straddle");
+        seed(&dir, &[("F1", 100), ("F2", 200)], &[(100, "same second as F1")]);
+
+        let w = mint_windows(&dir);
+        assert_eq!(w.len(), 2, "listed under both, since which side it fell on is unknowable");
+        assert!(w[0].straddles_a_boundary, "F1's window closes at this second");
+        assert!(w[1].straddles_a_boundary, "F2's window opens at it");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A fact with nothing refused in its window is not listed at all. An
+    /// entry per fact saying "none" is noise, and noise is what makes a
+    /// real one invisible.
+    #[test]
+    fn a_fact_with_a_clean_window_is_absent_rather_than_reported_empty() {
+        let dir = scratch("clean");
+        seed(&dir, &[("F1", 100), ("F2", 200)], &[(150, "only in F2's window")]);
+        let w = mint_windows(&dir);
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].fact_id, "F2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A snapshot from a build that never recorded surface-layer
+    /// refusals has no log; the listing is silent rather than absent-
+    /// meaning-clean. A verbatim listing asserts only what was recorded.
+    #[test]
+    fn a_snapshot_with_no_refusal_log_yields_no_windows() {
+        let dir = scratch("nolog");
+        seed(&dir, &[("F1", 100)], &[]);
+        std::fs::remove_file(dir.join("refusals.log")).unwrap();
+        assert!(mint_windows(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

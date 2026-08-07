@@ -1263,7 +1263,122 @@ fn fact_reports_what_it_folded_so_a_stale_buffer_is_visible() {
     let (_c, out, _e) = sb.run(&["fact", "--note", "a note that would claim to be about a.rs"]);
     assert!(out.contains("folding:"), "mint must report what it folded:\n{out}");
     assert!(out.contains("echo second"), "the leftover must be named:\n{out}");
-    assert!(!out.contains("a.rs"), "the file that was never opened must not appear:\n{out}");
+
+    // `a.rs` must not appear as something this mint *folded* — the
+    // original assertion here was a blunt "must not appear anywhere",
+    // which was right when the folding line was the only output and is
+    // wrong now: the file appears deliberately, one section down, as
+    // something the author *tried and failed* to open. Splitting the two
+    // sections is what makes the assertion say what it means.
+    let folded_section = out.split("refused since").next().unwrap_or(&out);
+    assert!(
+        !folded_section.contains("a.rs"),
+        "the file that was never opened must not appear as folded:\n{out}"
+    );
+}
+
+/// The other half of the same mint: what the author *could not* do in the
+/// window that produced this fact.
+///
+/// `folding:` says what was taken. It cannot say why what the author
+/// expected is missing, and that gap is the incident — two `look` calls
+/// refused for a malformed range, each leaving the buffer untouched, and
+/// a mint that folded a leftover from an earlier line of enquiry. Both
+/// halves are needed, and the refusal half is the one that names the file.
+#[test]
+fn a_mint_names_the_refusals_that_explain_what_is_missing() {
+    let sb = Sandbox::new("mint-refusals");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+
+    sb.run(&["run", "echo", "leftover-from-earlier"]);
+    let (code, _o, _e) = sb.run(&["look", "a.rs", "--lines", "1-2"]);
+    assert_ne!(code, 0, "a malformed range must fail");
+    let (code, _o, _e) = sb.run(&["look", "b.rs", "--lines", "3-4"]);
+    assert_ne!(code, 0, "a malformed range must fail");
+
+    let (_c, out, _e) = sb.run(&["fact", "--note", "a.rs and b.rs both define one function"]);
+    assert!(out.contains("refused since the previous fact"), "got:\n{out}");
+    // The whole point: the replay names the files the author believed
+    // they had captured. A bare "invalid --lines" would say a look failed
+    // without saying which file is missing.
+    assert!(out.contains("a.rs"), "the first refused file must be named:\n{out}");
+    assert!(out.contains("b.rs"), "the second refused file must be named:\n{out}");
+
+    // The window boundary is deliberately not asserted here. Timestamps
+    // are whole seconds and a test runs inside one, so an end-to-end run
+    // cannot distinguish "the window works" from "everything happened in
+    // the same second" — and the design's `>=` boundary means a
+    // same-second refusal is shown twice on purpose. That logic is a pure
+    // function over timestamps and is tested as one, in
+    // `workspace::tests`, where the seconds can be set rather than raced.
+}
+
+/// The whole incident, end to end, through `check`.
+///
+/// The mint-time line works only if the author reads it in the moment.
+/// This is the other half: the same signal recovered at grading time,
+/// when nobody is relying on the author's attention. Before this, a memo
+/// built on a fact whose note reached past a leftover extent rendered and
+/// checked clean with exit 0, and nothing anywhere said the two `look`
+/// calls the author believed they had made were refused.
+#[test]
+fn check_lists_the_refusals_recorded_in_a_facts_own_mint_window() {
+    let sb = Sandbox::new("check-mint-window");
+    sb.write("a.rs", "fn a() {}\n");
+
+    sb.run(&["run", "echo", "leftover-from-earlier"]);
+    let (code, _o, _e) = sb.run(&["look", "a.rs", "--lines", "1-5"]);
+    assert_ne!(code, 0, "a malformed range must fail");
+
+    sb.run(&["fact", "--note", "a.rs defines exactly one function"]);
+    sb.run(&["claim", "--proposition", "a.rs defines exactly one function", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "It defines one function.");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    // Human-owed: never a failure. A mint after a refusal is often right.
+    assert_eq!(code, 0, "this must not redden the machine partition:\n{combined}");
+    assert!(combined.contains("human-owed:"), "got:\n{combined}");
+    assert!(
+        combined.contains("refusal(s) recorded"),
+        "check must recover the mint window from the shipped snapshot:\n{combined}"
+    );
+    assert!(combined.contains("a.rs"), "the refused file must be named:\n{combined}");
+    // The category must be advertised in the preamble too — a listed
+    // category with a silent instance is the failure this project has
+    // already recorded once.
+    assert!(
+        combined.contains("refusals recorded in a fact's own mint window"),
+        "the preamble must name the category it prints:\n{combined}"
+    );
+}
+
+/// A memo whose facts were minted with nothing refused says nothing
+/// about mint windows — the same reason the mint-time line is silent.
+#[test]
+fn check_says_nothing_about_mint_windows_when_nothing_was_refused() {
+    let sb = Sandbox::new("check-no-windows");
+    let memo = one_claim_memo(&sb);
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(!combined.contains("refusal(s) recorded"), "got:\n{combined}");
+}
+
+/// A mint with nothing refused in its window says nothing about
+/// refusals. The line is a report of something that happened, not a
+/// standing section that prints "none" — an empty heading on every mint
+/// is noise, and noise is what makes a real one invisible.
+#[test]
+fn a_clean_mint_says_nothing_about_refusals() {
+    let sb = Sandbox::new("mint-no-refusals");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.run(&["look", "a.rs"]);
+    let (_c, out, _e) = sb.run(&["fact", "--note", "a.rs defines a()"]);
+    assert!(out.contains("folding:"), "got:\n{out}");
+    assert!(!out.contains("refused since"), "nothing was refused:\n{out}");
 }
 
 /// Document order was authoring order, so writing prose as discoveries

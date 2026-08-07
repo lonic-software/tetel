@@ -106,6 +106,13 @@ pub struct Findings {
     /// Only populated when a snapshot shipped beside the memo, since
     /// facts appear nowhere in the rendered document.
     pub notes_outside_extent: Vec<crate::scope::OutsideExtent>,
+    /// Refusals recorded between one fact's mint and the previous one —
+    /// what the author tried and could not do in the window that produced
+    /// each fact. Human-owed and verbatim; a mint following a refusal is
+    /// frequently correct. Like `notes_outside_extent`, only populated
+    /// when a snapshot shipped beside the memo, and only as complete as
+    /// the log inside it.
+    pub mint_windows: Vec<crate::facts::MintWindow>,
     /// True when the memo's ledger has no scope columns for any claim to
     /// declare into — a tetel-authored ledger. Reported once at document
     /// level rather than once per claim; see
@@ -507,6 +514,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         provenance: crate::snapshot::Provenance::Missing,
         cites_something: false,
         notes_outside_extent: Vec::new(),
+        mint_windows: Vec::new(),
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
         qualified_claims: Vec::new(),

@@ -99,6 +99,12 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         if let Ok(facts) = facts::load_all(&snapshot_dir) {
             findings.notes_outside_extent = scope::outside_extent(&facts);
         }
+        // The refusals recorded in each fact's mint window, recovered
+        // from the two files the snapshot already ships: `facts.jsonl`'s
+        // Create timestamps and `refusals.log`. This is the half of
+        // TET-32 that does not depend on the author having read a line
+        // at the terminal.
+        findings.mint_windows = facts::mint_windows(&snapshot_dir);
     }
     // A document with no citations owes no snapshot; only one that points
     // at workspace-relative ids has a record to be missing.

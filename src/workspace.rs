@@ -272,6 +272,45 @@ pub fn refuse(workspace_dir: &Path, cmd: &str, reason: impl Into<String>) -> Aut
     AuthoringError::Refused(reason)
 }
 
+/// The reason text both surfaces refuse `lines` + `grep` with.
+///
+/// Shared rather than written twice because the two surfaces used to
+/// refuse this in different layers — clap on the CLI, an in-handler
+/// branch on MCP — and a reader comparing two `refusals.log` files would
+/// otherwise see the same refusal worded two ways and reasonably conclude
+/// they were different refusals.
+pub const LINES_WITH_GREP: &str = "`lines` and `grep` cannot be combined — a line range selects \
+from one file, a grep searches for matches. Use one or the other.";
+
+/// Every refusal recorded at or after `since`, verbatim, oldest first.
+///
+/// Returns the whole log when `since` is `None` — that is the
+/// no-fact-yet case, where every refusal so far is still unaccounted
+/// for. An unreadable or absent log yields nothing rather than an error:
+/// this feeds a report printed beside a command that has already
+/// succeeded, and a record that cannot be read must not turn a
+/// successful mint into a failure.
+///
+/// The boundary is `>=`, not `>`. Timestamps are whole seconds, so a
+/// refusal landing in the same second as the previous mint would
+/// otherwise be dropped. Showing it twice is the safe direction; hiding
+/// it once is the incident this exists for.
+pub fn refusals_since(workspace_dir: &Path, since: Option<u64>) -> Vec<String> {
+    let Ok(raw) = fs::read_to_string(workspace_dir.join("refusals.log")) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter(|line| match since {
+            None => true,
+            Some(since) => line
+                .split_once('\t')
+                .and_then(|(ts, _)| ts.parse::<u64>().ok())
+                .is_some_and(|ts| ts >= since),
+        })
+        .map(str::to_string)
+        .collect()
+}
+
 /// Resolves a `text|-|@file` CLI value: `-` reads all of stdin; `@path`
 /// reads the named file, byte-exact; anything else is used as the
 /// literal text. Every free-text flag (`--note`, `--proposition`, `--why`,
@@ -417,4 +456,93 @@ pub fn read_jsonl<T: for<'de> Deserialize<'de>>(path: &Path) -> io::Result<Vec<T
         out.push(serde_json::from_str(line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tetel-ws-test-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_log(dir: &Path, lines: &[&str]) {
+        fs::write(dir.join("refusals.log"), format!("{}\n", lines.join("\n"))).unwrap();
+    }
+
+    /// The window boundary, tested where the seconds can be set rather
+    /// than raced. An end-to-end run cannot distinguish a working window
+    /// from a test that finished inside one second.
+    #[test]
+    fn refusals_since_selects_the_window_inclusively() {
+        let dir = scratch("refusals-window");
+        write_log(
+            &dir,
+            &[
+                "100\tlook\tbefore the mint",
+                "200\tlook\texactly at the mint",
+                "300\tlook\tafter the mint",
+            ],
+        );
+
+        let got = refusals_since(&dir, Some(200));
+        assert_eq!(
+            got.len(),
+            2,
+            "the boundary is >=, so a refusal in the same second as the mint is shown \
+rather than dropped — showing twice is the safe direction, hiding once is the incident: {got:?}"
+        );
+        assert!(got[0].contains("exactly at the mint"));
+        assert!(got[1].contains("after the mint"));
+
+        // No fact yet: every refusal so far is still unaccounted for.
+        assert_eq!(refusals_since(&dir, None).len(), 3);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Verbatim or nothing. The line is the shipped record's own text,
+    /// not a re-rendering of it — a reader comparing a replay against
+    /// `refusals.log` must see the same bytes.
+    #[test]
+    fn refusals_are_replayed_verbatim() {
+        let dir = scratch("refusals-verbatim");
+        let line = "150\tlook\tinvalid --lines \"1-2\" for a.rs: expected `A:B`";
+        write_log(&dir, &[line]);
+        assert_eq!(refusals_since(&dir, Some(100)), vec![line.to_string()]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A workspace with no refusals has no log, and a mint must not fail
+    /// because a report could not be computed.
+    #[test]
+    fn a_missing_or_unreadable_log_yields_nothing_rather_than_failing() {
+        let dir = scratch("refusals-absent");
+        assert!(refusals_since(&dir, None).is_empty());
+        assert!(refusals_since(Path::new("/nonexistent/tetel/ws"), None).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A malformed line has no timestamp to compare, so it cannot be
+    /// placed in a window. Dropped rather than shown everywhere: the
+    /// alternative is one unattributable line reappearing on every mint
+    /// forever.
+    #[test]
+    fn a_line_without_a_parsable_timestamp_is_not_attributed_to_a_window() {
+        let dir = scratch("refusals-malformed");
+        write_log(&dir, &["garbage with no tab", "200\tlook\treal one"]);
+        let got = refusals_since(&dir, Some(100));
+        assert_eq!(got.len(), 1, "got: {got:?}");
+        assert!(got[0].contains("real one"));
+        // With no boundary there is nothing to compare against, so
+        // everything is shown — including what cannot be placed.
+        assert_eq!(refusals_since(&dir, None).len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

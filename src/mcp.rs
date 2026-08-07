@@ -154,7 +154,13 @@ fn text_result(s: impl Into<String>) -> Result<CallToolResult, ErrorData> {
 /// beats a string it has to notice. `advice` is shared verbatim with the
 /// CLI so the two surfaces cannot drift into saying different things
 /// about the same finding.
-fn fact_result(dir: &Path, id: &str, action: &str, folded: Vec<String>) -> serde_json::Value {
+fn fact_result(
+    dir: &Path,
+    id: &str,
+    action: &str,
+    folded: Vec<String>,
+    refused: Vec<String>,
+) -> serde_json::Value {
     let attention: Vec<serde_json::Value> = crate::scope::for_fact(dir, id)
         .iter()
         .map(|o| {
@@ -166,7 +172,18 @@ fn fact_result(dir: &Path, id: &str, action: &str, folded: Vec<String>) -> serde
             })
         })
         .collect();
-    json!({ "id": id, "action": action, "attention": attention, "folded": folded })
+    // `refused` answers a different question from `folded`: not what this
+    // mint took, but what the author tried and could not do in the window
+    // that produced it. A caller that folded one leftover observation
+    // after two refused `look` calls can see both here, which is the
+    // whole of the incident this was built for.
+    json!({
+        "id": id,
+        "action": action,
+        "attention": attention,
+        "folded": folded,
+        "refused_since_previous_fact": refused,
+    })
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -477,19 +494,20 @@ impl TetelServer {
 
     #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
-        // The CLI refuses this combination through clap's `conflicts_with`;
-        // MCP silently ignored `lines` and ran the grep, so the same call
-        // meant different things on the two surfaces.
-        if p.lines.is_some() && p.grep.is_some() {
-            return Ok(CallToolResult::structured_error(json!({
-                "error": "refused",
-                "command": "look",
-                "workspace": p.workspace,
-                "guidance": "`lines` and `grep` cannot be combined — a line range selects from one \
-file, a grep searches for matches. Use one or the other.",
-            })));
-        }
         let dir = open_workspace(&p.workspace)?;
+        // Refused after the workspace is open, not before, so it reaches
+        // `workspace::refuse` and lands in the shipped record. The CLI
+        // used to refuse this in clap and this handler refused it here;
+        // both were pre-choke-point, so the same refusal was invisible on
+        // both surfaces. Now both take this path, with one shared reason
+        // text.
+        if p.lines.is_some() && p.grep.is_some() {
+            return Ok(refusal(
+                "look",
+                &p.workspace,
+                crate::workspace::refuse(&dir, "look", crate::workspace::LINES_WITH_GREP),
+            ));
+        }
         let req = if let Some(pattern) = p.grep {
             observe::LookRequest::Grep { pattern, root: Some(p.path) }
         } else {
@@ -513,24 +531,30 @@ file, a grep searches for matches. Use one or the other.",
         }
     }
 
-    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
+    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (what was refused in the window that produced it, verbatim) — a refused `look` leaves the buffer untouched, so if you expected to fold a file and see a refusal instead, that is where it went. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = match p.revise {
             Some(id) => facts::FactRequest::Revise { id, note: p.note, why: p.why },
             None => facts::FactRequest::Mint { note: p.note },
         };
-        // Described before dispatch: a successful mint clears the buffer.
+        // Both described before dispatch: a successful mint clears the
+        // buffer and becomes the new window boundary.
         let folded = crate::pending::load(&dir)
             .map(|b| facts::describe_buffer(&b, workspace::now_unix()))
             .unwrap_or_default();
+        let refused = facts::refusals_since_last_mint(&dir);
         match facts::dispatch(&dir, req) {
             Ok(facts::FactOutcome::Minted(f)) => {
-                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded)))
+                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded, refused)))
             }
-            Ok(facts::FactOutcome::Revised { id }) => {
-                Ok(CallToolResult::structured(fact_result(&dir, &id, "revised", Vec::new())))
-            }
+            Ok(facts::FactOutcome::Revised { id }) => Ok(CallToolResult::structured(fact_result(
+                &dir,
+                &id,
+                "revised",
+                Vec::new(),
+                Vec::new(),
+            ))),
             Err(e) => Ok(refusal("fact", &p.workspace, e)),
         }
     }
@@ -678,7 +702,7 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), stale evidence (a record graded text the claim no longer carries), and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
+    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), stale evidence (a record graded text the claim no longer carries), and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, refusals recorded in a fact's own mint window, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
         match crate::check_file(&resolved(&p.file)) {
             Ok((code, report)) => {
