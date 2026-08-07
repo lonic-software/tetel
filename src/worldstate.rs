@@ -20,8 +20,8 @@
 //! The state alone is what this module recorded first, and it does not
 //! survive contact with real workspaces: **9 of the 23 workspaces in the
 //! store on 2026-08-07 observed more than one git repository** — five of
-//! the seven `fork94` attacker passes read both `lonic-forklift` and
-//! `lonic-planning`, and four grounding passes also read a separate
+//! seven adversarial-review passes read a second repository alongside the
+//! one under review, and four grounding passes also read a separate
 //! worktree. Comparing bare state hashes across those observations
 //! reports a difference on every one of them, and the difference means
 //! nothing: two repositories are *supposed* to be in different states.
