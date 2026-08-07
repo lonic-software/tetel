@@ -1,5 +1,5 @@
 //! `tetel mcp` — an MCP server over stdio, exposing every CLI subcommand
-//! (`look`, `run`, `fact`, `claim`, `prose`, `render`, `review`,
+//! (`look`, `run`, `fact`, `claim`, `target`, `prose`, `render`, `review`,
 //! `query`, `workspaces`, `check`, `brief`, `record`) as a tool. Both halves — authoring and
 //! verification — live in this one server: a document `render` just
 //! produced is checkable by `check` in the same session, and splitting
@@ -103,7 +103,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::workspace::{self, AuthoringError};
-use crate::{claims, compose, facts, observe, prose, query};
+use crate::{claims, compose, facts, observe, prose, query, targets};
 
 /// Resolve `name` to a workspace directory, mapping the one failure mode
 /// ([`workspace::open`]'s I/O error) to a protocol-level error: creating
@@ -251,6 +251,29 @@ struct FactParams {
     #[serde(default)]
     revise: Option<String>,
     /// Required with `revise`: why the note is changing.
+    #[serde(default)]
+    why: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TargetParams {
+    /// The authoring workspace this target belongs to.
+    workspace: String,
+    /// The symbol this design tells an implementer to modify. Compared
+    /// byte-for-byte against the pattern of the census behind it, so it
+    /// must be the symbol itself and not a longer phrase containing it.
+    #[serde(default)]
+    symbol: Option<String>,
+    /// The fact whose captured extent censuses the symbol: a `look`
+    /// with `grep` set to exactly this symbol and `path` set to the
+    /// worktree root. One fact id, not a list.
+    #[serde(default)]
+    cites: Option<String>,
+    /// Withdraw this existing target instead of declaring one. There is
+    /// no `revise`: a changed symbol is a different census.
+    #[serde(default)]
+    withdraw: Option<String>,
+    /// Required with `withdraw`: why.
     #[serde(default)]
     why: Option<String>,
 }
@@ -598,6 +621,28 @@ impl TetelServer {
                 Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
             }
             Err(e) => Ok(refusal("claim", &p.workspace, e)),
+        }
+    }
+
+    #[tool(description = "Declare a symbol this design tells an implementer to modify, citing the fact that censuses it. REFUSES unless that fact's captured extent contains a search of the WHOLE WORKTREE for exactly this symbol \u{2014} so capture it with `look` using `grep: \"<symbol>\"` and `path: \"<worktree root>\"`, then `fact`, then cite that fact here. The refusal is about the search's existence and where it was rooted, never about what it found; a symbol with no occurrences is censused by the search establishing it has none. Declaring is not required by anything \u{2014} nothing can detect a recommendation you did not declare \u{2014} so an undeclared target is invisible, and the rendered section says so. `workspace` is required (never defaulted); ids (T#) are workspace-relative only.")]
+    async fn target(&self, Parameters(p): Parameters<TargetParams>) -> Result<CallToolResult, ErrorData> {
+        let dir = open_workspace(&p.workspace)?;
+        let req = if let Some(id) = p.withdraw {
+            targets::TargetRequest::Withdraw { id, why: p.why }
+        } else {
+            targets::TargetRequest::Declare { symbol: p.symbol, from: p.cites }
+        };
+        match targets::dispatch(&dir, req) {
+            Ok(targets::TargetOutcome::Declared(t)) => Ok(CallToolResult::structured(json!({
+                "id": t.id,
+                "action": "declared",
+                "symbol": t.symbol,
+                "censused_by": t.from,
+            }))),
+            Ok(targets::TargetOutcome::Withdrawn { id }) => {
+                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
+            }
+            Err(e) => Ok(refusal("target", &p.workspace, e)),
         }
     }
 

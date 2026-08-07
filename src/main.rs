@@ -161,6 +161,30 @@ enum Command {
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
+    /// Declare a symbol this design tells an implementer to modify, and
+    /// cite the fact that censuses it.
+    ///
+    /// Refuses unless the cited fact's captured extent contains a search
+    /// of the whole worktree for that exact symbol. The refusal is about
+    /// the search's existence and where it was rooted, never about what
+    /// it found.
+    Target {
+        /// The symbol being declared a modification target.
+        #[arg(value_name = "SYMBOL")]
+        symbol: Option<String>,
+        /// The fact whose captured extent censuses the symbol.
+        #[arg(long, value_name = "F1")]
+        cites: Option<String>,
+        /// Withdraw this target instead of declaring one. A changed
+        /// symbol is a different census, so there is no `--revise`:
+        /// withdraw and redeclare.
+        #[arg(long, value_name = "ID")]
+        withdraw: Option<String>,
+        /// Required with `--withdraw`: why. Literal text, `-` for stdin,
+        /// or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        why: Option<String>,
+    },
     /// Append a paragraph or heading block to the document's prose, or
     /// revise an existing block.
     ///
@@ -584,6 +608,42 @@ fn main() -> ExitCode {
                         }
                     }
                     println!("{} created (overlap report showed {} fact(s)).", outcome.claim.id, outcome.overlap.len());
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Target { symbol, cites, withdraw, why } => {
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            let req = if let Some(id) = withdraw {
+                let why = match &why {
+                    Some(s) => match resolve_text(&workspace_dir, "target", "why", s) {
+                        Ok(v) => Some(v),
+                        Err(code) => return code,
+                    },
+                    None => None,
+                };
+                tetel::targets::TargetRequest::Withdraw { id, why }
+            } else {
+                tetel::targets::TargetRequest::Declare { symbol, from: cites }
+            };
+
+            match tetel::targets::dispatch(&workspace_dir, req) {
+                Ok(tetel::targets::TargetOutcome::Withdrawn { id }) => {
+                    println!("{id} withdrawn.");
+                    ExitCode::from(0)
+                }
+                Ok(tetel::targets::TargetOutcome::Declared(t)) => {
+                    println!("{} declared: `{}`, censused by {}.", t.id, t.symbol, t.from);
                     ExitCode::from(0)
                 }
                 Err(e) => {

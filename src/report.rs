@@ -19,6 +19,23 @@ const NON_COVERAGE: &[&str] = &[
     "one word used in two senses",
     "a command that runs green without establishing its proposition",
     "unfalsifiable-shaped claim phrasing",
+    // --- what a modification-target census cannot see ------------------
+    // The census refusal is textual and rooted, and each of these is a
+    // way a use of a symbol escapes a textual search or a way a found
+    // site still tells you nothing. Printed rather than left implicit,
+    // because a refusal that fired is easily read as coverage it never
+    // claimed.
+    "uses of a censused symbol reached by dynamic dispatch, re-export, aliased import, \
+or a name assembled by a macro or string concatenation",
+    "whatever the platform's grep skipped — symlinked directories and binary files bound \
+what a whole-worktree search physically visited",
+    "whether the censused worktree is the tree this design is actually about; rooting says \
+where a search started, never that it started in the right place",
+    "which mode a call site selects: a census enumerates sites, never the argument values \
+those sites pass, so a parameter choosing between materially different mechanisms is \
+invisible even to a careful reader of the census",
+    "a modification target the author never declared — no refusal can reach it, and the \
+empty section is its only trace",
 ];
 
 /// `build` names the binary that produced this report (see `buildid.rs`).
@@ -49,9 +66,11 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.ledger_errors.len()
         + findings.verdict_disagreements.len()
         + findings.out_of_proof.len()
+        + findings.uncensused_targets.len()
         + usize::from(findings.provenance_failed());
     let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
-dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, provenance drift";
+dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, \
+uncensused modification targets, provenance drift";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -79,6 +98,9 @@ dependency cascades, evidence-ledger import, verdict disagreement, claims out of
         }
         for e in &findings.out_of_proof {
             out.push_str(&format!("  - [out-of-proof] {e}\n"));
+        }
+        for e in &findings.uncensused_targets {
+            out.push_str(&format!("  - [uncensused-target] {e}\n"));
         }
         match &findings.provenance {
             Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
@@ -256,6 +278,12 @@ distinct from no evidence at all, but never enough on its own to move past vouch
 so no coverage claim of any strength is made by any row. What each claim rests on is in the \
 Facts table; whether it rests on enough is yours to judge\n",
         );
+    }
+    for e in &findings.unverifiable_targets {
+        out.push_str(&format!(
+            "  - target `{e}` is declared in this document but no snapshot shipped beside it, \
+so nothing here can verify the census behind it — reproduce it from the workspace, or re-render with `--out`\n"
+        ));
     }
     for item in NON_COVERAGE {
         out.push_str(&format!("  - tetel does not catch: {item}\n"));

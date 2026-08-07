@@ -16,7 +16,7 @@
 //!
 //! - **`check`, `brief`, `query`, `review`, `workspaces` write nothing.**
 //!   They read the document, its ledger and its snapshot, and return.
-//! - **`look`, `run`, `fact`, `claim`, `prose` write only inside the
+//! - **`look`, `run`, `fact`, `claim`, `target`, `prose` write only inside the
 //!   workspace state directory** (`$TETEL_STATE_HOME` or
 //!   `~/.local/state/tetel`), never inside a repository — see
 //!   [`workspace`] for why that separation is load-bearing.
@@ -55,6 +55,7 @@ pub mod report;
 pub mod review;
 pub mod scope;
 pub mod snapshot;
+pub mod targets;
 pub mod workspace;
 pub mod worldstate;
 
@@ -138,12 +139,27 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
             findings.tree_states = trees.divergent;
             findings.tree_ungradable = trees.ungradable_facts;
         }
+        // Modification targets, re-verified against the record rather
+        // than trusted because the document says so. `target` refuses an
+        // uncensused declaration at authoring time, so this can only fire
+        // on a document that never passed through that verb.
+        if let (Ok(targets), Ok(facts)) =
+            (targets::load_all(&snapshot_dir), facts::load_all(&snapshot_dir))
+        {
+            findings.uncensused_targets = checks::census_findings(&doc.body, &targets, &facts);
+        }
         // The refusals recorded in each fact's mint window, recovered
         // from the two files the snapshot already ships: `facts.jsonl`'s
         // Create timestamps and `refusals.log`. This is the half of
         // TET-32 that does not depend on the author having read a line
         // at the terminal.
         findings.mint_windows = facts::mint_windows(&snapshot_dir);
+    }
+    // A rendered target row with no snapshot behind it cannot be graded
+    // either way, so it is reported rather than failed — the same standing
+    // choice every other snapshot-dependent finding makes.
+    if !snapshot_dir.is_dir() {
+        findings.unverifiable_targets = checks::rendered_targets(&doc.body);
     }
     // A document with no citations owes no snapshot; only one that points
     // at workspace-relative ids has a record to be missing.

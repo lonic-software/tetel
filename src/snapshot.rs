@@ -68,10 +68,16 @@ use std::path::{Path, PathBuf};
 /// `pending.json` is included even though `render` never reads it: a
 /// non-empty buffer at snapshot time is a fact about how the document was
 /// finished, and silently dropping it would hide it.
-const SNAPSHOT_FILES: [&str; 7] = [
+const SNAPSHOT_FILES: [&str; 8] = [
     "facts.jsonl",
     "claims.jsonl",
     "prose.jsonl",
+    // Shipped, not withheld: without it `check` can see the rendered
+    // target rows but nothing to verify them against, and the census
+    // refusal would hold only inside the workspace that authored the
+    // memo — exactly the reviewer-of-a-committed-document case the
+    // snapshot exists for.
+    "targets.jsonl",
     "counters.json",
     "pending.json",
     "refusals.log",

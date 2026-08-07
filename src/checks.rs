@@ -127,6 +127,29 @@ pub struct Findings {
     /// they read. Reported rather than passed over: an ungradable record
     /// is not a matching one.
     pub tree_ungradable: Vec<String>,
+    /// Declared modification targets whose cited fact does not census
+    /// them, re-verified against the shipped snapshot — a **machine
+    /// failure**.
+    ///
+    /// `tetel target` refuses these at declaration, so a workspace-
+    /// authored memo cannot produce one. What this catches is the
+    /// document that never passed through that verb: hand-authored,
+    /// edited after rendering, or carrying a target row its own snapshot
+    /// does not have. Both directions are checked, because tampering can
+    /// go either way — a row invented in the document, or a target whose
+    /// citation stopped censusing it.
+    ///
+    /// It is an objective contradiction between a document and the record
+    /// it claims to rest on, which is what the machine partition is for.
+    pub uncensused_targets: Vec<String>,
+    /// Target rows in a document that shipped no snapshot, so nothing
+    /// can verify them — **human-owed**, never a failure.
+    ///
+    /// Same standing choice as every other snapshot-dependent finding: a
+    /// missing snapshot grades the tooling's history rather than the
+    /// document, and every memo authored before `render --out` existed
+    /// lacks one.
+    pub unverifiable_targets: Vec<String>,
     /// True when the memo's ledger has no scope columns for any claim to
     /// declare into — a tetel-authored ledger. Reported once at document
     /// level rather than once per claim; see
@@ -176,6 +199,7 @@ impl Findings {
             || !self.ledger_errors.is_empty()
             || !self.verdict_disagreements.is_empty()
             || !self.out_of_proof.is_empty()
+            || !self.uncensused_targets.is_empty()
             || self.provenance_failed()
     }
 
@@ -537,6 +561,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         notes_outside_extent: Vec::new(),
         tree_states: Vec::new(),
         tree_ungradable: Vec::new(),
+        uncensused_targets: Vec::new(),
+        unverifiable_targets: Vec::new(),
         mint_windows: Vec::new(),
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
@@ -1193,4 +1219,92 @@ status: VERIFIED
         assert!(findings.abutting_failures.is_empty());
         assert_eq!(findings.abutting_candidates.len(), 1);
     }
+}
+
+/// Re-verifies a rendered document's modification targets against the
+/// snapshot shipped beside it, in both directions.
+///
+/// `tetel target` refuses an uncensused declaration at authoring time, so
+/// a memo this crate wrote cannot fail this. What it catches is a
+/// document that never passed through that verb — hand-authored, or
+/// edited after rendering. Tampering can go either way, so both are
+/// checked: a target row the snapshot does not have, and a snapshot
+/// target whose cited fact does not census it.
+///
+/// Reading the document's rows rather than trusting the snapshot alone is
+/// the point. A reviewer sees the rendered table; if the table can say
+/// something the record does not support, the table is the lie that
+/// matters.
+pub fn census_findings(
+    doc_body: &[String],
+    snapshot_targets: &[crate::targets::Target],
+    snapshot_facts: &[crate::facts::Fact],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let live: Vec<&crate::targets::Target> = snapshot_targets.iter().filter(|t| !t.withdrawn).collect();
+
+    // Direction 1: every live target the snapshot carries must still be
+    // censused by the fact it cites.
+    for t in &live {
+        match snapshot_facts.iter().find(|f| f.id == t.from) {
+            None => out.push(format!(
+                "{}: declares `{}` censused by {}, but no such fact is in the snapshot",
+                t.id, t.symbol, t.from
+            )),
+            Some(f) if !f.extent.iter().any(|e| e.censuses(&t.symbol)) => out.push(format!(
+                "{}: declares `{}` censused by {}, but that fact's captured extent contains no whole-worktree search for `{}`",
+                t.id, t.symbol, t.from, t.symbol
+            )),
+            Some(_) => {}
+        }
+    }
+
+    // Direction 2: every target row the *document* renders must be one of
+    // those. A row invented in the file is the tampering case a snapshot
+    // exists to catch.
+    for symbol in rendered_target_symbols(doc_body) {
+        if !live.iter().any(|t| t.symbol == symbol) {
+            out.push(format!(
+                "the document declares `{symbol}` a modification target, but its snapshot has no such target — the row was not written by `tetel target`"
+            ));
+        }
+    }
+    out
+}
+
+/// The symbols in a rendered `## Modification targets` table.
+///
+/// Deliberately narrow: it reads the one table this crate emits, in the
+/// shape it emits, and stops at the next heading. It is not a markdown
+/// parser and makes no attempt to be — a document whose section this
+/// cannot read yields no rows here, and the snapshot direction above
+/// still runs.
+pub fn rendered_targets(body: &[String]) -> Vec<String> {
+    rendered_target_symbols(body)
+}
+
+fn rendered_target_symbols(body: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in body {
+        let t = line.trim();
+        if t.starts_with('#') {
+            inside = t.trim_start_matches('#').trim().eq_ignore_ascii_case("modification targets");
+            continue;
+        }
+        if !inside || !t.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = t.trim_matches('|').split('|').map(str::trim).collect();
+        let Some(first) = cells.first() else { continue };
+        // Skip the header and its separator row.
+        if first.eq_ignore_ascii_case("target") || first.chars().all(|c| c == '-' || c == ':') {
+            continue;
+        }
+        let symbol = first.trim_matches('`').trim();
+        if !symbol.is_empty() {
+            out.push(symbol.to_string());
+        }
+    }
+    out
 }

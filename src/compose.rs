@@ -48,12 +48,56 @@ pub fn render(workspace_dir: &Path) -> io::Result<String> {
         }
     }
     let claim_list = claims::load_all(workspace_dir)?;
+    out.push_str(&render_targets(&crate::targets::load_all(workspace_dir)?, &claim_list));
     out.push_str(&render_ledger(&claim_list));
     out.push_str(&render_facts(
         &crate::facts::load_all(workspace_dir)?,
         &claim_list,
     ));
     Ok(out)
+}
+
+/// Appends the modification-target section — the symbols this design
+/// tells an implementer to modify, each with the fact that censuses it.
+///
+/// # Why it renders when it is empty
+///
+/// Because the hole is the finding. A declared target is refused without
+/// a census at declaration time, so a *declared* target is always
+/// censused; what no refusal can reach is a target the author never
+/// declared, since deciding that a memo recommended something it never
+/// declared is the heuristic read of prose the whole design rejects.
+///
+/// Visibility is the answer instead. Once a document has any claim at
+/// all, this section renders — as "none declared" when it is empty — so
+/// a memo full of tell-the-implementer language with an empty section
+/// shows its own gap to every reader. An absent section would make the
+/// same omission invisible, which is the failure mode, not the fix.
+///
+/// Withdrawn targets are dropped rather than struck through: a target is
+/// withdrawn precisely when it stopped being a target, and the log keeps
+/// the history for anyone auditing the workspace.
+fn render_targets(targets: &[crate::targets::Target], claims: &[claims::Claim]) -> String {
+    let live: Vec<&crate::targets::Target> = targets.iter().filter(|t| !t.withdrawn).collect();
+    // Nothing to be silent about yet: a document with no claims is not a
+    // document making recommendations.
+    if live.is_empty() && claims.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n## Modification targets\n\n");
+    if live.is_empty() {
+        out.push_str(
+            "None declared. A target is a symbol this design tells an implementer to modify; \
+             declaring one requires a search of the whole worktree for it. Nothing forces a \
+             recommendation to be declared, so an empty section is not evidence that none exist.\n",
+        );
+        return out;
+    }
+    out.push_str("| target | censused by |\n|---|---|\n");
+    for t in live {
+        out.push_str(&format!("| `{}` | {} |\n", t.symbol, t.from));
+    }
+    out
 }
 
 /// Appends a facts table after the evidence ledger.
