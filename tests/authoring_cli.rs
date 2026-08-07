@@ -1055,8 +1055,8 @@ fn revising_a_graded_proposition_makes_its_evidence_stale() {
 
     let (code, report, err) = sb.run(&["check", m]);
     let combined = format!("{report}{err}");
-    assert_eq!(code, 1, "stale evidence must fail the machine check:\n{combined}");
-    assert!(combined.contains("[stale-evidence]"), "got:\n{combined}");
+    assert_eq!(code, 1, "a claim out of proof must fail the machine check:\n{combined}");
+    assert!(combined.contains("[out-of-proof]"), "got:\n{combined}");
     assert!(combined.contains("graded different text"), "got:\n{combined}");
     // The memo matches its snapshot, so drift is not what caught this.
     assert!(!combined.contains("[provenance-drift]"), "drift must not be the catcher:\n{combined}");
@@ -1086,7 +1086,7 @@ fn re_grounding_a_revised_claim_clears_the_stale_failure() {
     let (code, report, err) = sb.run(&["check", m]);
     let combined = format!("{report}{err}");
     assert_ne!(code, 1, "re-grounding must clear the failure:\n{combined}");
-    assert!(!combined.contains("[stale-evidence]"), "no longer a machine failure:\n{combined}");
+    assert!(!combined.contains("[out-of-proof]"), "no longer a machine failure:\n{combined}");
     // Still visible, as history rather than alarm.
     assert!(combined.contains("superseded evidence"), "the earlier record stays visible:\n{combined}");
 }
@@ -1107,10 +1107,10 @@ fn a_claim_with_only_stale_evidence_still_fails() {
     let (code, report, err) = sb.run(&["check", m]);
     let combined = format!("{report}{err}");
     assert_eq!(code, 1, "nothing grades the current wording:\n{combined}");
-    assert!(combined.contains("[stale-evidence]"), "got:\n{combined}");
-    assert!(combined.contains("Nothing grades what this claim says today"), "got:\n{combined}");
+    assert!(combined.contains("[out-of-proof]"), "got:\n{combined}");
+    assert!(combined.contains("Out of proof: nothing grades what this claim says today"), "got:\n{combined}");
 }
-/// The second instance of the same defect: `stale-evidence` was made
+/// The second instance of the same defect: `out-of-proof` was made
 /// digest-aware and `verdict-disagreement` was not, so a contradiction
 /// against text that no longer exists failed the check forever.
 ///
@@ -1144,7 +1144,7 @@ fn a_contradiction_against_superseded_text_is_cleared_by_re_grounding() {
     let combined = format!("{report}{err}");
     assert_ne!(code, 1, "the current wording is unanimously supported:\n{combined}");
     assert!(!combined.contains("[verdict-disagreement]"), "got:\n{combined}");
-    assert!(!combined.contains("[stale-evidence]"), "got:\n{combined}");
+    assert!(!combined.contains("[out-of-proof]"), "got:\n{combined}");
     // Erasing the disagreement is not the remedy — it must still print.
     assert!(combined.contains("superseded evidence"), "the trail must survive:\n{combined}");
     assert!(combined.contains("alpha.rs also defines beta()"), "the refutation's note must survive:\n{combined}");

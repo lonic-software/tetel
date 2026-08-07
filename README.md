@@ -86,6 +86,11 @@ piece here**; the evidence and the claims resting on it are not.
 
 ## Vocabulary
 
+Partly borrowed from the proof house, where a gun barrel is stamped only after surviving an actual
+overpressure firing — **the mark cannot exist without the test having been fired.** That is this
+tool's central guarantee stated in four words: a fact's extent is captured, and there is no flag
+anywhere that supplies one.
+
 | term | meaning here |
 |---|---|
 | **observation** | one `look` or `run`, captured into the pending buffer |
@@ -94,16 +99,22 @@ piece here**; the evidence and the claims resting on it are not.
 | **pin** | a content fingerprint over a fact's extent, output and the working tree it was taken against |
 | **claim** | a proposition resting on one or more facts |
 | **grounding** | an independent pass grading claims from source alone, with the author's scope withheld |
+| **out of proof** | a claim whose every record grades a wording it no longer carries. The stamp no longer certifies this barrel — a machine failure |
+| **reprove** | ground a claim again against what it now says. The only thing that clears *out of proof*, and it adds a record rather than editing one |
+| **superseded** | the marks from before a claim was reproved. History, human-owed, never a failure |
 | **witnessed / ingested** | whether the tool captured the act itself, or only captured someone *reporting* the act |
+
+Those three describe one state machine: revise a claim and it falls **out of proof**; **reprove** it
+and the earlier records become **superseded**. The ledger is append-only, so nothing is ever cleared
+by editing — only by adding a later proof.
 
 ## What `check` tells you
 
 Two labelled partitions, each stating its own scope, and **never a single document-level verdict**:
 
 - **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
-  citations, dependency cascades, evidence-ledger import, verdict disagreement, evidence graded
-  against text a claim no longer carries, and provenance drift between a document and its own
-  snapshot. These fail the run.
+  citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof,
+  and provenance drift between a document and its own snapshot. These fail the run.
 - **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
   was graded by the workspace that authored it or an independent one, notes reaching past their
   fact's extent, refusals recorded in a fact's mint window, and tetel's own standing non-coverage.

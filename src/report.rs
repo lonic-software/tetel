@@ -48,10 +48,10 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.cascade_failures.len()
         + findings.ledger_errors.len()
         + findings.verdict_disagreements.len()
-        + findings.stale_evidence.len()
+        + findings.out_of_proof.len()
         + usize::from(findings.provenance_failed());
     let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
-dependency cascades, evidence-ledger import, verdict disagreement, stale evidence, provenance drift";
+dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, provenance drift";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -77,8 +77,8 @@ dependency cascades, evidence-ledger import, verdict disagreement, stale evidenc
         for e in &findings.verdict_disagreements {
             out.push_str(&format!("  - [verdict-disagreement] {e}\n"));
         }
-        for e in &findings.stale_evidence {
-            out.push_str(&format!("  - [stale-evidence] {e}\n"));
+        for e in &findings.out_of_proof {
+            out.push_str(&format!("  - [out-of-proof] {e}\n"));
         }
         match &findings.provenance {
             Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {

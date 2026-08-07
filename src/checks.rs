@@ -149,12 +149,19 @@ pub struct Findings {
     /// The check fired on the wrong claim and was silent on the right
     /// ones.
     pub qualified_claims: Vec<(String, String, String)>,
-    /// Evidence whose recorded proposition digest does not match the
-    /// claim's current text — the proposition was revised after being
-    /// graded. A machine failure; see [`analyze_ledger`].
-    pub stale_evidence: Vec<String>,
-    /// Records that graded an earlier wording of a claim which *has*
-    /// since been re-grounded. Human-owed history, never a failure — see
+    /// Claims **out of proof**: every record on file grades a wording this
+    /// claim no longer carries, and nothing has graded the current one.
+    /// The proof-house sense exactly — the stamp no longer certifies this
+    /// barrel. A machine failure; see [`analyze_ledger`].
+    ///
+    /// The remedy is to **reprove**: ground the claim again against what it
+    /// now says. Nothing else clears it, and nothing clears it silently —
+    /// the ledger is append-only, so the superseding record is added rather
+    /// than the stale one edited.
+    pub out_of_proof: Vec<String>,
+    /// Records that graded an earlier wording of a claim which *has* since
+    /// been reproved. Human-owed history, never a failure — the claim is
+    /// back in proof, and these are the marks from before it was. See
     /// [`analyze_ledger`] on why the distinction matters.
     pub superseded_evidence: Vec<String>,
 }
@@ -168,7 +175,7 @@ impl Findings {
             || !self.cascade_failures.is_empty()
             || !self.ledger_errors.is_empty()
             || !self.verdict_disagreements.is_empty()
-            || !self.stale_evidence.is_empty()
+            || !self.out_of_proof.is_empty()
             || self.provenance_failed()
     }
 
@@ -534,7 +541,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
         qualified_claims: Vec::new(),
-        stale_evidence: Vec::new(),
+        out_of_proof: Vec::new(),
         superseded_evidence: Vec::new(),
     }
 }
@@ -591,7 +598,7 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
     let mut attested_grounded = Vec::new();
     let mut disagreements = Vec::new();
     let mut qualified = Vec::new();
-    let mut stale_digests = Vec::new();
+    let mut out_of_proof = Vec::new();
     let mut superseded = Vec::new();
 
     for claim in claims {
@@ -639,14 +646,14 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
                 r.note.as_deref().unwrap_or("(no note)"),
             );
             if fresh.is_empty() {
-                stale_digests.push(format!(
-                    "{line}\n      Nothing grades what this claim says today. Re-ground it \
-against the current wording, or restore the wording it was graded against."
+                out_of_proof.push(format!(
+                    "{line}\n      Out of proof: nothing grades what this claim says today. \
+Reprove it against the current wording, or restore the wording it was graded against."
                 ));
             } else {
                 superseded.push(format!(
-                    "{line}\n      Superseded: {} record(s) grade the current wording. Kept \
-because it is what an earlier pass actually found, and the log is append-only.",
+                    "{line}\n      Superseded by a later proof: {} record(s) grade the current \
+wording. Kept because it is what an earlier pass actually found, and the log is append-only.",
                     fresh.len()
                 ));
             }
@@ -809,7 +816,7 @@ because it is what an earlier pass actually found, and the log is append-only.",
         }
     }
 
-    (ungrounded, attested_grounded, disagreements, qualified, stale_digests, superseded)
+    (ungrounded, attested_grounded, disagreements, qualified, out_of_proof, superseded)
 }
 
 /// One line per evidence record whose `source` designator is a path that

@@ -95,7 +95,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         checks::grounding_provenance(&ledger.claims, &evidence_records, &authoring_identity);
     findings.verdict_disagreements = disagreements;
     findings.qualified_claims = qualified;
-    findings.stale_evidence = stale;
+    findings.out_of_proof = stale;
     findings.superseded_evidence = superseded;
     // Provenance is graded against the same bytes every other check saw,
     // never a re-read of the file.
