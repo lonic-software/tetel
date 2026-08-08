@@ -132,6 +132,53 @@ fn rendered_memos(root: &Path) -> Vec<String> {
     found
 }
 
+/// Everything `git` is told to ignore under `root`, spelled the way `root`
+/// was spelled, as `(is_directory, path)`.
+///
+/// Asks **git** rather than parsing `.gitignore`. Gitignore semantics —
+/// negation, precedence between nested files, `core.excludesFile`, the
+/// repository's own `info/exclude` — are not safely reimplementable, and
+/// git is the authoritative oracle for a question that is otherwise a
+/// judgement. `--directory` collapses a wholly-ignored directory into one
+/// entry, so the list stays short: two entries in this repository.
+///
+/// The trailing slash git emits on a directory is **stripped**, because
+/// `--exclude-dir=build/` matches nothing at all on the grep this feeds —
+/// silently, which is the worst way for an exclusion to fail. Measured on
+/// BSD grep 2.6.0-FreeBSD alongside the two forms that do work: a
+/// root-spelled path excludes exactly its own directory, and a bare
+/// basename over-excludes every directory of that name anywhere in the
+/// tree, which is the same trap [`rendered_memos`] documents.
+///
+/// A root outside any repository, or a machine with no `git`, yields
+/// nothing and the search is simply unfiltered by this rule. That is
+/// reported rather than assumed — see [`exclusion_note`].
+fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
+    let Ok(out) = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let is_dir = line.ends_with('/');
+        let rel = line.strip_suffix('/').unwrap_or(line);
+        found.push((is_dir, root.join(rel).display().to_string()));
+    }
+    found.sort();
+    found
+}
+
 /// What exclusions a search was given, and — when it was given none — why.
 ///
 /// Both are recorded, because silence about an exclusion is ambiguous
@@ -148,7 +195,7 @@ fn rendered_memos(root: &Path) -> Vec<String> {
 fn exclusion_note(exclusions: &Exclusions) -> String {
     match exclusions {
         Exclusions::None { why } => format!("no exclusions: {why}"),
-        Exclusions::Applied { memos } => {
+        Exclusions::Applied { memos, ignored } => {
             let mut s = String::from("skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl");
             if memos.is_empty() {
                 s.push_str(", and no rendered memo");
@@ -158,6 +205,20 @@ fn exclusion_note(exclusions: &Exclusions) -> String {
                     memos.len(),
                     if memos.len() == 1 { "" } else { "s" },
                     memos.join(", ")
+                ));
+            }
+            // Reported even when empty, and distinctly from "none found",
+            // because "git ignores nothing here" and "this is not a
+            // repository" are different facts about what was searched.
+            if ignored.is_empty() {
+                s.push_str("; git-ignored paths: none, or the root is outside a repository");
+            } else {
+                let names: Vec<&str> = ignored.iter().map(|(_, p)| p.as_str()).collect();
+                s.push_str(&format!(
+                    "; and {} git-ignored path{} ({})",
+                    names.len(),
+                    if names.len() == 1 { "" } else { "s" },
+                    names.join(", ")
                 ));
             }
             s
@@ -173,19 +234,27 @@ enum Exclusions {
     /// directory named as the recursion root when `--exclude-dir` matches
     /// it, so passing the flags there would return nothing at all.
     None { why: &'static str },
-    Applied { memos: Vec<String> },
+    Applied { memos: Vec<String>, ignored: Vec<(bool, String)> },
 }
 
 impl Exclusions {
     /// The rule, in one place: exclusions apply only to a directory root
     /// that does not itself name tetel's output.
+    ///
+    /// The git-ignored set rides the *same* decision rather than getting
+    /// its own, and deliberately so. Both answer one question — is this
+    /// content the tooling generated, or content someone wrote? — and a
+    /// caller who names a path has, in both cases, said they want it. A
+    /// second predicate would mean a root could be explicit for one kind
+    /// of exclusion and not the other, which is a distinction nobody
+    /// asking for it would predict.
     fn decide(root: &Path) -> Self {
         if !root.is_dir() {
             Exclusions::None { why: "the caller named one file" }
         } else if names_tetel_output(root) {
             Exclusions::None { why: "the caller named tetel's own output" }
         } else {
-            Exclusions::Applied { memos: rendered_memos(root) }
+            Exclusions::Applied { memos: rendered_memos(root), ignored: ignored_paths(root) }
         }
     }
 }
@@ -319,11 +388,16 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     // the exception is implemented here, above grep, by withholding.
     let exclusions = Exclusions::decide(root_path);
     let mut owned: Vec<String> = Vec::new();
-    if let Exclusions::Applied { memos } = &exclusions {
+    if let Exclusions::Applied { memos, ignored } = &exclusions {
         owned.push("--exclude-dir=*.tetel".to_string());
         owned.push("--exclude=*.evidence.jsonl".to_string());
         for memo in memos {
             owned.push(format!("--exclude={memo}"));
+        }
+        // Directories and files need different flags, and both patterns
+        // carry `root`'s spelling for the reason `rendered_memos` gives.
+        for (is_dir, path) in ignored {
+            owned.push(if *is_dir { format!("--exclude-dir={path}") } else { format!("--exclude={path}") });
         }
     }
     for flag in &owned {

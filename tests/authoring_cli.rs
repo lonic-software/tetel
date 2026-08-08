@@ -427,6 +427,40 @@ fn a_directory_search_skips_tetel_output_without_hiding_source_that_shares_a_mem
 }
 
 #[test]
+fn a_directory_search_skips_what_git_is_told_to_ignore() {
+    let sb = Sandbox::new("grep-excludes-gitignored");
+    sb.write("src/a.rs", "fn f() { CENSUS_TARGET(); }\n");
+    sb.write("build/gen.txt", "CENSUS_TARGET generated\n");
+    sb.write("build/sub/deep.txt", "CENSUS_TARGET nested\n");
+    // Same basename, NOT ignored: `/build` is anchored, so this survives.
+    // A bare `--exclude-dir=build` would take it, which is the trap.
+    sb.write("keep/build/real.txt", "CENSUS_TARGET legitimate\n");
+    sb.write(".gitignore", "/build\n");
+    assert!(
+        Command::new("git").arg("init").arg("-q").current_dir(&sb.dir).status().is_ok_and(|s| s.success()),
+        "test needs git"
+    );
+
+    let (code, out, _err) = sb.run(&["look", "--grep", "CENSUS_TARGET", "."]);
+    assert_eq!(code, 0);
+    let matched: Vec<&str> = out.lines().filter(|l| l.starts_with("./")).collect();
+    let hit = |n: &str| matched.iter().any(|l| l.contains(n));
+
+    assert!(hit("src/a.rs"), "source must still be searched; matches were:\n{matched:#?}");
+    assert!(!hit("./build/gen.txt"), "an ignored dir must be skipped; matches were:\n{matched:#?}");
+    assert!(!hit("deep.txt"), "…including below its top level; matches were:\n{matched:#?}");
+    assert!(
+        hit("keep/build/real.txt"),
+        "`/build` is anchored, so keep/build is NOT ignored and must be searched — a bare \
+         `--exclude-dir=build` would wrongly take it; matches were:\n{matched:#?}"
+    );
+
+    // Recorded, not merely applied.
+    sb.run(&["fact", "--note", "censused CENSUS_TARGET"]);
+    assert!(sb.facts_jsonl().contains("git-ignored path"), "facts.jsonl was:\n{}", sb.facts_jsonl());
+}
+
+#[test]
 fn a_search_the_caller_pointed_at_tetel_output_is_not_filtered() {
     let sb = Sandbox::new("grep-explicit-tetel");
     seed_a_tree_with_tetel_output(&sb);
