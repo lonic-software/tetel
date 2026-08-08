@@ -322,6 +322,31 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
 
     let mut child = Command::new(&argv[0])
         .args(&argv[1..])
+        // Null, never inherited. `run` passes `argv` and nothing else — there
+        // is no way for an author to supply input — so a child reading stdin
+        // can only block, and on the MCP surface it blocks on the **JSON-RPC
+        // transport**: the server's stdin is its request channel. Because that
+        // server answers requests serially, one such child stalls every later
+        // call rather than only its own, which is how a `tetel run tee …` cost
+        // a grounding pass 92 minutes and looked like the design loop being
+        // slow. Null makes those commands fail fast and empty instead.
+        //
+        // Note this leaves a wider hole open: any command that blocks for some
+        // *other* reason (a lock, a network call, an interactive prompt) still
+        // takes the whole server hostage, because nothing here times out.
+        .stdin(Stdio::null())
+        // Null, never inherited. `run` passes `argv` and nothing else — there
+        // is no way for an author to supply input — so a child reading stdin
+        // can only block, and on the MCP surface it blocks on the **JSON-RPC
+        // transport**: the server's stdin is its request channel. Because that
+        // server answers requests serially, one such child stalls every later
+        // call rather than only its own, which is how a `tetel run tee …` cost
+        // a grounding pass 92 minutes and looked like the design loop being
+        // slow. Null makes those commands fail fast and empty instead.
+        //
+        // Note this leaves a wider hole open: any command that blocks for some
+        // *other* reason (a lock, a network call, an interactive prompt) still
+        // takes the whole server hostage, because nothing here times out.
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

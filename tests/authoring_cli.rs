@@ -324,6 +324,63 @@ fn run_captures_output_and_mirrors_exit_code() {
     assert_eq!(code, 0, "a run observation must be fact-worthy");
 }
 
+/// A command `run` spawns must never inherit the parent's stdin.
+///
+/// This has to spawn the binary by hand rather than use `Sandbox::run`,
+/// and the reason is the whole point of the test: `Command::output()`
+/// gives the child a **null** stdin already, so a `tee`/`cat` under
+/// `sb.run` exits immediately whether or not the fix is present, and the
+/// assertion would hold for a reason that has nothing to do with the bug.
+/// The condition being reproduced is the MCP server's: stdin is a live
+/// channel that never reaches EOF, so a child reading it blocks forever.
+/// Hence a piped stdin that is deliberately kept open and never written
+/// to — dropping the handle would close the pipe and let `cat` see EOF,
+/// which is the same vacuity by a slower route.
+#[test]
+fn run_never_hands_a_child_the_parents_stdin() {
+    let sb = Sandbox::new("run-stdin-null");
+    let mut child = sb
+        .command(&["run", "cat"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn tetel binary");
+
+    // Held, not dropped: this pipe stands in for the JSON-RPC channel.
+    let _held_open = child.stdin.take().expect("stdin was piped");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("try_wait failed") {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            child.kill().ok();
+            child.wait().ok();
+            panic!(
+                "`tetel run cat` did not exit within 10s: the child inherited the parent's \
+                 stdin and blocked on it. On the MCP surface that stdin is the request \
+                 channel, and because the server answers serially this stalls every later call."
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+
+    assert_eq!(status.code(), Some(0), "a command reading a null stdin should succeed with no output");
+
+    // The observation is still recorded: a command that read nothing is a
+    // bounded negative, and it leaves a trace like every other `run`. Closing
+    // stdin must not turn the call into a no-op.
+    let (code, _out, _err) = sb.run(&["fact", "--note", "ran a command that reads stdin"]);
+    assert_eq!(code, 0, "a run observation must still be fact-worthy");
+    assert!(
+        sb.facts_jsonl().contains("proc: cat"),
+        "the run must appear in the minted extent; facts.jsonl was:\n{}",
+        sb.facts_jsonl()
+    );
+}
+
 #[test]
 fn query_deps_reports_what_a_fact_is_cited_by_and_what_a_claim_rests_on() {
     let sb = Sandbox::new("query-deps");
