@@ -29,6 +29,21 @@ const NON_COVERAGE: &[&str] = &[
 or a name assembled by a macro or string concatenation",
     "whatever the platform's grep skipped — symlinked directories and binary files bound \
 what a whole-worktree search physically visited",
+    // A separate line, deliberately not folded into the one above. That
+    // entry names two *platform accidents* and contemplates nothing tetel
+    // chose; widening it would turn "rooted at the worktree" into "rooted
+    // at the worktree except what the tool decided to hide" inside a
+    // sentence about symlinks. A deliberate exclusion earns its own line,
+    // by the same standard as every other entry here. This can only ever
+    // be the general statement — every string in this list is static and
+    // none is per-search — which is why the per-search exclusion set is
+    // also written into the search record's own label, where a reader of
+    // the Facts table sees exactly which paths a given search withheld.
+    "tetel's own output, which `look --grep` skips when traversing: snapshot directories, \
+evidence ledgers, and rendered memos are not visited by a search rooted anywhere above \
+them, so a census reports the tree minus what tetel previously wrote into it. Each \
+search's own record names the exclusions it was given; `look` on a named path, and a \
+search rooted inside tetel's output, are not filtered at all",
     "whether the censused worktree is the tree this design is actually about; rooting says \
 where a search started, never that it started in the right place",
     "which mode a call site selects: a census enumerates sites, never the argument values \

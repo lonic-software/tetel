@@ -68,6 +68,128 @@ pub struct LookOutcome {
     pub printed: String,
 }
 
+/// Does `root` name a path inside tetel's own output?
+///
+/// One component test, and it is the *entire* root predicate. The obvious
+/// design has three, one per artifact; the other two — an evidence ledger
+/// and a rendered memo — are **files**, so a root naming either has
+/// already taken [`look_grep`]'s not-a-directory branch and never reaches
+/// a content test at all.
+fn names_tetel_output(root: &Path) -> bool {
+    root.components().any(|c| c.as_os_str().to_str().is_some_and(|s| s.ends_with(".tetel")))
+}
+
+/// Every rendered memo under `root`, spelled the way `root` was spelled.
+///
+/// A file `X` is a rendered memo **iff `X.tetel/` exists as a directory**:
+/// `snapshot::snapshot_path` appends `.tetel` to the whole filename, so a
+/// memo carries no marker of its own and is identified by its sibling
+/// snapshot. That needs no naming convention and no `docs/design/`
+/// hardcoding, and it stays correct wherever someone renders a memo.
+///
+/// The spelling matters and is the reason this walks from `root` as given
+/// rather than canonicalizing: grep matches an `--exclude` pattern against
+/// the name it constructs for a file from the root it was handed, so an
+/// absolute pattern against a relative root excludes **nothing** and the
+/// search silently returns everything. Walking from `root` yields paths
+/// already carrying its spelling.
+///
+/// Two bounds, stated rather than engineered around. An unreadable
+/// directory is skipped, which matches what the platform's grep does with
+/// one and is already in `check`'s standing non-coverage. And symlinked
+/// directories are not descended, because [`fs::DirEntry::file_type`] does
+/// not follow them — consistent with the `grep -r` this feeds, which needs
+/// `-R` to follow, but never measured against a tree that has one.
+fn rendered_memos(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let path = entry.path();
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                stack.push(path);
+                continue;
+            };
+            // `strip_suffix`, never `trim_end_matches`: the latter strips
+            // every repetition, so `a.tetel.tetel` would yield `a`.
+            if let Some(stem) = name.strip_suffix(".tetel") {
+                let memo = path.with_file_name(stem);
+                if memo.is_file() {
+                    found.push(memo.display().to_string());
+                }
+                // Nothing inside a snapshot is itself a memo.
+                continue;
+            }
+            stack.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+/// What exclusions a search was given, and — when it was given none — why.
+///
+/// Both are recorded, because silence about an exclusion is ambiguous
+/// between "nothing was hidden" and "nobody said". This text goes into the
+/// whole-search record's `label`, which is the only record whose job is to
+/// describe the search rather than what it hit, and which two carriers
+/// already built pick up for free: the memo's Facts table renders labels,
+/// and the pin hashes them, so two searches with different exclusion sets
+/// fingerprint differently even when the bytes they matched are identical.
+///
+/// The memo paths are listed rather than counted, deliberately. A count
+/// would let two searches over different memo sets of the same size pin
+/// identically, which is the property this text exists to provide.
+fn exclusion_note(exclusions: &Exclusions) -> String {
+    match exclusions {
+        Exclusions::None { why } => format!("no exclusions: {why}"),
+        Exclusions::Applied { memos } => {
+            let mut s = String::from("skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl");
+            if memos.is_empty() {
+                s.push_str(", and no rendered memo");
+            } else {
+                s.push_str(&format!(
+                    ", and {} rendered memo{} ({})",
+                    memos.len(),
+                    if memos.len() == 1 { "" } else { "s" },
+                    memos.join(", ")
+                ));
+            }
+            s
+        }
+    }
+}
+
+/// Whether a search was filtered, decided once from the root alone.
+enum Exclusions {
+    /// Withheld — and in both cases this is **forced, not chosen**. A file
+    /// root is the caller naming one thing. A root inside tetel's own
+    /// output must be searched unfiltered because grep suppresses a
+    /// directory named as the recursion root when `--exclude-dir` matches
+    /// it, so passing the flags there would return nothing at all.
+    None { why: &'static str },
+    Applied { memos: Vec<String> },
+}
+
+impl Exclusions {
+    /// The rule, in one place: exclusions apply only to a directory root
+    /// that does not itself name tetel's output.
+    fn decide(root: &Path) -> Self {
+        if !root.is_dir() {
+            Exclusions::None { why: "the caller named one file" }
+        } else if names_tetel_output(root) {
+            Exclusions::None { why: "the caller named tetel's own output" }
+        } else {
+            Exclusions::Applied { memos: rendered_memos(root) }
+        }
+    }
+}
+
 /// `tetel look <path> [--lines A:B]`.
 ///
 /// `--lines A:B` (1-based, inclusive) is new in this port — the
@@ -183,6 +305,31 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     // grounding pass over TET-5's own design memo, in that memo's own
     // extent.
     args.push("-H");
+
+    // Tetel's own output is skipped, so that a census does not read back
+    // what tetel previously wrote. This is a decision about *whether* to
+    // pass exclusion flags, not about which — see [`Exclusions::decide`],
+    // and see [`rendered_memos`] for why the patterns must carry `root`'s
+    // own spelling.
+    //
+    // The exception the ticket wanted — "an explicitly named path is still
+    // read, only traversal skips" — is **not** something grep provides.
+    // Measured: `--exclude` skips a file named on the command line, and
+    // `--exclude-dir` skips a directory named as the recursion root. So
+    // the exception is implemented here, above grep, by withholding.
+    let exclusions = Exclusions::decide(root_path);
+    let mut owned: Vec<String> = Vec::new();
+    if let Exclusions::Applied { memos } = &exclusions {
+        owned.push("--exclude-dir=*.tetel".to_string());
+        owned.push("--exclude=*.evidence.jsonl".to_string());
+        for memo in memos {
+            owned.push(format!("--exclude={memo}"));
+        }
+    }
+    for flag in &owned {
+        args.push(flag);
+    }
+
     args.push("-e");
     args.push(pattern);
     args.push(root);
@@ -193,6 +340,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
+    let note = exclusion_note(&exclusions);
     let mut printed = String::new();
     let mut buf = pending::load(workspace_dir)?;
 
@@ -201,11 +349,12 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         // comes from the search root.
         let m = world.for_path(root_path);
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
+        printed.push_str(&format!("({note})\n"));
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
             key: search_key(root_path, &m.root),
-            label: format!("no-match: {pattern} in {root}"),
+            label: format!("no-match: {pattern} in {root} — {note}"),
             output: String::new(),
             world_root: m.root,
             world_state: m.state,
@@ -213,6 +362,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         });
     } else {
         printed.push_str(&stdout);
+        printed.push_str(&format!("({note})\n"));
         let mut by_file: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
         for line in stdout.lines() {
             if let Some((file, rest)) = line.split_once(':') {
@@ -231,7 +381,7 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
             kind: ObservationKind::Search,
             key: search_key(root_path, &m.root),
             label: format!(
-                "search: {root} (grep: {pattern}) — {files} file{} matched",
+                "search: {root} (grep: {pattern}) — {files} file{} matched — {note}",
                 if files == 1 { "" } else { "s" }
             ),
             output: String::new(),

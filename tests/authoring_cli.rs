@@ -381,6 +381,109 @@ fn run_never_hands_a_child_the_parents_stdin() {
     );
 }
 
+/// A tree holding source, one rendered memo with its snapshot and ledger,
+/// and — the trap — an unrelated file sharing the memo's basename with no
+/// snapshot beside it, so it is not a memo and must survive.
+fn seed_a_tree_with_tetel_output(sb: &Sandbox) {
+    sb.write("src/thing.rs", "fn f() { CENSUS_TARGET(); }\n");
+    sb.write("docs/memo.md", "prose about CENSUS_TARGET\n");
+    sb.write("docs/memo.md.tetel/facts.jsonl", "{\"note\":\"CENSUS_TARGET\"}\n");
+    sb.write("docs/memo.md.evidence.jsonl", "{\"subject\":\"CENSUS_TARGET\"}\n");
+    sb.write("other/memo.md", "unrelated file, same basename, CENSUS_TARGET\n");
+}
+
+#[test]
+fn a_directory_search_skips_tetel_output_without_hiding_source_that_shares_a_memo_name() {
+    let sb = Sandbox::new("grep-excludes-tetel");
+    seed_a_tree_with_tetel_output(&sb);
+
+    let (code, out, _err) = sb.run(&["look", "--grep", "CENSUS_TARGET", "."]);
+    assert_eq!(code, 0);
+
+    // Assert over the *match lines* only. The disclosure line names the
+    // patterns it applied, so it contains `*.evidence.jsonl` verbatim and
+    // a naive `!out.contains(...)` would fail against a correct search —
+    // it did, when this test was first written.
+    let matched: Vec<&str> = out.lines().filter(|l| l.starts_with("./")).collect();
+    let hit = |needle: &str| matched.iter().any(|l| l.contains(needle));
+
+    assert!(hit("src/thing.rs"), "source must still be searched; matches were:\n{matched:#?}");
+
+    // All three tetel artifacts are gone: the snapshot directory, the
+    // ledger, and the rendered memo identified by its sibling snapshot.
+    assert!(!hit("memo.md.tetel"), "snapshot dir must be skipped; matches were:\n{matched:#?}");
+    assert!(!hit(".evidence.jsonl"), "evidence ledger must be skipped; matches were:\n{matched:#?}");
+    assert!(!hit("docs/memo.md"), "the rendered memo must be skipped; matches were:\n{matched:#?}");
+
+    // The trap. `other/memo.md` has the memo's basename and no snapshot,
+    // so it is ordinary prose. Excluding it would hide source from a
+    // census under the banner of hiding tetel's output — which is exactly
+    // what a suffix-stripped bare basename does.
+    assert!(
+        hit("other/memo.md"),
+        "a file sharing a memo's basename but having no snapshot is NOT a memo and must be \
+         searched; matches were:\n{matched:#?}"
+    );
+}
+
+#[test]
+fn a_search_the_caller_pointed_at_tetel_output_is_not_filtered() {
+    let sb = Sandbox::new("grep-explicit-tetel");
+    seed_a_tree_with_tetel_output(&sb);
+
+    // A named file: the rendered memo itself.
+    let (code, out, _err) = sb.run(&["look", "--grep", "CENSUS_TARGET", "docs/memo.md"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("prose about"), "a named memo must still be read; output was:\n{out}");
+
+    // A named evidence ledger, and this is the case that actually pins the
+    // file-root branch. A named *memo* survives even without that branch,
+    // because a file root yields no memo patterns and none of the static
+    // ones match it — so naming a memo cannot tell the two implementations
+    // apart. A ledger can: `--exclude=*.evidence.jsonl` matches it, and
+    // grep skips a file named on the command line when `--exclude` matches
+    // it. Without the branch this returns nothing. Found by mutation; the
+    // first version of this test named only the memo and survived.
+    let (code, out, _err) = sb.run(&["look", "--grep", "CENSUS_TARGET", "docs/memo.md.evidence.jsonl"]);
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("subject"),
+        "a named evidence ledger must still be read; output was:\n{out}"
+    );
+
+    // A named snapshot directory. This branch is forced rather than
+    // chosen: grep suppresses a directory named as the recursion root when
+    // `--exclude-dir` matches it, so passing the flags here would return
+    // nothing at all and make a shipped record unreadable.
+    let (code, out, _err) = sb.run(&["look", "--grep", "CENSUS_TARGET", "docs/memo.md.tetel"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("facts.jsonl"), "a named snapshot must still be searched; output was:\n{out}");
+}
+
+#[test]
+fn the_exclusion_set_is_recorded_in_the_search_label_not_only_printed() {
+    let sb = Sandbox::new("grep-exclusion-recorded");
+    seed_a_tree_with_tetel_output(&sb);
+    sb.run(&["look", "--grep", "CENSUS_TARGET", "."]);
+    let (code, _out, _err) = sb.run(&["fact", "--note", "censused CENSUS_TARGET"]);
+    assert_eq!(code, 0);
+
+    // The label is the record; the printed line is only convenience. It
+    // has to name the memos rather than count them, or two searches over
+    // different memo sets of one size would pin identically.
+    let facts = sb.facts_jsonl();
+    assert!(facts.contains("skipped tetel's own output"), "facts.jsonl was:\n{facts}");
+    assert!(facts.contains("memo.md"), "the excluded memo must be named; facts.jsonl was:\n{facts}");
+
+    // And a search that was *not* filtered says so, because silence is
+    // ambiguous between "nothing hidden" and "nobody said".
+    let sb2 = Sandbox::new("grep-exclusion-recorded-none");
+    seed_a_tree_with_tetel_output(&sb2);
+    sb2.run(&["look", "--grep", "CENSUS_TARGET", "docs/memo.md"]);
+    sb2.run(&["fact", "--note", "read the memo directly"]);
+    assert!(sb2.facts_jsonl().contains("no exclusions"), "facts.jsonl was:\n{}", sb2.facts_jsonl());
+}
+
 #[test]
 fn query_deps_reports_what_a_fact_is_cited_by_and_what_a_claim_rests_on() {
     let sb = Sandbox::new("query-deps");
