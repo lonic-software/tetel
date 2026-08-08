@@ -1,0 +1,6 @@
+{"event":"Declare","id":"T1","symbol":"check_file","from":"F12","timestamp":1786189906}
+{"event":"Declare","id":"T2","symbol":"prose_after_proof","from":"F12","timestamp":1786189915}
+{"event":"Declare","id":"T3","symbol":"block_offsets","from":"F12","timestamp":1786189921}
+{"event":"Declare","id":"T4","symbol":"Findings","from":"F13","timestamp":1786189987}
+{"event":"Declare","id":"T5","symbol":"NON_COVERAGE","from":"F13","timestamp":1786189992}
+{"event":"Declare","id":"T6","symbol":"render","from":"F13","timestamp":1786189997}
