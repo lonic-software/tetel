@@ -185,6 +185,48 @@ enum Command {
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
+    /// Declare that this design installs a mechanism taken from another
+    /// site, select the premises the donor states for it, and answer each
+    /// one at the destination.
+    ///
+    /// A premise is refused unless its text is a verbatim substring of one
+    /// observation in the cited donor fact — you select the donor's words,
+    /// you never type them. Whether a premise is *true* at the destination
+    /// is what the answering claim asserts and grounding grades; this verb
+    /// only refuses a quotation that is not one.
+    Transplant {
+        /// The fact that captured the donor site.
+        #[arg(long, value_name = "F1")]
+        from: Option<String>,
+        /// The modification target this mechanism lands on.
+        #[arg(long, value_name = "T1")]
+        into: Option<String>,
+        /// Select a premise from this transplant's donor fact. Pair with
+        /// `--text`.
+        #[arg(long, value_name = "X1")]
+        premise: Option<String>,
+        /// The donor's own words, byte for byte: literal text, `-` for
+        /// stdin, or `@file`. Comment markers, indentation and line breaks
+        /// included — use `-` or `@file` for anything a shell would eat.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        text: Option<String>,
+        /// Answer this premise with the claim asserting it holds at the
+        /// destination. Pair with `--cites`.
+        #[arg(long, value_name = "X1.1")]
+        discharge: Option<String>,
+        /// The claim that answers the premise.
+        #[arg(long, value_name = "C1")]
+        cites: Option<String>,
+        /// Withdraw a transplant or a single premise. A premise is a
+        /// selection of immutable bytes, so there is no `--revise`:
+        /// withdraw and reselect.
+        #[arg(long, value_name = "ID")]
+        withdraw: Option<String>,
+        /// Required with `--withdraw`: why. Literal text, `-` for stdin,
+        /// or `@file`.
+        #[arg(long, value_name = "TEXT|-|@FILE")]
+        why: Option<String>,
+    },
     /// Append a paragraph or heading block to the document's prose, or
     /// revise an existing block.
     ///
@@ -652,6 +694,65 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Transplant { from, into, premise, text, discharge, cites, withdraw, why } => {
+            let workspace_dir = match tetel::workspace::open(&cli.workspace) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("tetel: could not create workspace state: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            let resolve = |field: &str, v: &Option<String>| -> Result<Option<String>, ExitCode> {
+                match v {
+                    Some(s) => resolve_text(&workspace_dir, "transplant", field, s).map(Some),
+                    None => Ok(None),
+                }
+            };
+            let req = if let Some(id) = withdraw {
+                let why = match resolve("why", &why) {
+                    Ok(v) => v,
+                    Err(code) => return code,
+                };
+                tetel::transplants::TransplantRequest::Withdraw { id, why }
+            } else if let Some(premise) = discharge {
+                tetel::transplants::TransplantRequest::Discharge { premise, cites }
+            } else if let Some(transplant) = premise {
+                let text = match resolve("text", &text) {
+                    Ok(v) => v,
+                    Err(code) => return code,
+                };
+                tetel::transplants::TransplantRequest::Premise { transplant, text }
+            } else {
+                tetel::transplants::TransplantRequest::Declare { from, into }
+            };
+
+            match tetel::transplants::dispatch(&workspace_dir, req) {
+                Ok(tetel::transplants::TransplantOutcome::Declared(t)) => {
+                    println!("{} declared: donor {}, landing on {}.", t.id, t.from, t.into);
+                    ExitCode::from(0)
+                }
+                Ok(tetel::transplants::TransplantOutcome::PremiseAdded(p)) => {
+                    println!("{} selected from the donor's captured output — now answer it at the destination.", p.id);
+                    ExitCode::from(0)
+                }
+                Ok(tetel::transplants::TransplantOutcome::Discharged(p)) => {
+                    println!(
+                        "{} answered by {}.",
+                        p.id,
+                        p.discharged_by.as_deref().unwrap_or("—")
+                    );
+                    ExitCode::from(0)
+                }
+                Ok(tetel::transplants::TransplantOutcome::Withdrawn { id }) => {
+                    println!("{id} withdrawn.");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("tetel: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Command::Prose { text, heading, level, cites: cite, before, revise, why } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
@@ -718,6 +819,10 @@ fn main() -> ExitCode {
                 print!("{rendered}");
                 return ExitCode::from(0);
             };
+            if let Err(e) = tetel::transplants::refuse_incomplete(&workspace_dir) {
+                eprintln!("tetel: {e}");
+                return ExitCode::from(1);
+            }
 
             // Document first, then snapshot: if the snapshot write fails
             // the document still exists and `check` reports the missing

@@ -16,8 +16,8 @@
 //!
 //! - **`check`, `brief`, `query`, `review`, `workspaces` write nothing.**
 //!   They read the document, its ledger and its snapshot, and return.
-//! - **`look`, `run`, `fact`, `claim`, `target`, `prose` write only inside the
-//!   workspace state directory** (`$TETEL_STATE_HOME` or
+//! - **`look`, `run`, `fact`, `claim`, `target`, `transplant`, `prose` write
+//!   only inside the workspace state directory** (`$TETEL_STATE_HOME` or
 //!   `~/.local/state/tetel`), never inside a repository — see
 //!   [`workspace`] for why that separation is load-bearing.
 //! - **`render --out` writes two things**: the named document, and the
@@ -56,6 +56,7 @@ pub mod review;
 pub mod scope;
 pub mod snapshot;
 pub mod targets;
+pub mod transplants;
 pub mod workspace;
 pub mod worldstate;
 
@@ -148,6 +149,18 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         {
             findings.uncensused_targets = checks::census_findings(&doc.body, &targets, &facts);
         }
+        // The premise inventory, re-verified the same way and for the
+        // same reason: the verb refuses a premise that is not the donor's
+        // words and `render --out` refuses an unanswered one, so anything
+        // found here is a document that never passed through either.
+        if let (Ok(transplants), Ok(facts), Ok(claim_list)) = (
+            transplants::load_all(&snapshot_dir),
+            facts::load_all(&snapshot_dir),
+            claims::load_all(&snapshot_dir),
+        ) {
+            findings.unquoted_premises =
+                checks::premise_findings(&doc.body, &transplants, &facts, &claim_list);
+        }
         // The refusals recorded in each fact's mint window, recovered
         // from the two files the snapshot already ships: `facts.jsonl`'s
         // Create timestamps and `refusals.log`. This is the half of
@@ -160,6 +173,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     // choice every other snapshot-dependent finding makes.
     if !snapshot_dir.is_dir() {
         findings.unverifiable_targets = checks::rendered_targets(&doc.body);
+        findings.unverifiable_transplants = checks::rendered_transplants(&doc.body);
     }
     // A document with no citations owes no snapshot; only one that points
     // at workspace-relative ids has a record to be missing.

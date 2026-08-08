@@ -383,6 +383,8 @@ struct Counters {
     prose: u64,
     #[serde(default)]
     target: u64,
+    #[serde(default)]
+    transplant: u64,
 }
 
 fn counters_path(workspace_dir: &Path) -> PathBuf {
@@ -408,6 +410,8 @@ pub enum Kind {
     Claim,
     Prose,
     Target,
+    /// Prefixed `X`, not `T`, which [`Kind::Target`] already holds.
+    Transplant,
 }
 
 /// Allocates and persists the next id for `kind`, returning e.g. `F3`.
@@ -431,6 +435,10 @@ pub fn next_id(workspace_dir: &Path, kind: Kind) -> io::Result<String> {
         Kind::Target => {
             c.target += 1;
             (c.target, "T")
+        }
+        Kind::Transplant => {
+            c.transplant += 1;
+            (c.transplant, "X")
         }
     };
     save_counters(workspace_dir, &c)?;

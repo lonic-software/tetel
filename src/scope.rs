@@ -410,6 +410,7 @@ pub(crate) mod tests_support {
                     world_state: String::new(),
                     kind: None,
                     pattern: String::new(),
+                    out_len: None,
                 })
                 .collect(),
             output: String::new(),

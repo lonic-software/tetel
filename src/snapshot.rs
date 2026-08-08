@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 /// `pending.json` is included even though `render` never reads it: a
 /// non-empty buffer at snapshot time is a fact about how the document was
 /// finished, and silently dropping it would hide it.
-const SNAPSHOT_FILES: [&str; 8] = [
+const SNAPSHOT_FILES: [&str; 9] = [
     "facts.jsonl",
     "claims.jsonl",
     "prose.jsonl",
@@ -78,6 +78,13 @@ const SNAPSHOT_FILES: [&str; 8] = [
     // memo — exactly the reviewer-of-a-committed-document case the
     // snapshot exists for.
     "targets.jsonl",
+    // Same reason, one step further: a premise is a quotation, and
+    // re-verifying a quotation needs both the selection and the captured
+    // bytes it claims to come from. `facts.jsonl` above carries the
+    // second half, this the first — without it a reader can see the
+    // donor's words on the page and has no way to tell they are the
+    // donor's.
+    "transplants.jsonl",
     "counters.json",
     "pending.json",
     "refusals.log",

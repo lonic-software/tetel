@@ -150,6 +150,19 @@ pub struct Findings {
     /// document, and every memo authored before `render --out` existed
     /// lacks one.
     pub unverifiable_targets: Vec<String>,
+    /// Transplant rows whose premise inventory does not hold up against
+    /// the shipped snapshot — **machine failure**.
+    ///
+    /// The verb refuses a premise that is not the donor's words, and
+    /// `render --out` refuses a document with an unanswered one, so a
+    /// finding here can only mean a document that never passed through
+    /// either: hand-authored, edited after rendering, or carrying a
+    /// snapshot that does not match it.
+    pub unquoted_premises: Vec<String>,
+    /// Transplant rows in a document that shipped no snapshot, so nothing
+    /// can verify them — **human-owed**, never a failure. Same standing
+    /// choice as [`Findings::unverifiable_targets`].
+    pub unverifiable_transplants: Vec<String>,
     /// True when the memo's ledger has no scope columns for any claim to
     /// declare into — a tetel-authored ledger. Reported once at document
     /// level rather than once per claim; see
@@ -200,6 +213,7 @@ impl Findings {
             || !self.verdict_disagreements.is_empty()
             || !self.out_of_proof.is_empty()
             || !self.uncensused_targets.is_empty()
+            || !self.unquoted_premises.is_empty()
             || self.provenance_failed()
     }
 
@@ -563,6 +577,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         tree_ungradable: Vec::new(),
         uncensused_targets: Vec::new(),
         unverifiable_targets: Vec::new(),
+        unquoted_premises: Vec::new(),
+        unverifiable_transplants: Vec::new(),
         mint_windows: Vec::new(),
         ledger_has_no_scope_columns: false,
         grounding_provenance: Vec::new(),
@@ -1267,6 +1283,112 @@ pub fn census_findings(
             out.push(format!(
                 "the document declares `{symbol}` a modification target, but its snapshot has no such target — the row was not written by `tetel target`"
             ));
+        }
+    }
+    out
+}
+
+/// Re-verify the premise inventory against the shipped snapshot, both
+/// directions — the same tampering-goes-both-ways discipline
+/// [`census_findings`] applies.
+///
+/// Nothing here re-reads the donor's source. The premise is compared
+/// against the captured bytes `facts.jsonl` already carries, so this runs
+/// no command and opens nothing the document names.
+pub fn premise_findings(
+    doc_body: &[String],
+    snapshot_transplants: &[crate::transplants::Transplant],
+    snapshot_facts: &[crate::facts::Fact],
+    snapshot_claims: &[crate::claims::Claim],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let live: Vec<&crate::transplants::Transplant> =
+        snapshot_transplants.iter().filter(|t| !t.withdrawn).collect();
+
+    // Direction 1: every premise the snapshot carries is still the
+    // donor's words, and still answered.
+    for t in &live {
+        let donor = snapshot_facts.iter().find(|f| f.id == t.from);
+        for p in t.live_premises() {
+            match donor {
+                None => out.push(format!(
+                    "{}: quotes donor fact {}, but no such fact is in the snapshot",
+                    p.id, t.from
+                )),
+                Some(f) if !f.quotes(&p.text) => out.push(format!(
+                    "{}: its text is not in {}'s captured output — the premise is not the donor's words",
+                    p.id, t.from
+                )),
+                Some(_) => {}
+            }
+        }
+    }
+    for (t, p, _) in crate::transplants::undischarged(snapshot_transplants, snapshot_claims) {
+        out.push(format!(
+            "{p} (on {t}): no live claim answers this premise at the destination"
+        ));
+    }
+
+    // Direction 2: every transplant the document shows is one the
+    // snapshot has.
+    for id in rendered_transplant_ids(doc_body) {
+        if !live.iter().any(|t| t.id == id) {
+            out.push(format!(
+                "the document shows transplant {id}, but its snapshot has no such record — the row was not written by `tetel transplant`"
+            ));
+        }
+    }
+    out
+}
+
+/// The transplant ids in a rendered `## Transplants` section.
+///
+/// Deliberately narrow, exactly like [`rendered_target_symbols`]: it
+/// reads the headings this crate emits, in the shape it emits them, and
+/// is not a markdown parser. A section it cannot read yields no rows and
+/// the snapshot direction above still runs.
+pub fn rendered_transplants(body: &[String]) -> Vec<String> {
+    rendered_transplant_ids(body)
+}
+
+fn rendered_transplant_ids(body: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    // Premise text is inlined verbatim, so a donor comment containing a
+    // line that looks like a heading is ordinary rather than exotic.
+    // Fenced content is skipped entirely: reading a quoted `### …` as a
+    // transplant id would invent a machine failure out of the donor's own
+    // words.
+    let mut fence: Option<usize> = None;
+    for line in body {
+        let t = line.trim();
+        let backticks = t.len() - t.trim_start_matches('`').len();
+        match fence {
+            Some(open) => {
+                if backticks >= open && t.trim_matches('`').is_empty() {
+                    fence = None;
+                }
+                continue;
+            }
+            None => {
+                if backticks >= 3 {
+                    fence = Some(backticks);
+                    continue;
+                }
+            }
+        }
+        if let Some(rest) = t.strip_prefix("###") {
+            if inside {
+                if let Some(id) = rest.trim().split_whitespace().next() {
+                    if !id.is_empty() {
+                        out.push(id.to_string());
+                    }
+                }
+                continue;
+            }
+        }
+        if t.starts_with('#') {
+            inside = t.trim_start_matches('#').trim().eq_ignore_ascii_case("transplants");
         }
     }
     out

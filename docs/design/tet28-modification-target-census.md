@@ -66,6 +66,14 @@ The ticket asks that this ship before any TET-27 co-evolution run, on the argume
 
 *cites: C13, C6*
 
+## Modification targets
+
+None declared. A target is a symbol this design tells an implementer to modify; declaring one requires a search of the whole worktree for it. Nothing forces a recommendation to be declared, so an empty section is not evidence that none exist.
+
+## Transplants
+
+None declared. A transplant installs a mechanism taken from another site; declaring one requires selecting the donor's stated premises from captured output and answering each at the destination. Nothing forces a transplant to be declared, so an empty section is not evidence that none exist.
+
 ## Evidence ledger
 
 Claims recorded with `tetel claim`. No claim here declares a scope — the authoring model has no such field, and no coverage claim of any strength is made for any row. What each claim rests on is in the Facts table below.

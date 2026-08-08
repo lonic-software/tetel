@@ -1008,3 +1008,78 @@ async fn check_names_the_build_that_graded_it() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// The completeness refusal must reach the MCP surface too.
+///
+/// Not paranoia about a shared function: this exact render path has
+/// already shipped a CLI/MCP divergence, where the CLI minted a workspace
+/// identity before rendering and the MCP handler did not, so every memo
+/// authored by an agent shipped a snapshot without one. The two front
+/// ends now call one function; this is what proves the MCP side calls it.
+#[tokio::test]
+async fn render_over_mcp_refuses_a_document_with_an_unanswered_premise() {
+    let sb = Sandbox::new("mcp-premise-completeness");
+    // A census needs a real worktree to be rooted at.
+    let git = |args: &[&str]| {
+        assert!(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&sb.dir)
+                .args(args)
+                .output()
+                .expect("git must be on PATH for this test")
+                .status
+                .success(),
+            "git {args:?} failed"
+        );
+    };
+    git(&["init", "-q"]);
+    sb.write("donor.rs", "fn walk() {\n    // sound only if walked earlier in this same session\n}\n");
+    sb.write("dest.rs", "fn audit() { walk(); }\n");
+    git(&["add", "-A"]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+
+    let client = sb.connect().await;
+    let ws = "ws-premise";
+    let root = sb.dir.to_str().unwrap().to_string();
+    let donor = sb.dir.join("donor.rs").to_str().unwrap().to_string();
+
+    for (tool, params) in [
+        ("look", serde_json::json!({"workspace": ws, "path": donor})),
+        ("fact", serde_json::json!({"workspace": ws, "note": "the donor's walk discipline"})),
+        ("look", serde_json::json!({"workspace": ws, "path": root, "grep": "walk"})),
+        ("fact", serde_json::json!({"workspace": ws, "note": "every use of walk"})),
+        ("target", serde_json::json!({"workspace": ws, "symbol": "walk", "cites": "F2"})),
+        ("transplant", serde_json::json!({"workspace": ws, "from": "F1", "into": "T1"})),
+        ("claim", serde_json::json!({"workspace": ws, "proposition": "the order carries over", "cites": "F1"})),
+        ("prose", serde_json::json!({"workspace": ws, "text": "It carries over. See [C1]."})),
+        // Selected from the donor's captured bytes, and not yet answered.
+        ("transplant", serde_json::json!({"workspace": ws, "premise": "X1", "text": "walked earlier in this same session"})),
+    ] {
+        let r = client
+            .call_tool(CallToolRequestParams::new(tool).with_arguments(args(params)))
+            .await
+            .unwrap_or_else(|e| panic!("{tool} call failed at protocol level: {e}"));
+        assert_ne!(r.is_error, Some(true), "{tool} was refused: {:?}", r.structured_content);
+    }
+
+    let memo = sb.dir.join("memo.md");
+    let r = client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "out": memo.to_str().unwrap(),
+        }))))
+        .await
+        .expect("render call failed at protocol level");
+    let body = format!("{:?}{:?}", r.content, r.structured_content);
+    assert!(
+        body.contains("X1.1"),
+        "MCP render --out must refuse a document with an unanswered premise, naming it: {body}"
+    );
+    assert!(
+        !memo.exists(),
+        "the refused document must not have been written over MCP either"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}

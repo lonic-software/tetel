@@ -307,6 +307,7 @@ mod tests {
                     world_state: state.to_string(),
                     kind: None,
                     pattern: String::new(),
+                    out_len: None,
                 })
                 .collect(),
             output: String::new(),

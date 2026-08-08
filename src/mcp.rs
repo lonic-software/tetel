@@ -103,7 +103,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::workspace::{self, AuthoringError};
-use crate::{claims, compose, facts, observe, prose, query, targets};
+use crate::{claims, compose, facts, observe, prose, query, targets, transplants};
 
 /// Resolve `name` to a workspace directory, mapping the one failure mode
 /// ([`workspace::open`]'s I/O error) to a protocol-level error: creating
@@ -271,6 +271,46 @@ struct TargetParams {
     cites: Option<String>,
     /// Withdraw this existing target instead of declaring one. There is
     /// no `revise`: a changed symbol is a different census.
+    #[serde(default)]
+    withdraw: Option<String>,
+    /// Required with `withdraw`: why.
+    #[serde(default)]
+    why: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TransplantParams {
+    /// The authoring workspace this transplant belongs to.
+    workspace: String,
+    /// The fact that captured the donor site — the code this design is
+    /// taking a mechanism from. One fact id, not a list: a premise is
+    /// quoted from it, and that needs a single answer.
+    #[serde(default)]
+    from: Option<String>,
+    /// The modification target (T#) this mechanism lands on. Must already
+    /// be declared with `target`, which is what forces a census at the
+    /// landing site.
+    #[serde(default)]
+    into: Option<String>,
+    /// Select a premise from this transplant's (X#) donor fact. Pair with
+    /// `text`.
+    #[serde(default)]
+    premise: Option<String>,
+    /// The donor's own words, byte for byte — comment markers,
+    /// indentation and line breaks included. REFUSED unless it is a
+    /// verbatim substring of one observation in the donor fact, so copy
+    /// it from that fact's captured output rather than retyping it.
+    #[serde(default)]
+    text: Option<String>,
+    /// Answer this premise (X#.#) with the claim asserting it holds at
+    /// the destination. Pair with `cites`.
+    #[serde(default)]
+    discharge: Option<String>,
+    /// The claim that answers the premise.
+    #[serde(default)]
+    cites: Option<String>,
+    /// Withdraw a transplant (X#) or a single premise (X#.#). There is no
+    /// `revise`: a premise is a selection of immutable bytes.
     #[serde(default)]
     withdraw: Option<String>,
     /// Required with `withdraw`: why.
@@ -646,6 +686,45 @@ impl TetelServer {
         }
     }
 
+    #[tool(description = "Declare that this design installs a mechanism taken from ANOTHER site, list the premises the donor states for it, and answer each at the destination \u{2014} the check for a fix that carries a mechanism across without carrying its preconditions. Four acts on one tool: declare (`from` a donor fact + `into` a live modification target); select a premise (`premise` + `text`); answer one (`discharge` + `cites` a claim); withdraw (`withdraw` + `why`). A premise is REFUSED unless `text` is a verbatim substring of ONE observation in the donor fact \u{2014} copy the donor's words out of that fact's captured output, comment markers and indentation included; you select them, you never type them. An unanswered premise is a legal state while authoring (transcribe first, answer after) but `render` with `out` refuses to write a document that still has one. Whether an answering claim is TRUE is graded by grounding, never here. `workspace` is required (never defaulted); ids (X#, X#.#) are workspace-relative only.")]
+    async fn transplant(
+        &self,
+        Parameters(p): Parameters<TransplantParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let dir = open_workspace(&p.workspace)?;
+        let req = if let Some(id) = p.withdraw {
+            transplants::TransplantRequest::Withdraw { id, why: p.why }
+        } else if let Some(premise) = p.discharge {
+            transplants::TransplantRequest::Discharge { premise, cites: p.cites }
+        } else if let Some(transplant) = p.premise {
+            transplants::TransplantRequest::Premise { transplant, text: p.text }
+        } else {
+            transplants::TransplantRequest::Declare { from: p.from, into: p.into }
+        };
+        match transplants::dispatch(&dir, req) {
+            Ok(transplants::TransplantOutcome::Declared(t)) => Ok(CallToolResult::structured(json!({
+                "id": t.id,
+                "action": "declared",
+                "donor": t.from,
+                "destination": t.into,
+            }))),
+            Ok(transplants::TransplantOutcome::PremiseAdded(pr)) => Ok(CallToolResult::structured(json!({
+                "id": pr.id,
+                "action": "premise_selected",
+                "next": "answer it at the destination: state the claim, then discharge this premise citing it",
+            }))),
+            Ok(transplants::TransplantOutcome::Discharged(pr)) => Ok(CallToolResult::structured(json!({
+                "id": pr.id,
+                "action": "discharged",
+                "answered_by": pr.discharged_by,
+            }))),
+            Ok(transplants::TransplantOutcome::Withdrawn { id }) => {
+                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
+            }
+            Err(e) => Ok(refusal("transplant", &p.workspace, e)),
+        }
+    }
+
     #[tool(description = "Append a paragraph or heading to the document's prose, or `revise` an existing block. Write this as soon as a claim exists to say something about — don't defer prose to a writing phase at the end. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
@@ -675,6 +754,9 @@ impl TetelServer {
         let Some(out) = p.out else {
             return text_result(rendered);
         };
+        if let Err(e) = crate::transplants::refuse_incomplete(&dir) {
+            return text_result(e.to_string());
+        }
 
         // Same ordering as the CLI: document first, then snapshot, so a
         // failed snapshot leaves a recoverable state rather than a record

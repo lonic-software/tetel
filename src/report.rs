@@ -36,6 +36,25 @@ those sites pass, so a parameter choosing between materially different mechanism
 invisible even to a careful reader of the census",
     "a modification target the author never declared — no refusal can reach it, and the \
 empty section is its only trace",
+    // --- what a transplant's premise inventory cannot see --------------
+    // The refusal establishes that a premise is the donor's words and
+    // that something answers it. Each of these is a way a load-bearing
+    // premise never becomes a row at all, or a way a row that exists
+    // still settles nothing — printed for the same reason as the census
+    // entries above.
+    "a transplant the author never declared — the mechanism is carried across and no premise \
+is ever asked for; the empty section is its only trace",
+    "premises the donor never wrote down — a premise carried by a function's structure rather \
+than its comments has nothing to select from",
+    "premises outside what the donor fact captured — a narrow look cannot yield a premise from \
+lines it never opened, and the remedy is looking again rather than typing",
+    "whether the selected premises are all the load-bearing ones — the refusal establishes that \
+selected bytes are the donor's, never that stopping there was honest; deciding a selection is \
+too small is a truth-check, not a format one",
+    "whether an answering claim actually addresses the premise it answers, and whether the cited \
+target is really where the mechanism lands — a grounding pass grades each claim as written, and \
+the linkage between them is graded by nobody",
+    "a donor comment that is itself wrong — quotation establishes provenance, never truth",
 ];
 
 /// `build` names the binary that produced this report (see `buildid.rs`).
@@ -67,10 +86,12 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.verdict_disagreements.len()
         + findings.out_of_proof.len()
         + findings.uncensused_targets.len()
+        + findings.unquoted_premises.len()
         + usize::from(findings.provenance_failed());
     let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
 dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, \
-uncensused modification targets, provenance drift";
+uncensused modification targets, transplant premises that are not the donor's words or that \
+nothing answers, provenance drift";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -101,6 +122,9 @@ uncensused modification targets, provenance drift";
         }
         for e in &findings.uncensused_targets {
             out.push_str(&format!("  - [uncensused-target] {e}\n"));
+        }
+        for e in &findings.unquoted_premises {
+            out.push_str(&format!("  - [unquoted-premise] {e}\n"));
         }
         match &findings.provenance {
             Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
@@ -283,6 +307,13 @@ Facts table; whether it rests on enough is yours to judge\n",
         out.push_str(&format!(
             "  - target `{e}` is declared in this document but no snapshot shipped beside it, \
 so nothing here can verify the census behind it — reproduce it from the workspace, or re-render with `--out`\n"
+        ));
+    }
+    for e in &findings.unverifiable_transplants {
+        out.push_str(&format!(
+            "  - transplant {e} is shown in this document but no snapshot shipped beside it, so \
+nothing here can verify that its premises are the donor's words or that anything answers them — \
+reproduce it from the workspace, or re-render with `--out`\n"
         ));
     }
     for item in NON_COVERAGE {

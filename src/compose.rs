@@ -49,6 +49,12 @@ pub fn render(workspace_dir: &Path) -> io::Result<String> {
     }
     let claim_list = claims::load_all(workspace_dir)?;
     out.push_str(&render_targets(&crate::targets::load_all(workspace_dir)?, &claim_list));
+    out.push_str(&render_transplants(
+        &crate::transplants::load_all(workspace_dir)?,
+        &crate::targets::load_all(workspace_dir)?,
+        &crate::facts::load_all(workspace_dir)?,
+        &claim_list,
+    ));
     out.push_str(&render_ledger(&claim_list));
     out.push_str(&render_facts(
         &crate::facts::load_all(workspace_dir)?,
@@ -98,6 +104,97 @@ fn render_targets(targets: &[crate::targets::Target], claims: &[claims::Claim]) 
         out.push_str(&format!("| `{}` | {} |\n", t.symbol, t.from));
     }
     out
+}
+
+/// Appends the transplant section — the mechanisms this design takes
+/// from somewhere else, each donor premise in the donor's own words with
+/// the claim that answers it at the destination.
+///
+/// # Why the premise text is inlined when captured output never is
+///
+/// [`render_facts`] deliberately keeps captured output out of the
+/// document: it is unbounded, it lives in the snapshot, and inlining it
+/// would bury the prose. A premise inverts every one of those. It is an
+/// author-bounded selection rather than a whole capture, and putting the
+/// donor's clause in front of the reader *is* the mechanism — a section
+/// that printed only ids would hide the one sentence the inventory
+/// exists to make someone read.
+///
+/// Fenced blocks rather than table cells, because a premise legitimately
+/// spans lines and a markdown cell cannot carry one without escaping the
+/// newlines away — which would break the byte fidelity the refusal is
+/// built on. The fence is widened past any backtick run inside the text,
+/// since donor comments in this very language routinely contain fenced
+/// examples of their own.
+fn render_transplants(
+    transplants: &[crate::transplants::Transplant],
+    targets: &[crate::targets::Target],
+    facts: &[crate::facts::Fact],
+    claims: &[claims::Claim],
+) -> String {
+    let live: Vec<&crate::transplants::Transplant> = transplants.iter().filter(|t| !t.withdrawn).collect();
+    if live.is_empty() && claims.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n## Transplants\n\n");
+    if live.is_empty() {
+        out.push_str(
+            "None declared. A transplant installs a mechanism taken from another site; declaring \
+             one requires selecting the donor's stated premises from captured output and answering \
+             each at the destination. Nothing forces a transplant to be declared, so an empty \
+             section is not evidence that none exist.\n",
+        );
+        return out;
+    }
+    out.push_str(
+        "Mechanisms this design takes from elsewhere. Every premise below is the donor's own \
+         words, selected from captured output rather than typed — `tetel transplant` refuses a \
+         premise that is not a verbatim substring of one observation in the cited donor fact. \
+         Whether the answering claim is *true* is graded by grounding, not here.\n",
+    );
+    for t in live {
+        let symbol = targets
+            .iter()
+            .find(|x| x.id == t.into)
+            .map(|x| format!("`{}`", x.symbol))
+            .unwrap_or_else(|| "—".to_string());
+        out.push_str(&format!("\n### {} — {} into {} ({})\n\n", t.id, t.from, symbol, t.into));
+        if let Some(f) = facts.iter().find(|f| f.id == t.from) {
+            let extent = f.extent.iter().map(|e| e.label.as_str()).collect::<Vec<_>>().join("; ");
+            out.push_str(&format!("Donor extent (captured): {extent}\n"));
+        }
+        let premises: Vec<&crate::transplants::Premise> = t.live_premises().collect();
+        if premises.is_empty() {
+            out.push_str("\nNo premises selected from the donor.\n");
+            continue;
+        }
+        for p in premises {
+            let answered = match p.discharged_by.as_deref() {
+                Some(c) if claims.iter().any(|x| x.id == c && !x.withdrawn) => {
+                    format!("holds at the destination per {c}")
+                }
+                // Renderable only on a preview: `render --out` refuses a
+                // document with an unanswered premise.
+                _ => "**not yet answered at the destination**".to_string(),
+            };
+            out.push_str(&format!("\n**{}** — {}\n\n", p.id, answered));
+            out.push_str(&fenced(&p.text));
+        }
+    }
+    out
+}
+
+/// Wrap text in a code fence long enough that nothing inside it can end
+/// the block early — the text is a verbatim quotation and must survive
+/// rendering byte for byte.
+fn fenced(text: &str) -> String {
+    let longest_run = text
+        .split(|c| c != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat(longest_run.max(2) + 1);
+    format!("{fence}text\n{text}\n{fence}\n")
 }
 
 /// Appends a facts table after the evidence ledger.

@@ -60,13 +60,20 @@ tetel look --grep retry_with_backoff .        # a census: the whole worktree
 tetel fact --note "every use of the retry helper"
 tetel target retry_with_backoff --cites F2    # refused unless F2's search
                                               #   was rooted at the worktree
+tetel look src/client.rs --lines 100:140      # the donor of a mechanism
+tetel fact --note "the client's own retry discipline"
+tetel transplant --from F3 --into T1          # taking it from there to here
+tetel transplant --premise X1 --text "safe only while the caller holds the lock"
+                                              #   refused unless those bytes are
+                                              #   in F3's captured output
 tetel prose --text "The failure is unbounded retry. See [C1]."
 tetel render --out design.md               # the document, plus its snapshot
 tetel check design.md                      # two partitions, never one verdict
 ```
 
 Authoring is `look` / `run` → `fact` → `claim` → `prose` → `render`, with `target` alongside for
-symbols the design tells someone to change. A fact's note is revisable with a
+symbols the design tells someone to change and `transplant` for mechanisms it takes from
+somewhere else. A fact's note is revisable with a
 required reason; its **extent, output and pin are not, ever**. Claims rest on facts, prose cites
 claims, and dependency is derived from those citations rather than stored a second time.
 
@@ -106,6 +113,9 @@ anywhere that supplies one.
 | **grounding** | an independent pass grading claims from source alone, with the author's scope withheld |
 | **modification target** | a symbol the design tells an implementer to modify, declared as a record rather than detected in prose |
 | **census** | the search behind a target: one grep of the whole worktree for that exact symbol. Declaring a target without one is refused |
+| **transplant** | a mechanism this design takes from another site, declared as a record: a donor fact, and the target it lands on |
+| **premise** | a condition the donor's own text states for that mechanism. Not typed — **selected**: refused unless it is verbatim in one observation the donor fact captured |
+| **discharge** | the claim asserting a premise holds at the destination. `render --out` refuses a document with a premise nothing answers |
 | **out of proof** | a claim whose every record grades a wording it no longer carries. The stamp no longer certifies this barrel — a machine failure |
 | **reprove** | ground a claim again against what it now says. The only thing that clears *out of proof*, and it adds a record rather than editing one |
 | **superseded** | the marks from before a claim was reproved. History, human-owed, never a failure |
@@ -121,7 +131,8 @@ Two labelled partitions, each stating its own scope, and **never a single docume
 
 - **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
   citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof,
-  modification targets whose census does not hold up against the snapshot, and provenance drift
+  modification targets whose census does not hold up against the snapshot, transplant premises that
+  are not the donor's words or that nothing answers, and provenance drift
   between a document and its own snapshot. These fail the run.
 - **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
   was graded by the workspace that authored it or an independent one, notes reaching past their
@@ -154,11 +165,13 @@ run.
 Roughly in order, and each gated on measurement rather than enthusiasm — several proposed refusals
 have already been built, measured against a real corpus, and **rejected on precision**:
 
-- **More authoring-time refusals, where they are decidable.** Requiring a transplanted mechanism to
-  carry its donor's stated premises; reporting prose revised since its claims were last grounded.
-- **Supporting-span selection.** At mint time, point at the span of captured output that supports the
-  assertion — refused unless it is a verbatim substring of a cited fact. The dual of the extent
-  guarantee: the author cannot type an extent, and here could not invent support, only select it.
+- **More authoring-time refusals, where they are decidable.** Reporting prose revised since its
+  claims were last grounded.
+- **Supporting-span selection, in general.** The relation itself now ships, for transplant premises:
+  a selection is refused unless it is verbatim in one observation a cited fact captured. What remains
+  is the general case — at mint time, point at the span of captured output that supports the *note*.
+  The dual of the extent guarantee: the author cannot type an extent, and here could not invent
+  support, only select it. Deliberately gated on what the narrow case measures first.
 - **An obligation ledger.** Today a warning is a printed string with no lifecycle, so a warning that
   was ignored and one that was correctly resolved are indistinguishable in every artifact. Warnings
   raised, discharged with a *type*, and what is still owed reported by `check`.

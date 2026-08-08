@@ -2144,3 +2144,321 @@ fn the_targets_section_renders_when_it_is_empty() {
         "a memo telling an implementer to rewrite something must show its empty census section:\n{rendered}"
     );
 }
+
+// --- TET-29: the transplant premise inventory ------------------------
+//
+// A donor whose stated premise is a clause of a comment the author is
+// already quoting — the shape of the motivating defect, where the
+// precondition sat inside text minted as *support* for the transplant
+// and nobody noticed it was also a condition on it.
+fn repo_with_a_commented_donor(sb: &Sandbox) -> std::path::PathBuf {
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::write(
+        repo.join("donor.rs"),
+        "fn walk() {\n\
+         \x20   // Record the visit before checking, not after: this is sound\n\
+         \x20   // only because a parent is remote-known or was walked earlier\n\
+         \x20   // in this same session.\n\
+         \x20   visit();\n\
+         }\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("dest.rs"), "fn audit() { walk(); }\n").unwrap();
+    repo
+}
+
+/// Set up a workspace with a donor fact (F1), a censused destination
+/// target (T1) and a transplant (X1) declared between them.
+fn transplant_fixture(sb: &Sandbox, repo: &std::path::Path) -> impl Fn(&[&str]) -> (bool, String) {
+    let state = sb.state_home();
+    let repo = repo.to_path_buf();
+    move |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", &state);
+        let o = c.output().unwrap();
+        (
+            o.status.success(),
+            format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)),
+        )
+    }
+}
+
+#[test]
+fn a_premise_the_donor_never_wrote_is_refused() {
+    // The whole point: "transcribed verbatim" cannot be an honour-system
+    // field. A paraphrase quietly weaker than the donor's own words is
+    // exactly the failure the inventory exists to catch, so a premise
+    // that is not in the captured bytes is not a quotation.
+    let sb = Sandbox::new("tet29-invented-premise");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor's walk discipline"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+    let (ok, out) = run(&["transplant", "--from", "F1", "--into", "T1"]);
+    assert!(ok, "a donor fact and a live target must be enough to declare: {out}");
+
+    // A plausible paraphrase of the real premise, in the author's words.
+    let (ok, out) = run(&[
+        "transplant",
+        "--premise",
+        "X1",
+        "--text",
+        "parents are always known before their children",
+    ]);
+    assert!(!ok, "a premise the donor never wrote must be refused");
+    assert!(
+        out.contains("not the donor's words"),
+        "the refusal must say what failed — provenance, not truth: {out}"
+    );
+
+    // The donor's actual clause, byte for byte out of the capture.
+    let (ok, out) = run(&[
+        "transplant",
+        "--premise",
+        "X1",
+        "--text",
+        "a parent is remote-known or was walked earlier",
+    ]);
+    assert!(ok, "the donor's own words must be accepted: {out}");
+}
+
+#[test]
+fn a_premise_may_span_lines_and_keep_its_comment_markers() {
+    // The strictness objection, settled: a wrapped comment with `//`
+    // prefixes and indentation inside it IS contiguous bytes in a `look`
+    // capture. Stripping that noise would need per-language comment
+    // knowledge, which this crate deliberately does not have.
+    let sb = Sandbox::new("tet29-multiline-premise");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor's walk discipline"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+    assert!(run(&["transplant", "--from", "F1", "--into", "T1"]).0);
+
+    let wrapped = "    // only because a parent is remote-known or was walked earlier\n    // in this same session.";
+    let (ok, out) = run(&["transplant", "--premise", "X1", "--text", wrapped]);
+    assert!(ok, "a premise wrapped across lines with its markers intact must be accepted: {out}");
+}
+
+#[test]
+fn a_premise_may_not_straddle_two_observations() {
+    // The unsoundness the design found: a fact's output is the join of
+    // its observations, so text spanning the seam between two captures is
+    // a substring of the join while never having been contiguous in
+    // anything anyone looked at. Accepting it would let an author
+    // assemble a sentence the source does not contain out of two that it
+    // does.
+    let sb = Sandbox::new("tet29-seam-straddle");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("one.rs"), "the visit is recorded first\n").unwrap();
+    std::fs::write(repo.join("two.rs"), "because the ordering is reversed\n").unwrap();
+    std::fs::write(repo.join("dest.rs"), "fn audit() {}\n").unwrap();
+    let run = transplant_fixture(&sb, &repo);
+
+    // One fact folding two observations — the ordinary case.
+    assert!(run(&["look", "one.rs"]).0);
+    assert!(run(&["look", "two.rs"]).0);
+    assert!(run(&["fact", "--note", "both halves of the donor"]).0);
+    assert!(run(&["look", "--grep", "audit", "."]).0);
+    assert!(run(&["fact", "--note", "every use of audit"]).0);
+    assert!(run(&["target", "audit", "--cites", "F2"]).0);
+    assert!(run(&["transplant", "--from", "F1", "--into", "T1"]).0);
+
+    // Contiguous in the joined output, contiguous in neither capture.
+    // Each file's bytes end in a newline and the join adds another, so
+    // the seam is `\n\n` — spelling it with one would make this test pass
+    // for the wrong reason, by failing containment against the join too.
+    let straddling = "recorded first\n\nbecause the ordering";
+    let (ok, out) = run(&["transplant", "--premise", "X1", "--text", straddling]);
+    assert!(
+        !ok,
+        "text spanning the seam between two observations was never contiguous in anything the \
+         author saw, and must not pass as a quotation"
+    );
+    assert!(out.contains("not the donor's words"), "{out}");
+
+    // Either half alone is a genuine quotation.
+    assert!(run(&["transplant", "--premise", "X1", "--text", "the visit is recorded first"]).0);
+}
+
+#[test]
+fn a_donor_fact_minted_before_boundaries_were_recorded_cannot_be_quoted() {
+    // The compatibility reading TET-28 set for `kind` and `pattern`:
+    // absent means *not recorded*, never a default, so a legacy fact can
+    // never satisfy the requirement and the remedy is the cheap one.
+    let sb = Sandbox::new("tet29-legacy-donor");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+
+    // Strip the field back out, as a fact minted by an older build has it.
+    let facts_path = sb.state_home().join("workspaces/default/facts.jsonl");
+    let facts = std::fs::read_to_string(&facts_path).unwrap();
+    let stripped: String = facts
+        .lines()
+        .map(|l| {
+            let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+            if let Some(extent) = v.get_mut("extent").and_then(|e| e.as_array_mut()) {
+                for e in extent {
+                    e.as_object_mut().unwrap().remove("out_len");
+                }
+            }
+            serde_json::to_string(&v).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&facts_path, format!("{stripped}\n")).unwrap();
+
+    let (ok, out) = run(&["transplant", "--from", "F1", "--into", "T1"]);
+    assert!(!ok, "a fact with no observation boundaries cannot be quoted from");
+    assert!(
+        out.contains("look at the donor again"),
+        "the refusal must name the remedy rather than only the fault: {out}"
+    );
+}
+
+#[test]
+fn render_out_refuses_a_document_with_a_premise_nobody_answered() {
+    // The refusal deliberately placed later than the verb and earlier
+    // than `check`: an unanswered premise is legal while authoring —
+    // transcribe first, answer after — but a memo carrying one should
+    // fail to come into existence rather than exist and fail a check the
+    // author may never run.
+    let sb = Sandbox::new("tet29-render-completeness");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor's walk discipline"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+    assert!(run(&["transplant", "--from", "F1", "--into", "T1"]).0);
+    assert!(run(&["claim", "--proposition", "the walk order carries over", "--cites", "F1"]).0);
+    assert!(run(&["transplant", "--premise", "X1", "--text", "in this same session"]).0);
+
+    // A preview still assembles: the half-built state must stay visible
+    // while it is being worked on.
+    let (ok, preview) = run(&["render"]);
+    assert!(ok, "a preview render must not refuse: {preview}");
+    assert!(
+        preview.contains("not yet answered"),
+        "a preview must show the unanswered premise loudly:\n{preview}"
+    );
+
+    let (ok, out) = run(&["render", "--out", "memo.md"]);
+    assert!(!ok, "`render --out` must refuse a document with an unanswered premise");
+    assert!(out.contains("X1.1"), "the refusal must name which premise: {out}");
+    assert!(
+        !repo.join("memo.md").exists(),
+        "the refused document must not have been written"
+    );
+
+    // The remedy the refusal names, and nothing else, clears it.
+    assert!(run(&["transplant", "--discharge", "X1.1", "--cites", "C1"]).0);
+    let (ok, out) = run(&["render", "--out", "memo.md"]);
+    assert!(ok, "an answered premise must let the document be written: {out}");
+    let rendered = std::fs::read_to_string(repo.join("memo.md")).unwrap();
+    assert!(
+        rendered.contains("in this same session") && rendered.contains("C1"),
+        "the donor's words must be on the page beside the claim answering them:\n{rendered}"
+    );
+}
+
+#[test]
+fn a_transplant_must_land_on_a_declared_target() {
+    // The composition with TET-28: a transplant installs a mechanism
+    // somewhere, and that somewhere is a symbol the design is thereby
+    // telling an implementer to modify. Requiring a live target makes one
+    // declaration force the other's census.
+    let sb = Sandbox::new("tet29-destination-is-a-target");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor"]).0);
+    let (ok, out) = run(&["transplant", "--from", "F1", "--into", "T1"]);
+    assert!(!ok, "a transplant with no declared destination must be refused");
+    assert!(
+        out.contains("tetel target"),
+        "the refusal must name the verb that fixes it: {out}"
+    );
+}
+
+#[test]
+fn a_transplant_row_the_snapshot_never_declared_fails_the_machine_partition() {
+    // The hand-authored document: `check` re-verifies against the shipped
+    // snapshot rather than trusting the page, in both directions.
+    let sb = Sandbox::new("tet29-invented-transplant-row");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor's walk discipline"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+    assert!(run(&["claim", "--proposition", "the walk order carries over", "--cites", "F1"]).0);
+    assert!(run(&["prose", "--text", "The order carries over. See [C1]."]).0);
+    assert!(run(&["render", "--out", "memo.md"]).0);
+
+    // A transplant section invented in the document, with no record
+    // behind it anywhere.
+    let memo = repo.join("memo.md");
+    let text = std::fs::read_to_string(&memo).unwrap();
+    std::fs::write(
+        &memo,
+        text.replace(
+            "## Transplants\n",
+            "## Transplants\n\n### X7 — F1 into `walk` (T1)\n",
+        ),
+    )
+    .unwrap();
+
+    let (_, out) = run(&["check", "memo.md"]);
+    assert!(
+        out.contains("[unquoted-premise]") && out.contains("X7"),
+        "an invented transplant row must fail the machine partition:\n{out}"
+    );
+}
+
+#[test]
+fn a_premise_answered_by_a_withdrawn_claim_is_unanswered_again() {
+    // The completeness question is asked in one place so `render --out`
+    // and `check` cannot answer it differently — and a discharge whose
+    // claim has since been withdrawn is not an answer.
+    let sb = Sandbox::new("tet29-withdrawn-answer");
+    let repo = repo_with_a_commented_donor(&sb);
+    let run = transplant_fixture(&sb, &repo);
+
+    assert!(run(&["look", "donor.rs"]).0);
+    assert!(run(&["fact", "--note", "the donor's walk discipline"]).0);
+    assert!(run(&["look", "--grep", "walk", "."]).0);
+    assert!(run(&["fact", "--note", "every use of walk"]).0);
+    assert!(run(&["target", "walk", "--cites", "F2"]).0);
+    assert!(run(&["transplant", "--from", "F1", "--into", "T1"]).0);
+    assert!(run(&["claim", "--proposition", "the walk order carries over", "--cites", "F1"]).0);
+    assert!(run(&["transplant", "--premise", "X1", "--text", "in this same session"]).0);
+    assert!(run(&["transplant", "--discharge", "X1.1", "--cites", "C1"]).0);
+    assert!(run(&["render", "--out", "memo.md"]).0);
+
+    assert!(run(&["claim", "--withdraw", "C1", "--why", "it does not hold after all"]).0);
+    let (ok, out) = run(&["render", "--out", "memo2.md"]);
+    assert!(!ok, "withdrawing the answering claim leaves the premise unanswered: {out}");
+    assert!(out.contains("X1.1"), "{out}");
+}

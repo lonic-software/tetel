@@ -60,6 +60,23 @@ pub struct ExtentEntry {
     /// [`crate::pending::PendingEntry::pattern`].
     #[serde(default)]
     pub pattern: String,
+    /// How many bytes of the fact's joined `output` this observation
+    /// contributed, or `None` for an entry minted before the field
+    /// existed.
+    ///
+    /// A fact's output is the join of its observations' outputs and the
+    /// boundaries were not stored, which is unsound for anything that
+    /// quotes it: text straddling the seam between two captures is a
+    /// substring of the join while never having been contiguous in
+    /// anything the author actually saw. Recording each entry's length
+    /// makes the boundaries reconstructible — see
+    /// [`Fact::observation_outputs`].
+    ///
+    /// `None` means *not recorded*, never *zero*, and reads exactly like
+    /// [`ExtentEntry::kind`]: a fact minted by an older build can never
+    /// be quoted from, and the remedy is the cheap one — look again.
+    #[serde(default)]
+    pub out_len: Option<usize>,
 }
 
 impl ExtentEntry {
@@ -115,6 +132,66 @@ pub struct Fact {
     pub output: String,
     pub pin: String,
     pub revisions: usize,
+}
+
+impl Fact {
+    /// Each observation's captured output, recovered as its own slice of
+    /// the joined `output`.
+    ///
+    /// Returns `None` — never a partial or best-effort answer — when the
+    /// boundaries cannot be trusted: an entry minted before `out_len`
+    /// existed, lengths that do not account for exactly the bytes in
+    /// `output`, or a boundary landing inside a UTF-8 character. Every
+    /// one of those means a tampered or legacy record, and guessing at
+    /// one would put text the author never saw in quotation marks.
+    ///
+    /// The zero-length skip mirrors [`mint`]: entries whose observation
+    /// captured nothing contribute no bytes and no separator, so they
+    /// take no place in the join.
+    pub fn observation_outputs(&self) -> Option<Vec<&str>> {
+        let mut out = Vec::new();
+        let mut at = 0usize;
+        for e in &self.extent {
+            let len = e.out_len?;
+            if len == 0 {
+                continue;
+            }
+            if !out.is_empty() {
+                // The separator `mint` joined with.
+                at += 1;
+            }
+            let end = at.checked_add(len)?;
+            out.push(self.output.get(at..end)?);
+            at = end;
+        }
+        // Lengths that do not add up to the whole output describe a record
+        // that is not the one in front of us.
+        if at != self.output.len() {
+            return None;
+        }
+        Some(out)
+    }
+
+    /// Whether `text` is a verbatim substring of a **single** observation's
+    /// captured output — TET-29's quotation relation, in one place.
+    ///
+    /// Single, not the joined whole: text straddling the seam between two
+    /// observations was never contiguous in anything anyone looked at, and
+    /// admitting it would let an author assemble a sentence the source does
+    /// not contain out of two that it does.
+    ///
+    /// Nothing here normalises. Whitespace, comment prefixes and line
+    /// endings are compared exactly as captured, because every relation
+    /// looser than byte equality reopens the channel this exists to close
+    /// — and stripping comment syntax would require knowing the donor's
+    /// language, the coupling [`crate::scope`] is built to avoid.
+    pub fn quotes(&self, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        self.observation_outputs()
+            .is_some_and(|obs| obs.iter().any(|o| o.contains(text)))
+    }
 }
 
 fn log_path(workspace_dir: &Path) -> PathBuf {
@@ -329,6 +406,7 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
             world_state: e.world_state.clone(),
             kind: Some(e.kind),
             pattern: e.pattern.clone(),
+            out_len: Some(e.output.len()),
         })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");
