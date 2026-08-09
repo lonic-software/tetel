@@ -33,7 +33,23 @@ pub fn build(claims: &[Claim]) -> Vec<BriefItem> {
         .collect()
 }
 
-pub fn render_text(display_path: &str, items: &[BriefItem]) -> String {
+/// The floor a caller gets when they ask for none.
+///
+/// **1, not the design memo's 2**, on the maintainer's decision to
+/// separate cost from quality: everything is graded once, and a regrading
+/// covers only what is new or reworded. The replay says a floor of 1
+/// retains none of the seven discoveries a second workspace produced —
+/// that cost is accepted here and carried by the quality tickets, not by
+/// this parameter.
+pub const DEFAULT_FLOOR: u32 = 1;
+
+/// The full brief, with the owed list beside it — never in place of it.
+///
+/// [`build`] emits every claim and this prints every item, because a claim
+/// may not be dropped from the brief on account of what its evidence
+/// ledger holds. The schedule is additive: a pass reads every proposition
+/// and is asked to grade a subset.
+pub fn render_text(display_path: &str, items: &[BriefItem], owed: &[String], floor: u32) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "grounding brief: {display_path} — {} claim(s), scope withheld\n\n",
@@ -47,6 +63,18 @@ pub fn render_text(display_path: &str, items: &[BriefItem]) -> String {
         }
         out.push_str("scope: WITHHELD\n\n");
     }
+    // The floor is printed because it is otherwise invisible configuration
+    // — two passes given the same memo and different floors compute
+    // different schedules, and a reader of the brief could not tell which
+    // produced this one. No claim is annotated with *why* it is absent:
+    // "already graded" is an anchor, and the list carries ids and nothing
+    // more.
+    out.push_str(&format!("owed (floor {floor}): "));
+    if owed.is_empty() {
+        out.push_str("none — every claim's current wording is graded to the floor\n");
+    } else {
+        out.push_str(&format!("{}\n", owed.join(", ")));
+    }
     out
 }
 
@@ -59,17 +87,36 @@ struct JsonItem<'a> {
     scope: &'static str,
 }
 
-pub fn render_json(items: &[BriefItem]) -> String {
-    let json_items: Vec<JsonItem> = items
-        .iter()
-        .map(|i| JsonItem {
-            id: &i.id,
-            proposition: &i.proposition,
-            pin: i.pin.as_deref(),
-            scope: "WITHHELD",
-        })
-        .collect();
-    serde_json::to_string_pretty(&json_items).expect("brief items are plain strings and always serialize")
+#[derive(Serialize)]
+struct JsonBrief<'a> {
+    floor: u32,
+    owed: &'a [String],
+    claims: Vec<JsonItem<'a>>,
+}
+
+/// **This changes the top-level shape**, from a bare array to an object
+/// with `floor`, `owed` and `claims`.
+///
+/// The alternative was to let the floor be visible in text and invisible
+/// in JSON, which would make the schedule unattributable under exactly the
+/// output mode a program consumes. A bare array has nowhere for a
+/// document-level value to sit, so the breakage is taken deliberately
+/// rather than worked around. `claims` carries every claim, unchanged.
+pub fn render_json(items: &[BriefItem], owed: &[String], floor: u32) -> String {
+    let brief = JsonBrief {
+        floor,
+        owed,
+        claims: items
+            .iter()
+            .map(|i| JsonItem {
+                id: &i.id,
+                proposition: &i.proposition,
+                pin: i.pin.as_deref(),
+                scope: "WITHHELD",
+            })
+            .collect(),
+    };
+    serde_json::to_string_pretty(&brief).expect("brief items are plain strings and always serialize")
 }
 
 /// The authoring rhythm brief — handed to whoever (person or agent) is
@@ -229,10 +276,14 @@ mod tests {
         .collect();
         let import = ledger::import(&body);
         let items = build(&import.claims);
-        let text = render_text("memo.md", &items);
+        let text = render_text("memo.md", &items, &["X-1".to_string()], 1);
         assert!(!text.contains("UNIQUEDOMAINTOKEN"));
         assert!(!text.contains("UNIQUEEXTENTTOKEN"));
         assert!(text.contains("scope: WITHHELD"));
+        // The schedule is ids and the floor, and nothing else: no verdict,
+        // no count, and no reason a claim is absent — "already graded" is
+        // an anchor.
+        assert!(text.contains("owed (floor 1): X-1"));
     }
 
     #[test]
@@ -247,11 +298,17 @@ mod tests {
         .collect();
         let import = ledger::import(&body);
         let items = build(&import.claims);
-        let json = render_json(&items);
+        let json = render_json(&items, &["X-1".to_string()], 1);
         assert!(!json.contains("UNIQUEDOMAINTOKEN"));
         assert!(!json.contains("UNIQUEEXTENTTOKEN"));
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed[0]["scope"], "WITHHELD");
-        assert_eq!(parsed[0]["id"], "X-1");
+        // The top level is an object, not the bare array it was. A bare
+        // array has nowhere for the floor to sit, and a floor visible in
+        // text but absent from JSON would leave the schedule
+        // unattributable under exactly the mode a program consumes.
+        assert_eq!(parsed["floor"], 1);
+        assert_eq!(parsed["owed"][0], "X-1");
+        assert_eq!(parsed["claims"][0]["scope"], "WITHHELD");
+        assert_eq!(parsed["claims"][0]["id"], "X-1");
     }
 }

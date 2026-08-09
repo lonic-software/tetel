@@ -185,7 +185,12 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
 /// Runs `brief` against a file on disk: every claim in its evidence
 /// ledger, id and proposition only, scope withheld. Returns `(exit_code,
 /// output)`; a memo with no evidence ledger at all uses [`EXIT_NO_ROWS`].
-pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)> {
+/// `floor` is the confirmation floor the owed list is computed against —
+/// see [`brief::DEFAULT_FLOOR`]. A floor of zero is refused by both front
+/// ends before reaching here, because it would reproduce the empty owed
+/// section a switched-off flag would give, and the decision not to have a
+/// flag depends on the parameter not becoming one.
+pub fn brief_file(path: &Path, json: bool, floor: u32) -> std::io::Result<(i32, String)> {
     let source = std::fs::read_to_string(path)?;
     let doc = parse::parse_document(&source);
     let ledger = ledger::import(&doc.body);
@@ -207,11 +212,28 @@ pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)> {
         }
         out.push('\n');
     }
+    // The owed list is computed here rather than inside `brief::build`,
+    // which is handed claims and nothing else — a confidentiality device
+    // enforced by shape rather than by care at render time, and the reason
+    // `BriefItem` grew no field for this. Everything the predicate reads is
+    // memo-derived: the claims from the document, the records from the
+    // evidence file beside it, the authoring identity from the snapshot
+    // beside that. No authoring workspace is opened, which is what makes an
+    // owed list a viable surface for a pass given a path and nothing else.
+    let (evidence_records, _) = evidence::load(path)?;
+    let snapshot_dir = snapshot::snapshot_path(path);
+    let authoring_identity = match workspace::identity_of(&snapshot_dir) {
+        Some(id) => checks::AuthoringIdentity::Known(id),
+        None if snapshot_dir.is_dir() => checks::AuthoringIdentity::SnapshotWithoutIdentity,
+        None => checks::AuthoringIdentity::NoSnapshot,
+    };
+    let owed = checks::owed_claims(&ledger.claims, &evidence_records, &authoring_identity, floor);
+
     let items = brief::build(&ledger.claims);
     out.push_str(&if json {
-        brief::render_json(&items)
+        brief::render_json(&items, &owed, floor)
     } else {
-        brief::render_text(&display_path, &items)
+        brief::render_text(&display_path, &items, &owed, floor)
     });
     Ok((code, out))
 }

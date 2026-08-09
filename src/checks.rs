@@ -969,6 +969,80 @@ pub enum AuthoringIdentity {
     Known(String),
 }
 
+/// The distinct non-author workspaces holding a **witnessed** grading of
+/// the wording `claim` carries now.
+///
+/// Three restrictions, each load-bearing. **Witnessed only**, because an
+/// ingested record's `pass` is a string its reporter typed, so a floor
+/// counting those could be discharged by naming alone. **Current wording
+/// only**, using the same in-proof predicate `analyze_ledger` applies —
+/// empty digest grandfathered — so a claim graded before a revision does
+/// not count as confirmation of what it says now. And **non-author**,
+/// because a workspace grading its own memo is the author's own reading.
+///
+/// Returns `None` when authorship cannot be determined: with no snapshot,
+/// or a snapshot carrying no identity, nothing can say whether a grading
+/// workspace was the author's own, and a count taken anyway would score
+/// self-grading as independent confirmation.
+fn confirming_passes<'a>(
+    claim: &Claim,
+    evidence: &'a [EvidenceRecord],
+    authoring_identity: &AuthoringIdentity,
+) -> Option<Vec<&'a str>> {
+    let AuthoringIdentity::Known(author) = authoring_identity else {
+        return None;
+    };
+    // The same digest `analyze_ledger` takes, spelled the same way.
+    let current = crate::evidence::sha256_hex(&claim.proposition);
+    let mut passes: Vec<&str> = evidence
+        .iter()
+        .filter(|r| r.claim_id == claim.id && r.witnessed)
+        .filter(|r| r.proposition_digest.is_empty() || r.proposition_digest == current)
+        .map(|r| r.pass.as_str())
+        .filter(|p| p != author)
+        .collect();
+    passes.sort_unstable();
+    passes.dedup();
+    Some(passes)
+}
+
+/// Which claims a grounding pass is being asked to grade.
+///
+/// **The whole predicate**: a claim is owed when fewer than `floor`
+/// distinct non-author workspaces hold a witnessed grading of the wording
+/// it carries now.
+///
+/// The two conditions that look like separate rules are theorems of this
+/// one, not disjuncts beside it. A claim with no records at all, and a
+/// claim whose every digested record graded superseded text, both have a
+/// confirmation count of zero — below any floor of at least one. That is
+/// why this ships without touching [`analyze_ledger`]: there is no set to
+/// expose and no id list to add.
+///
+/// A floor of zero would leave nothing ever owed on any memo, which is the
+/// empty section a switched-off flag would produce — so both front ends
+/// reject it, and bounding the floor below is part of the decision not to
+/// have a flag rather than input validation.
+///
+/// When authorship is undeterminable every claim stays owed. That errs
+/// toward scheduling rather than silent discharge, and it is keyed on
+/// whether a file is there and parses rather than on a guess about it.
+pub fn owed_claims(
+    claims: &[Claim],
+    evidence: &[EvidenceRecord],
+    authoring_identity: &AuthoringIdentity,
+    floor: u32,
+) -> Vec<String> {
+    claims
+        .iter()
+        .filter(|claim| match confirming_passes(claim, evidence, authoring_identity) {
+            None => true,
+            Some(passes) => (passes.len() as u32) < floor,
+        })
+        .map(|c| c.id.clone())
+        .collect()
+}
+
 pub fn grounding_provenance(
     claims: &[Claim],
     evidence: &[EvidenceRecord],
@@ -1019,19 +1093,43 @@ added now without re-dating the pass"
                     // independent pass, while saying only "independently
                     // grounded" would hide that the author also graded
                     // their own work.
-                    let by_author = passes.iter().filter(|p| *p == author).count();
-                    let by_others = passes.len() - by_author;
+                    // Restricted to the wording the claim carries now, as
+                    // the floor requires — a pass that graded superseded
+                    // text confirms nothing about this text.
+                    let current = crate::evidence::sha256_hex(&claim.proposition);
+                    let now: Vec<&str> = {
+                        let mut p: Vec<&str> = witnessed
+                            .iter()
+                            .filter(|r| r.proposition_digest.is_empty() || r.proposition_digest == current)
+                            .map(|r| r.pass.as_str())
+                            .collect();
+                        p.sort_unstable();
+                        p.dedup();
+                        p
+                    };
+                    let by_author = now.iter().filter(|p| *p == author).count();
+                    let by_others = now.len() - by_author;
                     match (by_author, by_others) {
-                        (0, _) => "independently grounded: no grounding workspace here is the one \
-that authored this memo"
+                        // Restricting the input is only half the fix. Without
+                        // this arm a claim nobody has graded on its current
+                        // wording falls into `(0, _)` and reads
+                        // "independently grounded" beside an empty list.
+                        (0, 0) => "no workspace has graded the wording this claim carries now — \
+earlier records, if any, graded text it no longer says"
                             .to_string(),
+                        (0, _) => format!(
+                            "independently grounded: no grounding workspace here is the one \
+that authored this memo. {} distinct non-author workspace(s) have graded its current wording",
+                            by_others
+                        ),
                         (_, 0) => "SELF-GROUNDED: the only workspace that graded this claim is the \
 one that authored the memo, so no independent pass has run on it. The author's own reading is the \
 arrangement measured at 78% scope-equal; independence is what moved that to 33%"
                             .to_string(),
                         (a, o) => format!(
                             "MIXED: {a} grounding workspace(s) authored this memo and {o} did not \
-— read the self-grounded record(s) as the author's own reading, not as independent confirmation"
+— read the self-grounded record(s) as the author's own reading, not as independent confirmation. \
+{o} distinct non-author workspace(s) have graded its current wording"
                         ),
                     }
                 }
@@ -1069,6 +1167,101 @@ mod tests {
         let findings = analyze(&doc, &ledger.claims);
         let (code, text) = render("test.md", &doc, &findings, "tetel test build");
         (code, text, findings)
+    }
+
+    fn a_claim(id: &str, proposition: &str) -> Claim {
+        let body: Vec<String> = format!(
+            "| ID | Proposition | Domain | Extent | Kind | Status |\n\
+             |---|---|---|---|---|---|\n\
+             | {id} | {proposition} | d | e | READING | **VERIFIED** |\n"
+        )
+        .lines()
+        .map(str::to_string)
+        .collect();
+        crate::ledger::import(&body).claims.remove(0)
+    }
+
+    fn a_record(claim_id: &str, pass: &str, graded: &str, witnessed: bool) -> EvidenceRecord {
+        EvidenceRecord {
+            claim_id: claim_id.to_string(),
+            verdict: Verdict::Supports,
+            pass: pass.to_string(),
+            reported_kind: "reading".to_string(),
+            source: "proc:x".to_string(),
+            extent: vec![],
+            note: None,
+            pin: None,
+            timestamp: 0,
+            witnessed,
+            proposition_digest: crate::evidence::sha256_hex(graded),
+        }
+    }
+
+    /// The two conditions the ticket proposed as separate rules — never
+    /// graded, and graded against other words — are **theorems** of the
+    /// floor, not disjuncts beside it. Both produce a confirmation count
+    /// of zero, and zero is below any floor of at least one. If this test
+    /// ever needs a second predicate to pass, the collapse has been undone.
+    #[test]
+    fn never_graded_and_graded_against_other_words_are_both_below_any_floor() {
+        let author = AuthoringIdentity::Known("author-ws".to_string());
+        let claim = a_claim("C1", "the current wording");
+
+        // No records at all.
+        assert_eq!(owed_claims(&[claim.clone()], &[], &author, 1), vec!["C1"]);
+
+        // Graded, but against text the claim no longer carries.
+        let stale = vec![a_record("C1", "k1", "some superseded wording", true)];
+        assert_eq!(owed_claims(&[claim.clone()], &stale, &author, 1), vec!["C1"]);
+
+        // Graded on the current wording by one non-author workspace.
+        let fresh = vec![a_record("C1", "k1", "the current wording", true)];
+        assert!(owed_claims(&[claim.clone()], &fresh, &author, 1).is_empty());
+
+        // …and still owed at a floor of two, which is the whole point of
+        // the parameter.
+        assert_eq!(owed_claims(&[claim], &fresh, &author, 2), vec!["C1"]);
+    }
+
+    /// Two restrictions that would each let a claim discharge itself.
+    #[test]
+    fn self_grading_and_ingested_records_do_not_confirm() {
+        let author = AuthoringIdentity::Known("author-ws".to_string());
+        let claim = a_claim("C1", "the current wording");
+
+        // The authoring workspace grading its own memo is the author's own
+        // reading, not confirmation.
+        let by_author = vec![a_record("C1", "author-ws", "the current wording", true)];
+        assert_eq!(owed_claims(&[claim.clone()], &by_author, &author, 1), vec!["C1"]);
+
+        // An ingested record's `pass` is a string its reporter typed, so a
+        // floor counting those could be discharged by naming alone.
+        let ingested = vec![a_record("C1", "k1", "the current wording", false)];
+        assert_eq!(owed_claims(&[claim.clone()], &ingested, &author, 1), vec!["C1"]);
+
+        // Distinct workspaces, not distinct records: two records from one
+        // pass confirm once.
+        let same_pass = vec![
+            a_record("C1", "k1", "the current wording", true),
+            a_record("C1", "k1", "the current wording", true),
+        ];
+        assert_eq!(owed_claims(&[claim], &same_pass, &author, 2), vec!["C1"]);
+    }
+
+    /// With no snapshot, or a snapshot carrying no identity, nothing can
+    /// say whether a grading workspace was the author's own — so the rule
+    /// schedules rather than discharging silently.
+    #[test]
+    fn undeterminable_authorship_leaves_every_claim_owed() {
+        let claim = a_claim("C1", "the current wording");
+        let graded = vec![a_record("C1", "k1", "the current wording", true)];
+        for identity in [AuthoringIdentity::NoSnapshot, AuthoringIdentity::SnapshotWithoutIdentity] {
+            assert_eq!(
+                owed_claims(&[claim.clone()], &graded, &identity, 1),
+                vec!["C1"],
+                "a count taken here would score self-grading as independent confirmation"
+            );
+        }
     }
 
     #[test]

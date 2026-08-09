@@ -455,6 +455,13 @@ struct BriefParams {
     /// no memo.
     #[serde(default)]
     authoring: bool,
+    /// How many distinct non-author workspaces must already have graded a
+    /// claim's **current** wording before it drops off the owed list.
+    /// Omit for the default. Must be at least 1 — a floor of 0 leaves
+    /// nothing ever owed, which is the empty schedule a switched-off flag
+    /// would produce, and there is deliberately no such flag.
+    #[serde(default)]
+    confirm: Option<u32>,
 }
 
 /// The published shape of `record`'s `input`.
@@ -874,7 +881,16 @@ they are in the snapshot but nothing in the document rests on them"
                 "guidance": "tetel: `brief` requires a memo, or `authoring: true`",
             })));
         };
-        match crate::brief_file(&resolved(&memo), p.json) {
+        let floor = p.confirm.unwrap_or(crate::brief::DEFAULT_FLOOR);
+        if floor == 0 {
+            return Ok(CallToolResult::structured_error(json!({
+                "error": "refused",
+                "command": "brief",
+                "guidance": "`confirm: 0` would leave nothing ever owed, which is the empty \
+schedule a switched-off flag produces. The floor is at least 1.",
+            })));
+        }
+        match crate::brief_file(&resolved(&memo), p.json, floor) {
             Ok((code, out)) => {
                 let block = vec![ContentBlock::text(out)];
                 Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })

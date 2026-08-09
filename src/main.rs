@@ -46,6 +46,13 @@ enum Command {
         /// `prose`/`render`. Takes no memo.
         #[arg(long)]
         authoring: bool,
+        /// How many distinct non-author workspaces must already have
+        /// graded a claim's *current* wording before it drops off the
+        /// owed list. Must be at least 1: a floor of 0 leaves nothing
+        /// ever owed, which is the empty schedule a switched-off flag
+        /// would produce, and there is deliberately no such flag.
+        #[arg(long, default_value_t = tetel::brief::DEFAULT_FLOOR)]
+        confirm: u32,
     },
     /// Ingest one grounding result and append it to
     /// `<memo>.evidence.jsonl`.
@@ -339,7 +346,7 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Command::Brief { memo, json, authoring } => {
+        Command::Brief { memo, json, authoring, confirm } => {
             if authoring {
                 print!("{}", tetel::brief::AUTHORING_BRIEF);
                 return ExitCode::from(0);
@@ -348,7 +355,17 @@ fn main() -> ExitCode {
                 eprintln!("tetel: `brief` requires a memo, or `--authoring`");
                 return ExitCode::from(1);
             };
-            match tetel::brief_file(&memo, json) {
+            // Bounded below here rather than left to clap's parser: this
+            // is the clause that keeps the floor from becoming the flag
+            // the design rejected, not a range check.
+            if confirm == 0 {
+                eprintln!(
+                    "tetel: `--confirm 0` would leave nothing ever owed, which is the empty \
+schedule a switched-off flag produces. The floor is at least 1."
+                );
+                return ExitCode::from(1);
+            }
+            match tetel::brief_file(&memo, json, confirm) {
                 Ok((code, out)) => {
                     print!("{out}");
                     ExitCode::from(code as u8)
