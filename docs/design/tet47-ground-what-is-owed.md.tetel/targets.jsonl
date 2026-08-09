@@ -5,3 +5,5 @@
 {"event":"Declare","id":"T5","symbol":"render_json","from":"F20","timestamp":1786224447}
 {"event":"Declare","id":"T6","symbol":"EvidenceRecord","from":"F21","timestamp":1786224477}
 {"event":"Declare","id":"T7","symbol":"analyze_ledger","from":"F23","timestamp":1786225367}
+{"event":"Withdraw","id":"T7","why":"C37 collapsed the predicate to the floor, which computes its own digest comparison, so `analyze_ledger` is no longer a symbol this design tells an implementer to modify.","timestamp":1786255354}
+{"event":"Declare","id":"T8","symbol":"tree_report","from":"F32","timestamp":1786257192}
