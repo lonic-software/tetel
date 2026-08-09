@@ -31,10 +31,21 @@
 #      lines double- or triple-counts. We deduplicate on `message.id`, and take
 #      the MAX per field rather than the first, because a streamed response's
 #      early events carry partial output counts.
-#   2. `pass window` attribution below is BY TIME, not by causation. A claim
-#      revised inside a pass's window may be the author's own second thought.
-#      The direction of that error is unknown. Read the numbers as an upper
-#      bound on what a pass provoked.
+#   2. `pass window` attribution below is BY TIME, not by causation, and it
+#      is only valid when passes run SEQUENTIALLY. They often do not: on the
+#      run that produced these figures, six of eight attacker passes began
+#      inside a grounder's window. When that happens the grounder's window
+#      closes the moment the attacker starts — crediting it with nothing —
+#      and the attacker's window absorbs every later revision, including the
+#      ones the grounder caused.
+#      So: fine for asking whether a round was DRY, useless for comparing
+#      one instrument against another. Ratios of revisions-per-pass between
+#      grounders and attackers computed from this output measure scheduling,
+#      not yield, and three such ratios were published and withdrawn before
+#      anyone noticed. Compare verdict counts instead — they involve no
+#      attribution. A correct attribution needs sequential passes, or a
+#      record linking a revision to the finding that provoked it, and no
+#      such link exists today.
 #   3. The in-extent join is BY FILE PATH, not by span. A fact touching
 #      `checks.rs` marks a whole 1,432-line read as load-bearing. So the
 #      "never in any extent" figure is a FLOOR on waste, not an estimate.
@@ -117,7 +128,17 @@ def cmd_yield(docs_dir):
                 f"{len(set(x[2] for x in rs)):>7} {v['supports']:>4} {v['qualifies']:>5} "
                 f"{v['refutes']:>4} {provoked:>16}"
             )
+        # Warn in the output, not only in the header: overlapping windows
+        # make the column comparable across rounds and NOT across kinds.
+        spans = sorted((min(x[0] for x in v), max(x[0] for x in v),
+                        "attacker" if not any(vv == "supports" for _, vv, _ in v) else "grounder")
+                       for _, v in order)
+        overlaps = sum(1 for i in range(len(spans)) for j in range(i + 1, len(spans))
+                       if spans[i][1] >= spans[j][0] and spans[i][2] != spans[j][2])
         print("    (revisions after = claim revisions inside that pass's window; time, not causation)")
+        if overlaps:
+            print(f"    !! {overlaps} cross-kind overlapping window(s): passes ran concurrently, so this")
+            print("       column CANNOT be used to compare grounders against attackers. See the header.")
     return 0
 
 
