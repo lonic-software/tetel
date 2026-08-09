@@ -1,0 +1,8 @@
+{"event":"Declare","id":"X1","from":"F11","into":"T2","timestamp":1786223432}
+{"event":"Premise","id":"X1.1","transplant":"X1","text":"so a citation cycle back to the root terminates instead of","timestamp":1786223438}
+{"event":"Premise","id":"X1.2","transplant":"X1","text":"A self-citation is never a dependency","timestamp":1786223440}
+{"event":"Premise","id":"X1.3","transplant":"X1","text":"Defined by the ledger, not a row: it cannot be a","timestamp":1786223445}
+{"event":"Discharge","premise":"X1.1","cites":"C14","timestamp":1786223471}
+{"event":"Discharge","premise":"X1.2","cites":"C20","timestamp":1786223473}
+{"event":"Discharge","premise":"X1.3","cites":"C21","timestamp":1786223479}
+{"event":"Withdraw","id":"X1","why":"The mechanism was check 5's cycle-terminating traversal, imported for the textual closure's fixpoint. C35 defers the closure, so nothing in this design installs that mechanism and the transplant has no destination.","timestamp":1786227782}

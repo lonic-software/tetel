@@ -1,0 +1,7 @@
+{"event":"Declare","id":"T1","symbol":"grounding_provenance","from":"F13","timestamp":1786223335}
+{"event":"Declare","id":"T2","symbol":"owed_claims","from":"F14","timestamp":1786223377}
+{"event":"Declare","id":"T3","symbol":"render_text","from":"F15","timestamp":1786223400}
+{"event":"Declare","id":"T4","symbol":"brief_file","from":"F19","timestamp":1786224427}
+{"event":"Declare","id":"T5","symbol":"render_json","from":"F20","timestamp":1786224447}
+{"event":"Declare","id":"T6","symbol":"EvidenceRecord","from":"F21","timestamp":1786224477}
+{"event":"Declare","id":"T7","symbol":"analyze_ledger","from":"F23","timestamp":1786225367}
