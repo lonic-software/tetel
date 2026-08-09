@@ -19,19 +19,28 @@
 //! human reads stays exactly what was authored — only `tetel check`
 //! sees the appended table as evidence to grade.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
 use crate::claims;
 use crate::prose;
 
-pub fn render(workspace_dir: &Path) -> io::Result<String> {
-    let blocks = prose::load_all(workspace_dir)?;
+/// Writes the prose section of the document and, alongside it, the
+/// 1-based line each block's own text begins on — one loop rather than
+/// two, so the text `render` emits and the offsets `block_offsets`
+/// reports can never drift apart. Line numbers are read back off `out`
+/// itself (`1 + out.matches('\n').count()`) rather than hand-tracked,
+/// because a block's text is free-form and nothing here should assume
+/// it never contains an embedded newline.
+fn render_prose(blocks: &[prose::Block]) -> (String, HashMap<String, usize>) {
     let mut out = String::new();
+    let mut offsets = HashMap::new();
     for (i, b) in blocks.iter().enumerate() {
         if i > 0 {
             out.push('\n');
         }
+        offsets.insert(b.id.clone(), 1 + out.matches('\n').count());
         if b.heading {
             let level = b.level.unwrap_or(2).clamp(1, 6);
             out.push_str(&"#".repeat(level as usize));
@@ -47,6 +56,29 @@ pub fn render(workspace_dir: &Path) -> io::Result<String> {
             }
         }
     }
+    (out, offsets)
+}
+
+/// Per-block starting line in the document `render` would produce from
+/// this workspace right now — 1-based, pointing at the line a block's
+/// own text begins on (a heading's `#`-prefixed line, or a paragraph's
+/// first line).
+///
+/// `compose::render` writes a block's text and its `*cites: …*` marker
+/// and nothing else (see the module doc comment) — a block's id is never
+/// written into the document, so a residue line naming only `P4` points
+/// at something a reader holding just the rendered document cannot find.
+/// This closes that gap without changing what `render` prints, by
+/// sharing [`render_prose`]'s single pass rather than re-deriving line
+/// numbers from a second reading of the output.
+pub fn block_offsets(workspace_dir: &Path) -> io::Result<HashMap<String, usize>> {
+    let blocks = prose::load_all(workspace_dir)?;
+    Ok(render_prose(&blocks).1)
+}
+
+pub fn render(workspace_dir: &Path) -> io::Result<String> {
+    let blocks = prose::load_all(workspace_dir)?;
+    let (mut out, _offsets) = render_prose(&blocks);
     let claim_list = claims::load_all(workspace_dir)?;
     out.push_str(&render_targets(&crate::targets::load_all(workspace_dir)?, &claim_list));
     out.push_str(&render_transplants(
@@ -328,4 +360,64 @@ claim rests on is in the Facts table below.\n\n",
         ));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block(id: &str, heading: bool, level: Option<u8>, text: &str, cite: &[&str]) -> prose::Block {
+        prose::Block {
+            id: id.to_string(),
+            heading,
+            level,
+            text: text.to_string(),
+            cite: cite.iter().map(|s| s.to_string()).collect(),
+            revisions: 0,
+        }
+    }
+
+    /// Pins the exact block-to-line correspondence `render_prose`
+    /// computes — the value both `block_offsets` returns and `render`'s
+    /// prose section is built from. Before this test, the only assertion
+    /// touching a line number anywhere in the suite was a substring match
+    /// (`"P1 (line "`) that matches *any* integer, so this arithmetic had
+    /// no detector at all: a reviewer found that narrowing `1 +
+    /// out.matches('\n').count()` to `out.matches('\n').count()` — every
+    /// block one line early, the first reported as line 0 — left all ten
+    /// test binaries green.
+    ///
+    /// A heading and a cited paragraph are both included so the
+    /// arithmetic for each shape is exercised: a heading is one line; a
+    /// cited paragraph is its own text line plus a blank separator and a
+    /// `*cites: …*` trailer, both of which must be counted before the
+    /// next block's offset is read.
+    #[test]
+    fn render_prose_pins_the_exact_starting_line_of_each_block() {
+        let blocks = vec![
+            block("P1", true, Some(2), "Intro", &[]),
+            block("P2", false, None, "First paragraph.", &[]),
+            block("P3", false, None, "Second paragraph, with a citation.", &["C1"]),
+        ];
+        let (rendered, offsets) = render_prose(&blocks);
+        assert_eq!(
+            rendered,
+            "## Intro\n\nFirst paragraph.\n\nSecond paragraph, with a citation.\n\n*cites: C1*\n",
+            "the offsets below are meaningless if this drifts from what render_prose actually wrote"
+        );
+        // Line  1: "## Intro"
+        // Line  2: "" (blank separator before P2)
+        // Line  3: "First paragraph."
+        // Line  4: "" (blank separator before P3)
+        // Line  5: "Second paragraph, with a citation."
+        // Line  6: "" (blank separator before the *cites:* trailer)
+        // Line  7: "*cites: C1*"
+        assert_eq!(offsets.get("P1"), Some(&1), "a heading begins on line 1");
+        assert_eq!(offsets.get("P2"), Some(&3), "P1's line plus the blank separator puts P2 on line 3");
+        assert_eq!(
+            offsets.get("P3"),
+            Some(&5),
+            "P2 costs it one text line before the next separator, so P3 begins on line 5"
+        );
+    }
 }

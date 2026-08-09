@@ -160,6 +160,52 @@ fn checker_reads_its_own_design_memos() {
     );
 }
 
+/// TET-30: `check` against the two design memos actually committed to
+/// this repository (not copies, not fixtures) must list nothing under
+/// "prose revised after the claims it cites settled" — the design
+/// memo's own claim about the real corpus (C4/F8 in
+/// `tet30-prose-revised-since-grounding.md`), including each memo's one
+/// genuine post-pass prose revision (tet29's P4, tet28's P18), both
+/// correctly silent because each also cites a claim revised in the same
+/// round.
+///
+/// This was verified by hand while building the check and is pinned
+/// here rather than left as a one-off: a hand run is a diary entry, and
+/// this corpus is also the strongest fixture available — real prose
+/// history from real grounding passes, not a construction. `check`
+/// never writes, so running it against the committed files directly
+/// (rather than a copy) is safe; nothing here can corrupt them.
+///
+/// This also doubles as the regression test for the anchor's `max`
+/// quantifier a reviewer's mutation run found unpinned: mutating the
+/// per-block anchor from `max` to `min` makes both of these memos start
+/// listing something (verified by hand during that review), so this
+/// test would catch that mutation even without the synthetic
+/// `anchor_is_the_latest_first_proof_not_the_earliest` unit test.
+#[test]
+fn check_lists_nothing_for_prose_after_proof_on_the_committed_design_memos() {
+    for name in ["tet28-modification-target-census.md", "tet29-imported-mechanism-premises.md"] {
+        let memo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs/design").join(name);
+        let out = Command::new(env!("CARGO_BIN_EXE_tetel"))
+            .arg("check")
+            .arg(&memo)
+            .output()
+            .expect("failed to run tetel binary");
+        let code = out.status.code().expect("process should exit normally");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(code, 0, "{name} must check clean:\n{stdout}");
+        assert!(
+            stdout.contains("prose revised after the claims it cites settled"),
+            "{name}: the preamble must still name the category it did not fire on:\n{stdout}"
+        );
+        assert!(
+            !stdout.contains("this wording (text and citations) dates from"),
+            "{name} must list nothing under prose-after-proof — every real post-pass revision \
+in this corpus also touches a claim revised in the same round:\n{stdout}"
+        );
+    }
+}
+
 #[test]
 fn unsettled_citation_check_fails_on_bare_citation() {
     let (code, out) = run_check("unsettled_fail.md");

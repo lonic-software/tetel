@@ -1639,6 +1639,127 @@ fn a_log_without_anchors_still_replays_in_append_order() {
     assert!(a < b && b < c, "append order must be preserved:\n{out}");
 }
 
+// --- TET-30: prose revised after the claims it cites settled -----------
+
+/// The construction the TET-30 design memo names as the positive case a
+/// real fix-round rewrite takes: a paragraph rewritten after its cited
+/// claim's first proof, touching no claim at all. Built as a fixture
+/// rather than by editing a committed memo — the design memo explicitly
+/// records that both memos already in this tree list nothing, including
+/// their own real post-pass prose revisions, because each also cites a
+/// claim revised in the same round. This constructs the case with
+/// nothing else moving, so the rule fires on exactly the shape it exists
+/// to catch.
+///
+/// Real seconds are used to separate "claim settles" from "prose is
+/// rewritten" rather than synthetic timestamps, since this exercises the
+/// actual end-to-end wiring (`check_file` reading `prose.jsonl` directly,
+/// `compose::block_offsets`, and `report::render`'s new bullets) rather
+/// than the pure rule `checks::prose_after_proof` alone, which is
+/// covered by fast, second-independent unit tests in `checks.rs`.
+#[test]
+fn check_lists_a_paragraph_rewritten_after_its_claim_settled() {
+    let sb = Sandbox::new("prose-after-proof");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha(), written before grounding.");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    // Ground C1 — a witnessed record, timestamped now. `record` reads
+    // the memo's own rendered ledger, so it needs the rendered file.
+    let (code, _out, err) = sb.run(&["record", memo.to_str().unwrap(), "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    assert_eq!(code, 0, "grounding C1 must succeed: {err}");
+
+    // Force the rewrite into the next wall-clock second: timestamps are
+    // whole seconds, and the rule requires the rewrite to be *strictly*
+    // later than the claim's first proof.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    // The fix-round rewrite: text changes, citations do not.
+    sb.run(&["prose", "--revise", "P1", "--why", "fix-round rewrite, no claim touched", "--text", "Defines alpha(), rewritten after grounding."]);
+
+    // Re-render so the shipped snapshot reflects the rewrite.
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "human-owed, never a machine failure:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled"),
+        "the preamble must name the category it prints:\n{combined}"
+    );
+    assert!(
+        // The exact number, not just that some digits follow "(line " —
+        // P1 is the memo's only prose block, so it must begin on line 1.
+        // The precise block-to-line arithmetic itself is pinned at the
+        // unit level in `compose::tests::
+        // render_prose_pins_the_exact_starting_line_of_each_block`; this
+        // confirms the real end-to-end wiring (check_file → block_offsets
+        // → report::render) reports the same number that produces.
+        combined.contains("P1 (line 1)"),
+        "the entry must name the block id and the exact line its text begins on:\n{combined}"
+    );
+    assert!(
+        combined.contains("C1: first entered proof at"),
+        "the entry must print the claim it anchors against and when that claim first proved:\n{combined}"
+    );
+}
+
+/// The vacuous case, end to end: `one_claim_memo` never grounds C1 at
+/// all, so nothing is in proof, there is no first proof to compare
+/// against, and nothing is listed — regardless of when the prose was
+/// written. Same reason `checks::tests::nothing_listed_with_no_evidence`
+/// holds at the unit level; this confirms the real snapshot-reading path
+/// agrees.
+#[test]
+fn check_says_nothing_about_prose_after_proof_with_no_evidence_at_all() {
+    let sb = Sandbox::new("prose-after-proof-clean");
+    let memo = one_claim_memo(&sb);
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(
+        !combined.contains("this wording (text and citations) dates from"),
+        "C1 was never grounded, so nothing should be listed:\n{combined}"
+    );
+}
+
+/// `check_file` reads the snapshot's `prose.jsonl` twice: once inside
+/// `snapshot::check` (via `compose::render` → `prose::load_all`, to
+/// compare the snapshot's re-render against the committed document —
+/// existing behaviour, unrelated to this ticket), and once directly, for
+/// `checks::prose_after_proof`. A corrupted `prose.jsonl` fails both
+/// reads identically (same path, same `workspace::read_jsonl::<ProseEvent>`
+/// call underneath), and the first one — which runs earlier in
+/// `check_file` — already reddens the machine partition under
+/// `[provenance-drift]`. This pins that the second read's `if let Ok`
+/// silently skipping is never a *lone* silent failure: whenever it
+/// triggers, the reader has already been told, loudly, in the machine
+/// partition, that this memo's snapshot could not be read at all.
+#[test]
+fn check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently() {
+    let sb = Sandbox::new("corrupted-prose-jsonl");
+    let memo = one_claim_memo(&sb);
+    let prose_log = sb.dir.join("memo.md.tetel").join("prose.jsonl");
+    let mut existing = std::fs::read_to_string(&prose_log).unwrap();
+    existing.push_str("THIS IS NOT VALID JSON\n");
+    std::fs::write(&prose_log, existing).unwrap();
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "a corrupted snapshot file must redden the machine partition:\n{combined}");
+    assert!(
+        combined.contains("[provenance-drift]"),
+        "the corruption must surface as provenance drift, not go unremarked:\n{combined}"
+    );
+    assert!(
+        combined.contains("could not be rendered from"),
+        "the specific reason (unreadable) must be named:\n{combined}"
+    );
+}
+
 // --- TET-5: the marker must describe the tree that was read ------------
 
 /// Make `dir` a git repository with one commit, so `worldstate` has

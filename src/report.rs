@@ -70,7 +70,95 @@ too small is a truth-check, not a format one",
 target is really where the mechanism lands — a grounding pass grades each claim as written, and \
 the linkage between them is graded by nobody",
     "a donor comment that is itself wrong — quotation establishes provenance, never truth",
+    // --- what "prose revised after the claims it cites settled" cannot see --
+    // The check compares two timestamps and two content-equality tests;
+    // each of these is either a case the comparison structurally cannot
+    // reach or a question the comparison was never built to answer.
+    // Printed for the same reason as the entries above: a residue that
+    // fired is easily mistaken for coverage it never claimed.
+    "false prose that ships alongside a claim revised in the same round — the ticket this check \
+answers concedes it, and this design does not fix it",
+    "a paragraph that cites nothing — there is no citation edge to compare its wording against",
+    "a citation added to a claim not yet in proof — by the time any pass proves that claim, its \
+first proof necessarily postdates the edit, so this can never be listed",
+    "whether the two clocks behind this ordering — the authoring workspace's and the grounding \
+pass's — actually agree",
+    "whether a listed paragraph is wrong at all; nothing here judges that, only that its wording \
+postdates its evidence",
+    // --- added on the round-2 code review that found the anchor was
+    // verdict-blind and the empty-digest grandfather was being read as a
+    // timestamp — see `prose_after_proof`'s doc comment for the full
+    // argument. Both entries name a case where this check now stays
+    // silent that an earlier version of it did not.
+    "a claim graded only by a refutation — a refuting record examined the wording and rejected \
+it, so it does not put the wording in proof and cannot anchor a block; a paragraph resting only \
+on such a claim is never listed here, whatever `verdict-disagreement` says about the refutation \
+itself",
+    "a claim graded only by evidence recorded before its proposition carried a digest — that \
+record cannot say which wording it graded, so it cannot anchor a block even in the case it did \
+in fact grade today's wording; only a record whose digest matches the current text counts",
+    "a citation whose claim settled before the block's wording, when another citation in the \
+same block settled after it — the anchor is the latest first proof among all of a block's \
+citations, so the earlier-settled one is never compared against the wording on its own; a \
+co-cited claim that keeps being revised and re-entering proof keeps raising the anchor, and \
+whether the wording was ever actually examined against the earlier-settled claim is never \
+answered by any listing here",
 ];
+
+/// Renders a Unix timestamp (seconds) as a UTC calendar date and time a
+/// reader can place at a glance, without pulling in a date/time dependency
+/// this crate does not otherwise need. Civil-from-days conversion after
+/// Howard Hinnant's public-domain `civil_from_days` algorithm
+/// (<https://howardhinnant.github.io/date_algorithms.html>), which this
+/// crate has no test suite of its own to validate against a calendar
+/// library — spot-checked instead against this machine's own `date -u -r`
+/// for the two epochs this fix's own bug report cited (1754683001 →
+/// 2025-08-08 19:56:41 UTC, 1754682955 → 2025-08-08 19:55:55 UTC), which is
+/// what `format_unix_renders_a_known_epoch_as_a_known_calendar_date` pins.
+fn format_unix(ts: u64) -> String {
+    let days = (ts / 86_400) as i64;
+    let secs_of_day = ts % 86_400;
+    let (y, m, d) = civil_from_days(days);
+    let (h, mi, s) = (secs_of_day / 3600, (secs_of_day % 3600) / 60, secs_of_day % 60);
+    format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02}:{s:02} UTC")
+}
+
+/// Days since the Unix epoch (1970-01-01) to a proleptic-Gregorian
+/// (year, month, day). See `format_unix`'s doc comment for provenance.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
+/// Renders a duration in seconds as a human-legible interval ("46s", "3m
+/// 5s", "2h 5m", "1d 3h") — coarsened to the two largest non-zero units so
+/// a reader gets "how far apart" at a glance rather than a strict duration
+/// they'd have to parse. What made this fix necessary: `1754683001` minus
+/// `1754682955` is not a computation a reader does in their head, and the
+/// finding this prints is entirely about that gap.
+fn format_interval(secs: u64) -> String {
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3600;
+    let mins = (secs % 3600) / 60;
+    let s = secs % 60;
+    let units: [(u64, &str); 4] = [(days, "d"), (hours, "h"), (mins, "m"), (s, "s")];
+    let parts: Vec<String> = units
+        .iter()
+        .filter(|(v, _)| *v > 0)
+        .take(2)
+        .map(|(v, u)| format!("{v}{u}"))
+        .collect();
+    if parts.is_empty() { "0s".to_string() } else { parts.join(" ") }
+}
 
 /// `build` names the binary that produced this report (see `buildid.rs`).
 /// It is passed in rather than read here so this function stays a pure
@@ -184,7 +272,8 @@ against, the RUN command\u{2194}proposition correspondence, \
 cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
 declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
- captured extent, refusals recorded in a fact's own mint window, \
+ captured extent, refusals recorded in a fact's own mint window, prose revised after the claims \
+it cites settled, \
 and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
     for e in &findings.superseded_evidence {
@@ -221,6 +310,69 @@ whatever was already there:\n",
 refusal fell on cannot be recovered — it is listed under both adjacent facts rather than \
 guessed at)\n",
             );
+        }
+    }
+    if !findings.prose_revised_since_proof.is_empty() {
+        // One preamble bullet, printed once rather than per entry — the
+        // same precedent `ledger_has_no_scope_columns` set: a constant
+        // repeated per row buries the findings that are about *this*
+        // document. What is constant across every entry below is the
+        // cross-process clock bound this whole check rests on, so it is
+        // stated here rather than in each block's own bullet.
+        out.push_str(
+            "  - prose revised after the claims it cites settled (entries below): the ordering \
+rests on two clocks nothing here can prove are the same — the authoring workspace's and the \
+grounding pass's. A reported ordering can be wrong only if the two differed by more than the \
+interval between the prose edit and the pass that first put the cited claim(s) in proof — and \
+the same skew in the *other* direction can just as well suppress a listing that should have \
+appeared, since this check is silent by default: an entry missing here is not proof the \
+ordering was clean, only that no skew large enough to flip it was found\n",
+        );
+        for p in &findings.prose_revised_since_proof {
+            // `p.line` is the offset lookup against `compose::block_offsets`
+            // for this same snapshot — it should always resolve, but
+            // printing a fabricated `0` on the rare miss would be exactly
+            // the overstated-provenance failure this crate exists to
+            // avoid. Say so plainly instead.
+            let line = match p.line {
+                Some(n) => format!("line {n}"),
+                None => "line unknown (offset lookup failed)".to_string(),
+            };
+            // The anchor this block was actually compared against —
+            // `p.cited`'s own max, recomputed here rather than carried as
+            // a separate field, since it's exactly what "after every
+            // claim below had already entered proof" means and every
+            // input to it is already printed on the lines beneath. Always
+            // `Some`: a listed block has at least one cited entry (the
+            // existential gate `prose_after_proof` applies before ever
+            // producing one).
+            let anchor = p.cited.iter().map(|(_, t, _)| *t).max().unwrap_or(p.block_timestamp);
+            let interval = format_interval(p.block_timestamp.saturating_sub(anchor));
+            out.push_str(&format!(
+                "  - {} ({}): this wording (text and citations) dates from {} (raw {}), {} \
+after every claim below had already entered proof:\n",
+                p.block_id,
+                line,
+                format_unix(p.block_timestamp),
+                p.block_timestamp,
+                interval
+            ));
+            // The author's own stated reason for the edit that produced
+            // this wording — present only when that edit was a `Revise`
+            // (a `Create` has none, and none is fabricated here). Never a
+            // paraphrase: this is the author's own words, carried
+            // verbatim, and the single most actionable thing this entry
+            // can hand a reader without quoting the paragraph itself.
+            if let Some(why) = &p.why {
+                out.push_str(&format!("      revised because: \"{why}\"\n"));
+            }
+            for (id, first_proof, pass) in &p.cited {
+                out.push_str(&format!(
+                    "      {id}: first entered proof at {} (raw {}), by pass {pass}\n",
+                    format_unix(*first_proof),
+                    first_proof
+                ));
+            }
         }
     }
     for r in &findings.tree_states {
@@ -339,4 +491,45 @@ reproduce it from the workspace, or re-render with `--out`\n"
 
     let code = if failing { EXIT_CHECK_FAILED } else { EXIT_CLEAN };
     (code, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_interval, format_unix};
+
+    /// Round-2 code review (C): the two epochs the review's own bug
+    /// report quoted (`"this wording ... dates from 1754683001 ... C1:
+    /// first entered proof at 1754682955"`), spot-checked against this
+    /// machine's own `date -u -r <epoch> "+%Y-%m-%d %H:%M:%S UTC"`:
+    /// 1754683001 → 2025-08-08 19:56:41 UTC, 1754682955 → 2025-08-08
+    /// 19:55:55 UTC. Corroboration only — verified on this machine's own
+    /// `date`, not against a calendar library, since this crate pulls in
+    /// none.
+    #[test]
+    fn format_unix_renders_a_known_epoch_as_a_known_calendar_date() {
+        assert_eq!(format_unix(1_754_683_001), "2025-08-08 19:56:41 UTC");
+        assert_eq!(format_unix(1_754_682_955), "2025-08-08 19:55:55 UTC");
+    }
+
+    #[test]
+    fn format_unix_handles_the_epoch_itself() {
+        assert_eq!(format_unix(0), "1970-01-01 00:00:00 UTC");
+    }
+
+    /// The exact case the bug report named: two epochs 46 seconds apart
+    /// must read as "46s", not as two raw integers a reader has to
+    /// subtract by hand.
+    #[test]
+    fn format_interval_reports_the_named_46_second_gap() {
+        assert_eq!(format_interval(1_754_683_001 - 1_754_682_955), "46s");
+    }
+
+    #[test]
+    fn format_interval_coarsens_to_the_two_largest_units() {
+        assert_eq!(format_interval(0), "0s");
+        assert_eq!(format_interval(5), "5s");
+        assert_eq!(format_interval(65), "1m 5s");
+        assert_eq!(format_interval(3_665), "1h 1m", "seconds are dropped once hours and minutes both show");
+        assert_eq!(format_interval(90_061), "1d 1h", "days coarsen away minutes and seconds entirely");
+    }
 }

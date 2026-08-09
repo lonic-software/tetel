@@ -167,6 +167,49 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         // TET-32 that does not depend on the author having read a line
         // at the terminal.
         findings.mint_windows = facts::mint_windows(&snapshot_dir);
+        // Prose blocks whose text (or citations) postdate the settling
+        // of what they cite. Read `prose.jsonl` directly rather than via
+        // `prose::load_all`, which discards every timestamp — see
+        // `checks::prose_after_proof`'s doc comment. `ledger.claims` is
+        // deliberately used here, not the snapshot's `claims.jsonl`: it
+        // is the same claim list already handed to `analyze_ledger`
+        // above, imported from the rendered document, which is what
+        // every `proposition_digest` on record was actually computed
+        // over.
+        // `if let Ok(...)` here — silently skipping a `prose.jsonl` that
+        // exists but fails to parse — is *not* the silent-drop shape
+        // `checks::prose_after_proof`'s own doc comment warns against
+        // (that one is about a successful read over the wrong claims
+        // source producing wrong digests with a clean exit). This is
+        // the same file `snapshot::check` already read moments ago, at
+        // the top of this function, via the identical
+        // `workspace::read_jsonl::<ProseEvent>` call inside
+        // `compose::render` → `prose::load_all` (same path, same target
+        // type). A `prose.jsonl` that fails to parse here therefore
+        // already failed that earlier read too, and `findings.provenance`
+        // is already `Unreadable`, which `machine_check_failed` already
+        // reddens under `[provenance-drift]` — loudly, before this block
+        // runs. This `Err` arm is reachable only alongside a failure
+        // already reported elsewhere, never on its own; see
+        // `check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently`
+        // in tests/authoring_cli.rs, which pins that (it needs a real
+        // rendered snapshot to corrupt, hence authoring_cli rather than
+        // check_cli's static fixtures).
+        if let Ok(prose_events) =
+            workspace::read_jsonl::<prose::ProseEvent>(&snapshot_dir.join("prose.jsonl"))
+        {
+            let mut listed = checks::prose_after_proof(&prose_events, &ledger.claims, &evidence_records);
+            // The line each block's text begins on in the rendered
+            // document — from the one function that describes the
+            // block-to-line correspondence, so this can't drift from
+            // what `render` actually wrote.
+            if let Ok(offsets) = compose::block_offsets(&snapshot_dir) {
+                for item in &mut listed {
+                    item.line = offsets.get(&item.block_id).copied();
+                }
+            }
+            findings.prose_revised_since_proof = listed;
+        }
     }
     // A rendered target row with no snapshot behind it cannot be graded
     // either way, so it is reported rather than failed — the same standing
