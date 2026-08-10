@@ -1,0 +1,3 @@
+{"event":"Declare","id":"T1","symbol":"look_grep","from":"F10","timestamp":1786361563}
+{"event":"Declare","id":"T2","symbol":"NON_COVERAGE","from":"F14","timestamp":1786361755}
+{"event":"Declare","id":"T3","symbol":"look_path","from":"F19","timestamp":1786362754}
