@@ -2391,6 +2391,105 @@ fn a_single_file_grep_overlaps_a_plain_read_of_the_same_file() {
     assert!(!out.contains("F3"), "an unrelated file's fact must never overlap:\n{out}");
 }
 
+// --- TET-51: the overlap report names keys, not notes -------------------
+
+#[test]
+fn overlap_report_names_only_the_key_actually_shared_not_every_key_the_fact_touches() {
+    // F2 touches BOTH a.rs and b.rs (two `look`s folded into one mint).
+    // F1 only cites a.rs. The report on F2 must therefore name a.rs and
+    // must NOT name b.rs: reporting the whole extent instead of the
+    // intersection with the cited union is exactly the bug a report that
+    // ships every key from a multi-key fact would reintroduce.
+    let sb = Sandbox::new("overlap-key-precision");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "reads of both a.rs and b.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a second, separate read of a.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "a.rs defines a()", "--cites", "F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let f1_line = out.lines().find(|l| l.trim_start().starts_with("F1:")).unwrap_or_else(|| panic!("F1 missing from overlap report:\n{out}"));
+    assert!(f1_line.contains("a.rs"), "F1's shared key must name a.rs: {f1_line}");
+    assert!(!f1_line.contains("b.rs"), "F1's report must not name b.rs — that key was never in the cited union: {f1_line}");
+}
+
+#[test]
+fn overlap_report_names_every_key_a_fact_shares_when_it_shares_several() {
+    // F3 touches both a.rs and b.rs, and BOTH are in the cited union
+    // (F1 cites a.rs, F2 cites b.rs). The report on F3 must name both
+    // keys, not just the first one found.
+    let sb = Sandbox::new("overlap-multi-key");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "b.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "both a.rs and b.rs together"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F3
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "both files define their function", "--cites", "F1,F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let f3_line = out.lines().find(|l| l.trim_start().starts_with("F3:")).unwrap_or_else(|| panic!("F3 missing from overlap report:\n{out}"));
+    assert!(f3_line.contains("a.rs"), "F3 shares a.rs, the report must name it: {f3_line}");
+    assert!(f3_line.contains("b.rs"), "F3 shares b.rs, the report must name it too: {f3_line}");
+}
+
+#[test]
+fn no_overlap_reports_nothing_and_the_create_still_succeeds() {
+    let sb = Sandbox::new("overlap-none");
+    sb.write("only.rs", "fn only() {}\n");
+
+    assert_eq!(sb.run(&["look", "only.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "the only fact in this workspace"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "only.rs defines only()", "--cites", "F1"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("(none)"), "no other fact exists, so the report must say so:\n{out}");
+    assert!(out.contains("C1 created"), "the create must still succeed even with nothing to report:\n{out}");
+    assert!(sb.claims_jsonl().contains("\"id\":\"C1\""), "the claim must actually be logged");
+}
+
+#[test]
+fn overlap_report_never_prints_the_overlapping_facts_note() {
+    // The whole point of TET-51: the report used to ship the overlapping
+    // fact's full note, unbounded and re-sent on every later create that
+    // touched it. It must now carry only the id and the shared key(s).
+    let sb = Sandbox::new("overlap-no-note-leak");
+    sb.write("shared.rs", "fn shared() {}\n");
+
+    assert_eq!(sb.run(&["look", "shared.rs"]).0, 0);
+    let distinctive_note = "a wholly distinctive sentinel note nobody else would type by accident";
+    let (code, _, err) = sb.run(&["fact", "--note", distinctive_note]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "shared.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a second read of the same file"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "shared.rs defines shared()", "--cites", "F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("F1"), "F1 must still be reported as overlapping:\n{out}");
+    assert!(!out.contains(distinctive_note), "the overlapping fact's note must never be printed:\n{out}");
+}
+
 // --- the pin: nothing asserted anything about it until this sweep -------
 
 /// Every `pin` in this workspace's log, in mint order.

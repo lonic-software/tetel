@@ -97,9 +97,13 @@ fn parse_ids(csv: &str) -> Vec<String> {
 
 pub struct CreateOutcome {
     pub claim: Claim,
-    /// `(fact id, current note)` for every non-cited fact sharing a
-    /// designator with the cited ones.
-    pub overlap: Vec<(String, String)>,
+    /// `(fact id, shared extent key(s))` for every non-cited fact sharing
+    /// a designator with the cited ones — not the fact's note. The note
+    /// can run to thousands of bytes and re-ships on every later create
+    /// that overlaps the same fact; the key(s) say *why* the fact
+    /// overlapped without repeating text the reader can already get from
+    /// `tetel query facts`.
+    pub overlap: Vec<(String, Vec<String>)>,
 }
 
 /// `tetel claim --proposition <text> --cites F1,F3`.
@@ -143,7 +147,7 @@ pub fn create(workspace_dir: &Path, prop: &str, from_csv: &str) -> Result<Create
 /// path where a designator names a file, so three different line-ranges
 /// of one file, and a plain read of it, all overlap each other now,
 /// where the prototype's literal-command-string key never caught this).
-fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(String, String)>> {
+fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(String, Vec<String>)>> {
     let all = facts::load_all(workspace_dir)?;
     let cited: BTreeSet<&str> = cited_ids.iter().map(String::as_str).collect();
     let mut union_keys: BTreeSet<&str> = BTreeSet::new();
@@ -159,8 +163,13 @@ fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<
         if cited.contains(f.id.as_str()) {
             continue;
         }
-        if f.extent.iter().any(|e| union_keys.contains(e.key.as_str())) {
-            out.push((f.id.clone(), f.note.clone()));
+        // Dedup and sort: a fact can have several extent entries on the
+        // same key (e.g. two `look --lines` ranges of one file), and the
+        // report names each shared designator once.
+        let shared: BTreeSet<&str> =
+            f.extent.iter().map(|e| e.key.as_str()).filter(|k| union_keys.contains(k)).collect();
+        if !shared.is_empty() {
+            out.push((f.id.clone(), shared.into_iter().map(String::from).collect()));
         }
     }
     Ok(out)

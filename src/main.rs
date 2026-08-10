@@ -669,8 +669,8 @@ schedule a switched-off flag produces. The floor is at least 1."
                     if outcome.overlap.is_empty() {
                         println!("  (none)");
                     } else {
-                        for (id, note) in &outcome.overlap {
-                            println!("  {id}: {note}");
+                        for (id, keys) in &outcome.overlap {
+                            println!("  {id}: {}", keys.join(", "));
                         }
                     }
                     println!("{} created (overlap report showed {} fact(s)).", outcome.claim.id, outcome.overlap.len());

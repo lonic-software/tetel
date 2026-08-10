@@ -686,7 +686,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim prints an OVERLAP REPORT: other facts whose extent touches the same file or command as the facts you cited, and which you did NOT cite. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.withdraw {
@@ -699,7 +699,7 @@ impl TetelServer {
         match claims::dispatch(&dir, req) {
             Ok(claims::ClaimOutcome::Created(outcome)) => {
                 let overlap: Vec<_> =
-                    outcome.overlap.iter().map(|(id, note)| json!({"id": id, "note": note})).collect();
+                    outcome.overlap.iter().map(|(id, keys)| json!({"id": id, "keys": keys})).collect();
                 Ok(CallToolResult::structured(json!({
                     "id": outcome.claim.id,
                     "action": "created",

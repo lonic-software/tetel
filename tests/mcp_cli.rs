@@ -1268,3 +1268,160 @@ async fn ack_combined_with_revise_cites_or_before_is_refused_over_mcp() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+// --- TET-51: the overlap report ships keys, not notes -------------------
+
+/// `look` at `path`, then `fact --note note` — fire-and-forget, panicking
+/// on any refusal. Multiple calls before the same `fact` fold into one
+/// mint's extent, which is exactly what the multi-key tests below need.
+async fn look(client: &RunningService<RoleClient, DummyClientHandler>, ws: &str, path: &str) {
+    let r = client
+        .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "path": path,
+        }))))
+        .await
+        .expect("look call failed at protocol level");
+    assert_ne!(r.is_error, Some(true), "look was refused: {:?}", r.structured_content);
+}
+
+async fn fact(client: &RunningService<RoleClient, DummyClientHandler>, ws: &str, note: &str) {
+    let r = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "note": note,
+        }))))
+        .await
+        .expect("fact call failed at protocol level");
+    assert_ne!(r.is_error, Some(true), "fact was refused: {:?}", r.structured_content);
+}
+
+async fn create_claim(
+    client: &RunningService<RoleClient, DummyClientHandler>,
+    ws: &str,
+    prop: &str,
+    cites: &str,
+) -> serde_json::Value {
+    let r = client
+        .call_tool(CallToolRequestParams::new("claim").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "proposition": prop,
+            "cites": cites,
+        }))))
+        .await
+        .expect("claim call failed at protocol level");
+    assert_ne!(r.is_error, Some(true), "claim was refused: {:?}", r.structured_content);
+    r.structured_content.expect("a created claim must carry structured_content")
+}
+
+/// Same intersection-precision test as the CLI's
+/// `overlap_report_names_only_the_key_actually_shared_not_every_key_the_fact_touches`,
+/// over MCP: F2 touches both a.rs and b.rs, F1 cites only a.rs, and the
+/// overlap entry for F2 must carry a.rs and must not carry b.rs.
+#[tokio::test]
+async fn overlap_report_over_mcp_names_only_the_shared_key() {
+    let sb = Sandbox::new("mcp-overlap-key-precision");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let a = sb.dir.join("a.rs").to_str().unwrap().to_string();
+    let b = sb.dir.join("b.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &a).await;
+    look(&client, ws, &b).await;
+    fact(&client, ws, "reads of both a.rs and b.rs").await; // F1
+
+    look(&client, ws, &a).await;
+    fact(&client, ws, "a second, separate read of a.rs alone").await; // F2
+
+    let out = create_claim(&client, ws, "a.rs defines a()", "F2").await;
+    assert_eq!(out["action"], "created");
+    let overlap = out["overlap"].as_array().expect("overlap must be an array");
+    let f1 = overlap.iter().find(|e| e["id"] == "F1").unwrap_or_else(|| panic!("F1 missing from overlap: {out}"));
+    let keys: Vec<&str> = f1["keys"].as_array().expect("keys must be an array").iter().map(|k| k.as_str().unwrap()).collect();
+    assert_eq!(keys.len(), 1, "F1 must report exactly the one shared key, not its whole extent: {keys:?}");
+    assert!(keys[0].ends_with("a.rs"), "the shared key must be a.rs: {keys:?}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// Same multi-key test as the CLI's
+/// `overlap_report_names_every_key_a_fact_shares_when_it_shares_several`,
+/// over MCP: F3 touches both a.rs and b.rs, both of which are in the
+/// cited union, so both keys must come back.
+#[tokio::test]
+async fn overlap_report_over_mcp_names_every_shared_key() {
+    let sb = Sandbox::new("mcp-overlap-multi-key");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let a = sb.dir.join("a.rs").to_str().unwrap().to_string();
+    let b = sb.dir.join("b.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &a).await;
+    fact(&client, ws, "a.rs alone").await; // F1
+    look(&client, ws, &b).await;
+    fact(&client, ws, "b.rs alone").await; // F2
+
+    look(&client, ws, &a).await;
+    look(&client, ws, &b).await;
+    fact(&client, ws, "both a.rs and b.rs together").await; // F3
+
+    let out = create_claim(&client, ws, "both files define their function", "F1,F2").await;
+    let overlap = out["overlap"].as_array().expect("overlap must be an array");
+    let f3 = overlap.iter().find(|e| e["id"] == "F3").unwrap_or_else(|| panic!("F3 missing from overlap: {out}"));
+    let keys: Vec<&str> = f3["keys"].as_array().expect("keys must be an array").iter().map(|k| k.as_str().unwrap()).collect();
+    assert!(keys.iter().any(|k| k.ends_with("a.rs")), "F3 shares a.rs: {keys:?}");
+    assert!(keys.iter().any(|k| k.ends_with("b.rs")), "F3 shares b.rs too: {keys:?}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// No overlap still reports an empty array, and the create still
+/// succeeds — same invariant as the CLI's
+/// `no_overlap_reports_nothing_and_the_create_still_succeeds`.
+#[tokio::test]
+async fn overlap_report_over_mcp_is_empty_when_nothing_overlaps() {
+    let sb = Sandbox::new("mcp-overlap-none");
+    sb.write("only.rs", "fn only() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let only = sb.dir.join("only.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &only).await;
+    fact(&client, ws, "the only fact in this workspace").await; // F1
+
+    let out = create_claim(&client, ws, "only.rs defines only()", "F1").await;
+    assert_eq!(out["id"], "C1");
+    assert_eq!(out["action"], "created");
+    assert_eq!(out["overlap"].as_array().expect("overlap must be an array").len(), 0, "got: {out}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The whole point of TET-51: no `note` field anywhere on an overlap
+/// entry, over MCP either.
+#[tokio::test]
+async fn overlap_report_over_mcp_never_carries_a_note_field() {
+    let sb = Sandbox::new("mcp-overlap-no-note-leak");
+    sb.write("shared.rs", "fn shared() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let shared = sb.dir.join("shared.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &shared).await;
+    fact(&client, ws, "a wholly distinctive sentinel note nobody else would type by accident").await; // F1
+
+    look(&client, ws, &shared).await;
+    fact(&client, ws, "a second read of the same file").await; // F2
+
+    let out = create_claim(&client, ws, "shared.rs defines shared()", "F2").await;
+    let overlap = out["overlap"].as_array().expect("overlap must be an array");
+    let f1 = overlap.iter().find(|e| e["id"] == "F1").unwrap_or_else(|| panic!("F1 missing from overlap: {out}"));
+    assert!(f1.get("note").is_none(), "an overlap entry must never carry a note field: {f1}");
+    assert!(f1.get("keys").is_some(), "an overlap entry must carry its shared keys: {f1}");
+
+    client.cancel().await.expect("clean shutdown");
+}
