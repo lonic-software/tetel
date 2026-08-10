@@ -12,9 +12,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use crate::acks::AckEvent;
 use crate::citations::{
     abutting_context, citation_ids_in, normalize_literal, scan_citations, AbuttingContext, Citation,
 };
+use crate::claims::Claim as AckClaim;
 use crate::evidence::{EvidenceRecord, Source, Verdict};
 use crate::ledger::Claim;
 use crate::model::{Designator, Kind, Row, Status};
@@ -210,6 +212,23 @@ pub struct Findings {
     /// same as [`Findings::mint_windows`] — the prose history this reads
     /// lives only in the workspace's `prose.jsonl`.
     pub prose_revised_since_proof: Vec<ProseRevisedSinceProof>,
+    /// Blocks [`prose_revised_since_proof`] would otherwise have listed,
+    /// but for which some `tetel prose --ack` matches the check's own
+    /// recomputation — see [`prose_after_proof`] for exactly what
+    /// "matches" requires. Human-owed, never a failure: the residue's
+    /// own act, discharged by a human's own words rather than settled by
+    /// this tool. A filter over `prose_revised_since_proof`'s trigger,
+    /// never an input to it, so this can only ever shrink the other
+    /// list, never grow it.
+    pub prose_acknowledged: Vec<AcknowledgedBlock>,
+    /// `Some(message)` when the snapshot ships an `acks.jsonl` that
+    /// could not be parsed. A **machine failure** — unlike a corrupt
+    /// `prose.jsonl`, `compose::render` never reads this file, so
+    /// nothing else has already reddened provenance on its behalf; see
+    /// [`Findings::machine_check_failed`]. `None` covers both "no
+    /// `acks.jsonl` shipped" (an empty log, never an error — see
+    /// [`crate::workspace::read_jsonl`]) and "it parsed cleanly".
+    pub acks_unreadable: Option<String>,
 }
 
 impl Findings {
@@ -224,6 +243,7 @@ impl Findings {
             || !self.out_of_proof.is_empty()
             || !self.uncensused_targets.is_empty()
             || !self.unquoted_premises.is_empty()
+            || self.acks_unreadable.is_some()
             || self.provenance_failed()
     }
 
@@ -284,6 +304,37 @@ pub struct ProseRevisedSinceProof {
     /// never revised at all, and printing an empty string in that case
     /// would fabricate a reason nobody gave.
     pub why: Option<String>,
+}
+
+/// One prose block whose [`ProseRevisedSinceProof`] listing was
+/// discharged by a matching `tetel prose --ack`. See
+/// [`prose_after_proof`] for exactly what "matching" requires: the
+/// block's current text, citation list and every cited claim's current
+/// digest all equal to what the check recomputes, and the ack's own
+/// minting identity equal to the snapshot's own — no timestamp compared
+/// anywhere.
+pub struct AcknowledgedBlock {
+    pub block_id: String,
+    /// Same fill-in-by-caller convention as
+    /// [`ProseRevisedSinceProof::line`] — `None` rather than a
+    /// fabricated line number when the offset lookup misses.
+    pub line: Option<usize>,
+    /// The block's current citation list, printed beside the author's
+    /// reason so a reader can pair the two without re-opening the
+    /// document — see the non-coverage entry on why this is as far as
+    /// per-citation attribution goes.
+    pub cited: Vec<String>,
+    /// The *earliest* matching ack's timestamp. More than one ack can
+    /// match one block's current key at once (a repeat ack, or a second
+    /// ack after the first was itself superseded by an edit and then the
+    /// edit reverted); this is the moment the discharge was first made,
+    /// not the latest restatement of it, mirroring
+    /// `prose_after_proof`'s own use of the *earliest* event bearing a
+    /// block's current wording.
+    pub timestamp: u64,
+    /// The earliest matching ack's own verbatim reason. Never a
+    /// paraphrase, same rule as [`ProseRevisedSinceProof::why`].
+    pub why: String,
 }
 
 /// A prose block is listed when it is a paragraph (not a heading), it
@@ -411,11 +462,34 @@ pub struct ProseRevisedSinceProof {
 /// wording — the safe direction for a check that is silent by default (see
 /// `report::render`'s preamble on this check's own clock caveat) — rather
 /// than over-report by trusting a timestamp the record never promised.
+///
+/// # Acknowledgement is a filter over this trigger, never an input to it
+///
+/// `acks` and `ack_claims` exist only to *discharge* an entry this
+/// function would otherwise have produced — they can never manufacture
+/// one. The trigger above (text/citation pair postdating the anchor) is
+/// computed exactly as it always was; only afterwards, for a block that
+/// trigger already listed, is a match against `acks` attempted, and a
+/// match moves the entry from the first returned partition to the
+/// second rather than dropping it.
+///
+/// A match requires the ack's `block`, `text` and `cite` to equal the
+/// block's current ones, its `digests` to equal one sha256 digest per
+/// entry of the current `cite` — taken over each claim's proposition
+/// **as `ack_claims` holds it**, deliberately not `claims` above, see
+/// [`crate::acks`]'s module doc comment — and its `identity` to equal
+/// `ack_identity`, the snapshot's own. All four are pure equality over
+/// recomputed values; no timestamp is compared. When more than one ack
+/// matches, the *earliest* is used, mirroring this function's own use of
+/// the earliest event bearing a block's current wording.
 pub fn prose_after_proof(
     prose_events: &[ProseEvent],
     claims: &[Claim],
     evidence: &[EvidenceRecord],
-) -> Vec<ProseRevisedSinceProof> {
+    acks: &[AckEvent],
+    ack_claims: &[AckClaim],
+    ack_identity: Option<&str>,
+) -> (Vec<ProseRevisedSinceProof>, Vec<AcknowledgedBlock>) {
     // Per claim, the earliest in-proof record: its timestamp and the
     // pass that wrote it. A claim absent from this map has no first
     // proof — either ungrounded, out of proof, graded only by a
@@ -515,7 +589,16 @@ pub fn prose_after_proof(
         }
     }
 
-    let mut out = Vec::new();
+    // Digest per claim id, taken over the proposition as `ack_claims`
+    // (claims.jsonl) holds it — deliberately a *different* map from
+    // `first_proof` above, which digests `claims`' (ledger-derived)
+    // propositions. See this function's doc comment and `crate::acks`'s
+    // module doc comment for why the two must not be conflated.
+    let ack_digest: HashMap<&str, String> =
+        ack_claims.iter().map(|c| (c.id.as_str(), crate::evidence::sha256_hex(&c.prop))).collect();
+
+    let mut listed = Vec::new();
+    let mut acknowledged = Vec::new();
     for id in &order {
         let Some(h) = blocks.get(id) else { continue };
         if h.heading {
@@ -551,10 +634,46 @@ pub fn prose_after_proof(
             .expect("the current version is always a member of its own history");
 
         if block_timestamp > anchor {
-            out.push(ProseRevisedSinceProof { block_id: id.clone(), line: None, cited, block_timestamp, why });
+            // Try to discharge via a matching ack before listing — see
+            // this function's doc comment on what "matching" requires.
+            // `recomputed_digests` is `None` the moment any current
+            // citation fails to resolve against `ack_claims`, which
+            // makes a match impossible (as it must be: `acks::create`
+            // itself refuses to mint an ack for a block citing an id
+            // `claims.jsonl` cannot resolve, so no real ack could ever
+            // carry a digest for one anyway).
+            let recomputed_digests: Option<Vec<String>> =
+                cur_cite.iter().map(|cid| ack_digest.get(cid.as_str()).cloned()).collect();
+            let matched = recomputed_digests.as_ref().and_then(|digests| {
+                acks.iter()
+                    .filter(|a| {
+                        a.block == *id
+                            && a.text == *cur_text
+                            && a.cite == *cur_cite
+                            && a.digests == *digests
+                            && ack_identity.is_some_and(|snap_id| a.identity == snap_id)
+                    })
+                    .min_by_key(|a| a.timestamp)
+            });
+            match matched {
+                Some(a) => acknowledged.push(AcknowledgedBlock {
+                    block_id: id.clone(),
+                    line: None,
+                    cited: cur_cite.clone(),
+                    timestamp: a.timestamp,
+                    why: a.why.clone(),
+                }),
+                None => listed.push(ProseRevisedSinceProof {
+                    block_id: id.clone(),
+                    line: None,
+                    cited,
+                    block_timestamp,
+                    why,
+                }),
+            }
         }
     }
-    out
+    (listed, acknowledged)
 }
 
 fn covers(extent: &[Designator], d: &Designator) -> bool {
@@ -909,6 +1028,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         out_of_proof: Vec::new(),
         superseded_evidence: Vec::new(),
         prose_revised_since_proof: Vec::new(),
+        prose_acknowledged: Vec::new(),
+        acks_unreadable: None,
     }
 }
 
@@ -1815,7 +1936,7 @@ status: VERIFIED
         let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
         let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(
             out.len(),
             1,
@@ -1851,7 +1972,7 @@ status: VERIFIED
             revise_ev("P1", "Body text that never changes.", Some(&["C1"]), 150),
         ];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(
             out.len(),
             1,
@@ -1872,9 +1993,141 @@ not silenced"
         let evidence = vec![a_record_at("C1", "k1", "the wording", 50)];
         let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 100)];
 
-        let out = prose_after_proof(&prose, &claims, &evidence);
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].cited, vec![("C1".to_string(), 50, "k1".to_string())], "C2 has no first proof and must not appear");
+    }
+
+    // --- TET-61: acknowledgement -------------------------------------
+
+    fn an_ack_claim(id: &str, prop: &str) -> AckClaim {
+        AckClaim { id: id.to_string(), prop: prop.to_string(), from: vec![], withdrawn: false, revisions: 0 }
+    }
+
+    fn an_ack(block: &str, text: &str, cite: &[&str], digests: &[&str], identity: &str, why: &str, ts: u64) -> AckEvent {
+        AckEvent {
+            block: block.to_string(),
+            text: text.to_string(),
+            cite: cite.iter().map(|s| s.to_string()).collect(),
+            digests: digests.iter().map(|s| s.to_string()).collect(),
+            identity: identity.to_string(),
+            why: why.to_string(),
+            timestamp: ts,
+        }
+    }
+
+    /// The baseline positive case: an ack whose block, text, citations,
+    /// digests and identity all equal what the check recomputes moves the
+    /// entry from the listed partition to the acknowledged one, and the
+    /// acknowledged entry carries the block's cited ids and the ack's own
+    /// verbatim reason.
+    #[test]
+    fn a_matching_ack_discharges_the_listing() {
+        let claim = a_claim("C1", "the wording");
+        let ack_claim = an_ack_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&digest], "ws-1", "re-read, still accurate", 250)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &[ack_claim], Some("ws-1"));
+        assert!(listed.is_empty(), "a matching ack must clear the listed partition: {:?}", listed.iter().map(|l| l.block_id.clone()).collect::<Vec<_>>());
+        assert_eq!(acknowledged.len(), 1);
+        assert_eq!(acknowledged[0].block_id, "P1");
+        assert_eq!(acknowledged[0].cited, vec!["C1".to_string()]);
+        assert_eq!(acknowledged[0].why, "re-read, still accurate");
+        assert_eq!(acknowledged[0].timestamp, 250);
+    }
+
+    /// An ack whose minting identity does not match the snapshot's own is
+    /// void rather than honoured — see C4/C8 in the design memo: nothing
+    /// binds a rendered memo to the workspace that produced it, so a
+    /// stale ack log copied in from elsewhere must not suppress.
+    #[test]
+    fn an_ack_from_a_different_identity_does_not_suppress() {
+        let claim = a_claim("C1", "the wording");
+        let ack_claim = an_ack_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&digest], "someone-elses-workspace", "re-read, fine", 250)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &[ack_claim], Some("this-snapshots-identity"));
+        assert_eq!(listed.len(), 1, "identity mismatch must not suppress");
+        assert!(acknowledged.is_empty());
+    }
+
+    /// Invariant (i) from the design memo's C10: the ack's key includes
+    /// the block's citation list, not just its text, so a later
+    /// citation-only revision voids an ack minted against the earlier
+    /// citation set — even when the two claims happen to share the exact
+    /// same proposition text (and therefore the same digest), which is
+    /// what makes this test able to catch a predicate weakened to ignore
+    /// `cite` while still checking `digests`: C1 and C2 are given
+    /// identical propositions on purpose, so a digest-only comparison
+    /// cannot tell the citation swap apart from no change at all.
+    ///
+    /// Mutation to redden this test: drop `a.cite == *cur_cite` from the
+    /// match predicate in `prose_after_proof`.
+    #[test]
+    fn ack_keyed_on_text_alone_would_survive_a_citation_only_revision() {
+        let claims = vec![a_claim("C1", "shared text"), a_claim("C2", "shared text")];
+        let ack_claims = vec![an_ack_claim("C1", "shared text"), an_ack_claim("C2", "shared text")];
+        let evidence = vec![a_record_at("C1", "k1", "shared text", 5), a_record_at("C2", "k2", "shared text", 15)];
+        let digest = crate::evidence::sha256_hex("shared text");
+        let prose = vec![
+            create_ev("P1", "Body.", &["C1"], 10),
+            // The ack matches this original (text, cite=[C1]) pair.
+            revise_ev_why("P1", "Body.", "repoint citation", Some(&["C2"]), 20),
+        ];
+        let acks = vec![an_ack("P1", "Body.", &["C1"], &[&digest], "ws-1", "read against C1, fine", 11)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &claims, &evidence, &acks, &ack_claims, Some("ws-1"));
+        assert_eq!(
+            listed.len(),
+            1,
+            "a citation-only revision must void the old ack and stay listed, not be silently \
+suppressed by an ack keyed on text alone: acknowledged = {:?}",
+            acknowledged.iter().map(|a| a.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert!(acknowledged.is_empty());
+    }
+
+    /// Invariant (ii) from the design memo's C10: the ack's key includes
+    /// a digest per cited claim, so a later rewrite of a cited claim's
+    /// proposition voids an ack minted against the earlier wording — even
+    /// though the block's own text and citation *list* (the id `C1`) are
+    /// unchanged. `claims` (the ledger list the trigger's own anchor
+    /// calculation reads) is held constant across both sides so only the
+    /// digest recomputation moves — isolating exactly the property this
+    /// invariant is about.
+    ///
+    /// Mutation to redden this test: drop `a.digests == *digests` from
+    /// the match predicate in `prose_after_proof`.
+    #[test]
+    fn ack_keyed_without_digests_would_survive_a_rewrite_of_the_cited_claim() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let old_digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&old_digest], "ws-1", "read against the old wording", 250)];
+        // claims.jsonl's own C1 has since been rewritten to a different
+        // proposition — the ack's digest was taken over the old wording.
+        let ack_claims = vec![an_ack_claim("C1", "a completely different wording")];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &ack_claims, Some("ws-1"));
+        assert_eq!(
+            listed.len(),
+            1,
+            "a rewritten cited claim must void the old ack and stay listed, not be silently \
+suppressed by an ack keyed on text and citations alone: acknowledged = {:?}",
+            acknowledged.iter().map(|a| a.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert!(acknowledged.is_empty());
     }
 
     /// No evidence ledger at all: no cited claim is in proof, so there is
@@ -1884,7 +2137,7 @@ not silenced"
     fn nothing_listed_with_no_evidence() {
         let claim = a_claim("C1", "the wording");
         let prose = vec![create_ev("P1", "Rests on C1, ungrounded.", &["C1"], 100)];
-        assert!(prose_after_proof(&prose, &[claim], &[]).is_empty());
+        assert!(prose_after_proof(&prose, &[claim], &[], &[], &[], None).0.is_empty());
     }
 
     /// A paragraph that cites nothing is never listed. Note this guard
@@ -1901,7 +2154,7 @@ not silenced"
         let claim = a_claim("C1", "the wording");
         let evidence = vec![a_record_at("C1", "k1", "the wording", 10)];
         let prose = vec![create_ev("P2", "Cites nothing at all.", &[], 999)];
-        assert!(prose_after_proof(&prose, &[claim], &evidence).is_empty());
+        assert!(prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0.is_empty());
     }
 
     /// Headings are excluded by their own guard (`if h.heading {
@@ -1926,7 +2179,7 @@ not silenced"
             before: None,
             timestamp: 999,
         };
-        assert!(prose_after_proof(&[heading_with_cite], &[claim], &evidence).is_empty());
+        assert!(prose_after_proof(&[heading_with_cite], &[claim], &evidence, &[], &[], None).0.is_empty());
     }
 
     /// The first refutation this design records: `prose.jsonl` is
@@ -1943,7 +2196,7 @@ not silenced"
             revise_ev("P1", "Fix-round rewrite.", None, 150),  // after — would be listed
             revise_ev("P1", "Original wording.", None, 300),   // byte-exact revert
         ];
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert!(
             out.is_empty(),
             "a revert to the pre-settlement wording must clear the listing, block timestamps: {:?}",
@@ -1969,7 +2222,7 @@ not silenced"
             vec![a_record_at("C1", "k1", "wording one", 100), a_record_at("C2", "k2", "wording two", 200)];
         let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 150)];
 
-        let out = prose_after_proof(&prose, &claims, &evidence);
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
         assert!(
             out.is_empty(),
             "the block is not anchored until every in-proof citation has settled — C2 settles \
@@ -1994,7 +2247,7 @@ after this block was written, so this must not be listed: {:?}",
         ];
         let prose = vec![create_ev("P1", "Rests on C1.", &["C1"], 100)];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(out.len(), 1, "written after the claim's earliest in-proof record, must be listed");
         assert_eq!(
             out[0].cited,
@@ -2023,7 +2276,7 @@ after this block was written, so this must not be listed: {:?}",
         let evidence = vec![a_record_at_verdict("C1", "k1", "the wording", 100, Verdict::Refutes)];
         let prose = vec![create_ev("P1", "Rests only on C1.", &["C1"], 200)];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert!(
             out.is_empty(),
             "a claim graded only by a refutation must have no first proof to anchor on \
@@ -2058,7 +2311,7 @@ after this block was written, so this must not be listed: {:?}",
         ];
         let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 300)];
 
-        let out = prose_after_proof(&prose, &claims, &evidence);
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
         assert_eq!(
             out.len(),
             1,
@@ -2108,7 +2361,7 @@ C1's real proof, got {:?}",
             550,
         )];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert!(
             out.is_empty(),
             "the block (t=550) predates the only record that actually grades the current \
@@ -2128,7 +2381,7 @@ got {:?}",
         let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
         let prose = vec![create_ev("P1", "Rests on C1.", &["C1"], 100)];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert!(
             out.is_empty(),
             "a block timestamped exactly at its anchor must not be listed, got {} entries",
@@ -2154,7 +2407,7 @@ got {:?}",
             revise_ev("P1", "Rewritten wording.", None, 150),  // text only; cite carried forward
         ];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(
             out.len(),
             1,
@@ -2177,7 +2430,7 @@ since it postdates C1's settlement"
             revise_ev_why("P1", "Rewritten wording.", "tightened the claim after review", None, 150),
         ];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].why.as_deref(), Some("tightened the claim after review"));
     }
@@ -2191,7 +2444,7 @@ since it postdates C1's settlement"
         let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
         let prose = vec![create_ev("P1", "Never revised.", &["C1"], 200)];
 
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].why, None, "a Create has no why; the field must not be fabricated");
     }
@@ -2211,7 +2464,7 @@ since it postdates C1's settlement"
             create_ev("P1", "First create.", &["C1"], 10),
             create_ev("P1", "Second create (duplicate id).", &["C1"], 200),
         ];
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         assert_eq!(
             out.len(),
             1,
@@ -2246,7 +2499,7 @@ since it postdates C1's settlement"
                 timestamp: 100,
             },
         ];
-        let out = prose_after_proof(&prose, &[claim], &evidence);
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
         let ids: Vec<&str> = out.iter().map(|o| o.block_id.as_str()).collect();
         assert_eq!(ids, vec!["P2", "P1"], "must follow document order (P2 before P1), not authoring order");
     }

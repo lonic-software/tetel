@@ -274,9 +274,16 @@ enum Command {
         /// Revise this block's text instead of creating a new one.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
-        /// Required with `--revise`: why. Literal text, `-` for stdin,
-        /// or `@file`. Backticks in the text must come via `-` or
-        /// `@file`, never inline — the shell eats them first.
+        /// Acknowledge this block's *current* text and citations against
+        /// the claims they cite, discharging a `prose-revised-since-proof`
+        /// listing for it — see the design memo for what "discharging"
+        /// means and does not mean. Requires `--why`; refuses `--text`,
+        /// `--revise`, `--heading`, `--level`, `--cites` and `--before`.
+        #[arg(long, value_name = "ID")]
+        ack: Option<String>,
+        /// Required with `--revise` or `--ack`: why. Literal text, `-`
+        /// for stdin, or `@file`. Backticks in the text must come via
+        /// `-` or `@file`, never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
@@ -770,7 +777,7 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
             }
         }
-        Command::Prose { text, heading, level, cites: cite, before, revise, why } => {
+        Command::Prose { text, heading, level, cites: cite, before, revise, why, ack } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
                 Err(e) => {
@@ -779,7 +786,34 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
             };
 
-            let req = if let Some(id) = revise {
+            // Checked *first*, ahead of `revise`/`heading`/the paragraph
+            // fallback: none of those three read `text` without falling
+            // back to stdin on `None`, and an `--ack` invocation never
+            // supplies `--text`. Putting this branch anywhere else would
+            // let an ack with no `--text` reach `resolve_text_or_stdin`
+            // and block waiting on stdin that was never coming. The other
+            // five flags are forwarded raw (cloned, so the later branches
+            // still see them if this one isn't taken) purely so
+            // `dispatch` can refuse each by name if combined with `--ack`.
+            let req = if let Some(id) = ack {
+                let why = match &why {
+                    Some(raw) => match resolve_text(&workspace_dir, "prose", "--why", raw) {
+                        Ok(s) => Some(s),
+                        Err(code) => return code,
+                    },
+                    None => None,
+                };
+                tetel::prose::ProseRequest::Ack {
+                    id,
+                    why,
+                    text: text.clone(),
+                    revise: revise.clone(),
+                    heading: heading.clone(),
+                    level,
+                    cites: cite.clone(),
+                    before: before.clone(),
+                }
+            } else if let Some(id) = revise {
                 let why = match &why {
                     Some(raw) => match resolve_text(&workspace_dir, "prose", "--why", raw) {
                         Ok(s) => Some(s),
@@ -815,6 +849,10 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
                 Ok(tetel::prose::ProseOutcome::Created(block)) => {
                     println!("{} appended.", block.id);
+                    ExitCode::from(0)
+                }
+                Ok(tetel::prose::ProseOutcome::Acked { id }) => {
+                    println!("{id} acknowledged.");
                     ExitCode::from(0)
                 }
                 Err(e) => {

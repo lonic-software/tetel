@@ -132,7 +132,7 @@ Two labelled partitions, each stating its own scope, and **never a single docume
 - **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
   citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof,
   modification targets whose census does not hold up against the snapshot, transplant premises that
-  are not the donor's words or that nothing answers, and provenance drift
+  are not the donor's words or that nothing answers, an unreadable acknowledgement log, and provenance drift
   between a document and its own snapshot. These fail the run.
 - **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
   was graded by the workspace that authored it or an independent one, notes reaching past their

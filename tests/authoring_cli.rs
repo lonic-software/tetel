@@ -85,6 +85,10 @@ impl Sandbox {
     fn prose_jsonl(&self) -> String {
         std::fs::read_to_string(self.state_home().join("workspaces/default/prose.jsonl")).unwrap_or_default()
     }
+
+    fn acks_jsonl(&self) -> String {
+        std::fs::read_to_string(self.state_home().join("workspaces/default/acks.jsonl")).unwrap_or_default()
+    }
 }
 
 impl Drop for Sandbox {
@@ -1757,6 +1761,303 @@ fn check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently() {
     assert!(
         combined.contains("could not be rendered from"),
         "the specific reason (unreadable) must be named:\n{combined}"
+    );
+}
+
+// --- TET-61: a residue-scoped acknowledgement for prose-revised-since-proof
+
+/// Same construction as `check_lists_a_paragraph_rewritten_after_its_claim_settled`:
+/// ground a claim, then rewrite the paragraph that cites it in a way
+/// that touches no claim (a fix-round rewrite) — the shape
+/// `prose-revised-since-proof` lists, and `--ack` exists to discharge.
+/// Returns the rendered memo's path with `P1` listed and its snapshot
+/// on disk.
+fn a_listed_paragraph_memo(sb: &Sandbox) -> PathBuf {
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha(), written before grounding.");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, _out, err) = sb.run(&["record", memo.to_str().unwrap(), "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    assert_eq!(code, 0, "grounding C1 must succeed: {err}");
+
+    // Whole seconds separate "claim settles" from "prose is rewritten",
+    // same reason `check_lists_a_paragraph_rewritten_after_its_claim_settled`
+    // sleeps here.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    sb.run(&[
+        "prose",
+        "--revise",
+        "P1",
+        "--why",
+        "fix-round rewrite, no claim touched",
+        "--text",
+        "Defines alpha(), rewritten after grounding.",
+    ]);
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+    memo
+}
+
+/// The end-to-end discharge: acknowledging the listed block moves it out
+/// of `prose-revised-since-proof` and into its own collapsed bullet,
+/// with the block's line, the acknowledgement's own timestamp, its
+/// verbatim reason and the block's cited claim ids — see C7/C18 in the
+/// design memo.
+#[test]
+fn check_ack_moves_a_listed_block_to_the_acknowledged_bullet() {
+    let sb = Sandbox::new("ack-discharges");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "human-owed before the ack, not a machine failure:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled (entries below)"),
+        "must be listed before the ack:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1)"), "the listed entry must name P1:\n{combined}");
+
+    let (code, out, err) = sb.run(&["prose", "--ack", "P1", "--why", "re-read against C1, still accurate"]);
+    assert_eq!(code, 0, "the ack itself must succeed:\n{out}{err}");
+    assert!(out.contains("P1 acknowledged."), "got: {out}");
+
+    // Invisible until the next render — the ack is minted after the
+    // memo's last snapshot, exactly the NON_COVERAGE entry says.
+    let (code, report, _err) = sb.run(&["check", m]);
+    assert_eq!(code, 0);
+    assert!(
+        report.contains("prose revised after the claims it cites settled (entries below)")
+            && report.contains("P1 (line 1)")
+            && !report.contains("prose acknowledged after the claims it cites settled"),
+        "the ack must not suppress anything until the memo is re-rendered:\n{report}"
+    );
+
+    sb.run(&["render", "--out", m]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "acknowledging must not touch the machine partition:\n{combined}");
+    assert!(
+        !combined.contains("prose revised after the claims it cites settled (entries below)"),
+        "P1 was the only listed block, so the whole section must clear once acknowledged:\n{combined}"
+    );
+    assert!(
+        combined.contains("prose acknowledged after the claims it cites settled"),
+        "the discharge must be printed under its own collapsed bullet:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1): acknowledged"), "got:\n{combined}");
+    assert!(
+        combined.contains("acknowledged because: \"re-read against C1, still accurate\""),
+        "the author's own reason must be printed verbatim:\n{combined}"
+    );
+    assert!(combined.contains("cites [C1]"), "the block's cited ids must be printed beside the reason:\n{combined}");
+}
+
+/// C13/C21: an acknowledgement must never change the rendered document's
+/// bytes — only the snapshot beside it. Re-rendering after an ack and
+/// nothing else is a change to the record with no change to the
+/// argument.
+#[test]
+fn render_output_is_byte_identical_before_and_after_an_ack() {
+    let sb = Sandbox::new("ack-render-identical");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+    let before = std::fs::read_to_string(m).unwrap();
+
+    sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    sb.run(&["render", "--out", m]);
+    let after = std::fs::read_to_string(m).unwrap();
+
+    assert_eq!(before, after, "an ack must never change the rendered document's bytes");
+    assert!(
+        sb.dir.join("memo.md.tetel").join("acks.jsonl").is_file(),
+        "the snapshot itself must change: acks.jsonl now ships beside the memo"
+    );
+}
+
+#[test]
+fn ack_refuses_a_nonexistent_block() {
+    let sb = Sandbox::new("ack-no-block");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P99", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("no such prose block: P99"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty(), "a refused ack must not be logged");
+}
+
+#[test]
+fn ack_refuses_a_heading() {
+    let sb = Sandbox::new("ack-heading");
+    sb.run(&["prose", "--heading", "Intro", "--level", "1"]);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("it is a heading"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_refuses_an_uncited_block() {
+    let sb = Sandbox::new("ack-uncited");
+    sb.run_stdin(&["prose"], "Cites nothing at all.");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("it cites nothing"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+/// Prose creation is deliberately ungated (see prose.rs's module doc
+/// comment), so a paragraph can cite a claim id that was never minted.
+/// The ack's key needs a digest per cited claim, and an unresolvable id
+/// has none — so minting the ack itself must refuse, unlike creating the
+/// paragraph.
+#[test]
+fn ack_refuses_a_citation_that_does_not_resolve_to_a_claim() {
+    let sb = Sandbox::new("ack-bad-citation");
+    sb.run_stdin(&["prose", "--cites", "C99"], "Cites a claim that was never minted.");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("C99") && err.contains("not a claim in this workspace"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_requires_why_to_be_present() {
+    let sb = Sandbox::new("ack-no-why");
+    let _memo = one_claim_memo(&sb);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("prose --ack requires --why"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_refuses_an_empty_why() {
+    let sb = Sandbox::new("ack-empty-why");
+    let _memo = one_claim_memo(&sb);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "   "]);
+    assert_ne!(code, 0);
+    assert!(err.contains("acknowledgements must explain themselves"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+/// C12: the ack mode must refuse all six other mode-bearing flags rather
+/// than silently discard whichever was also given — the same shape as
+/// the defect this crate already had to fix once for `--cites` alongside
+/// `--revise`. `--level` is tested standalone (no `--heading`), which is
+/// the case an enumeration written against the MCP shape (a single
+/// `heading_level` field folding selector and value) would miss — see
+/// `mcp_combined_flag` tests for the MCP-side half of this.
+#[test]
+fn ack_refuses_being_combined_with_each_of_the_six_other_mode_flags() {
+    let sb = Sandbox::new("ack-combined-flags");
+    let _memo = one_claim_memo(&sb);
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--text", "something"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --text"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--revise", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --revise"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--heading", "Intro"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --heading"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--level", "2"]);
+    assert_ne!(code, 0, "a standalone --level with no --heading must still be refused");
+    assert!(err.contains("cannot be combined with --level"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--cites", "C1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --cites"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--before", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --before"), "stderr: {err}");
+
+    assert!(sb.acks_jsonl().is_empty(), "none of the six refusals may have minted an ack");
+}
+
+/// An ack with no `--text` must never block on stdin: the CLI's
+/// `--ack` branch must be checked ahead of `--revise`/the paragraph
+/// fallback, both of which fall back to reading stdin when `text` is
+/// absent (see the design memo's C12). `sb.run` supplies no stdin, so a
+/// misordered chain that fell through to the paragraph arm would either
+/// hang or (since this test harness closes/empties the child's stdin)
+/// silently mint a garbage empty paragraph and print "P2 appended."
+/// instead of acknowledging anything — this test's assertion on the
+/// exact printed line catches that regardless of which happens.
+#[test]
+fn ack_with_no_text_never_reads_stdin() {
+    let sb = Sandbox::new("ack-no-text-no-stdin");
+    let _memo = one_claim_memo(&sb);
+    let (code, out, err) = sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    assert_eq!(code, 0, "stderr: {err}");
+    assert_eq!(out.trim(), "P1 acknowledged.", "got: {out}");
+    assert_eq!(sb.prose_jsonl().lines().count(), 1, "no stray paragraph must have been created");
+}
+
+/// C10(iii): a memo whose snapshot carries no `acks.jsonl` — every memo
+/// rendered before this design, and every memo whose author never
+/// acknowledged anything — reports exactly what it reported before this
+/// design existed. Paired with `an_unreadable_acks_jsonl_reddens_the_machine_partition`
+/// below: together they show a missing file is an empty log and a
+/// present-but-corrupt one is a machine failure, never the same thing.
+#[test]
+fn a_memo_with_no_acks_jsonl_at_all_checks_exactly_as_before_this_design() {
+    let sb = Sandbox::new("no-acks-file");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    assert!(
+        !sb.dir.join("memo.md.tetel").join("acks.jsonl").exists(),
+        "this design must never write acks.jsonl on its own"
+    );
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "a missing acks.jsonl must never be a machine failure:\n{combined}");
+    assert!(!combined.contains("[ack-log-unreadable]"), "got:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled"),
+        "the pre-existing residue must still print, unaffected by this design:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1)"), "got:\n{combined}");
+}
+
+/// C11: unlike a corrupt `prose.jsonl` (already caught, loudly, by
+/// provenance drift before `prose_after_proof` ever runs — see
+/// `check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently`
+/// above), `compose::render` never reads `acks.jsonl`, so nothing else
+/// here has already reddened the report on its behalf. An unreadable
+/// acknowledgement log must therefore fail the machine partition on its
+/// own.
+#[test]
+fn an_unreadable_acks_jsonl_reddens_the_machine_partition_on_its_own() {
+    let sb = Sandbox::new("corrupted-acks-jsonl");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    sb.run(&["render", "--out", m]);
+
+    let acks_log = sb.dir.join("memo.md.tetel").join("acks.jsonl");
+    assert!(acks_log.is_file(), "the snapshot must ship the ack log once rendered");
+    let mut existing = std::fs::read_to_string(&acks_log).unwrap();
+    existing.push_str("THIS IS NOT VALID JSON\n");
+    std::fs::write(&acks_log, existing).unwrap();
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "a corrupt acks.jsonl must redden the machine partition on its own:\n{combined}");
+    assert!(combined.contains("[ack-log-unreadable]"), "got:\n{combined}");
+    assert!(
+        !combined.contains("[provenance-drift]"),
+        "acks.jsonl is never read by render, so this must not surface as drift:\n{combined}"
     );
 }
 

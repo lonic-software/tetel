@@ -352,7 +352,11 @@ struct ProseParams {
     workspace: String,
     /// The block's text. Plain text — no shell involved, so backticks,
     /// quotes and embedded newlines all pass through byte-exact.
-    text: String,
+    /// Required for a create or a revise; omit only with `ack`, which
+    /// carries none — the server refuses in code, rather than at the
+    /// schema, when it is missing and the call is not an `ack`.
+    #[serde(default)]
+    text: Option<String>,
     /// Mint a heading instead of a paragraph, at this markdown depth
     /// (1..=6).
     #[serde(default)]
@@ -374,9 +378,16 @@ struct ProseParams {
     /// Revise this existing block's text instead of creating a new one.
     #[serde(default)]
     revise: Option<String>,
-    /// Required with `revise`: why.
+    /// Required with `revise` or `ack`: why.
     #[serde(default)]
     why: Option<String>,
+    /// Acknowledge this existing block's *current* text and citations
+    /// against the claims they cite, instead of creating or revising —
+    /// see the `prose --ack` design memo. Requires `why`; refused if
+    /// combined with `text`, `revise`, `heading_level`, `cites` or
+    /// `before`.
+    #[serde(default)]
+    ack: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -732,19 +743,52 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Append a paragraph or heading to the document's prose, or `revise` an existing block. Write this as soon as a claim exists to say something about — don't defer prose to a writing phase at the end. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
+    #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block whose current text and citations you re-read against the claims they cite and found nothing to change (requires `why`; discharges a `prose-revised-since-proof` finding for it, and refuses if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
-        let req = if let Some(id) = p.revise {
-            prose::ProseRequest::Revise { id, text: p.text, why: p.why, cite: p.cites }
-        } else if let Some(level) = p.heading_level {
-            prose::ProseRequest::Heading { text: p.text, level: Some(level), before: p.before }
+        let req = if let Some(id) = p.ack {
+            // `heading` has no MCP-side equivalent to refuse independently
+            // of `text`: unlike the CLI, this schema has no separate
+            // heading-text field, so a heading create/revise's text
+            // already lands in `p.text` and is caught by that check
+            // alone. `heading_level` stands in for the CLI's `--level`
+            // here, which is exactly the flag an enumeration written
+            // against this shape alone would miss (see `dispatch`'s doc
+            // comment).
+            prose::ProseRequest::Ack {
+                id,
+                why: p.why,
+                text: p.text,
+                revise: p.revise,
+                heading: None,
+                level: p.heading_level,
+                cites: p.cites,
+                before: p.before,
+            }
         } else {
-            prose::ProseRequest::Paragraph { text: p.text, cite: p.cites, before: p.before }
+            // The schema no longer requires `text` (an `ack` carries
+            // none), so its absence for every other mode is refused here,
+            // in code, rather than by deserialisation — see `ProseParams`
+            // and the design memo on why that move is load-bearing.
+            let Some(text) = p.text else {
+                return Ok(refusal(
+                    "prose",
+                    &p.workspace,
+                    workspace::refuse(&dir, "prose", "prose requires text (omit it only with `ack`)"),
+                ));
+            };
+            if let Some(id) = p.revise {
+                prose::ProseRequest::Revise { id, text, why: p.why, cite: p.cites }
+            } else if let Some(level) = p.heading_level {
+                prose::ProseRequest::Heading { text, level: Some(level), before: p.before }
+            } else {
+                prose::ProseRequest::Paragraph { text, cite: p.cites, before: p.before }
+            }
         };
         match prose::dispatch(&dir, req) {
             Ok(prose::ProseOutcome::Created(b)) => Ok(CallToolResult::structured(json!({"id": b.id, "action": "appended"}))),
             Ok(prose::ProseOutcome::Revised { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "revised"}))),
+            Ok(prose::ProseOutcome::Acked { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "acknowledged"}))),
             Err(e) => Ok(refusal("prose", &p.workspace, e)),
         }
     }
@@ -850,7 +894,7 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), claims out of proof (every record grades a wording the claim no longer carries), and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, refusals recorded in a fact's own mint window, which working trees the facts were taken against when one tree was seen in more than one state, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
+    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), claims out of proof (every record grades a wording the claim no longer carries), an unreadable acknowledgement log, and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, refusals recorded in a fact's own mint window, which working trees the facts were taken against when one tree was seen in more than one state, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
         match crate::check_file(&resolved(&p.file)) {
             Ok((code, report)) => {

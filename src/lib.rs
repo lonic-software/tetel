@@ -35,6 +35,7 @@
 //! command the *author* types, in the author's own session, and is the
 //! only process this crate spawns besides `git` for a tree marker.
 
+pub mod acks;
 pub mod brief;
 pub mod buildid;
 pub mod checks;
@@ -167,6 +168,20 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         // TET-32 that does not depend on the author having read a line
         // at the terminal.
         findings.mint_windows = facts::mint_windows(&snapshot_dir);
+        // Acknowledgements: read once, both for the machine-check
+        // disjunct below and to filter `prose_after_proof`'s listing.
+        // Unlike `prose.jsonl`, `compose::render` never reads this file
+        // (see `acks.rs`'s module doc comment), so a corrupt
+        // `acks.jsonl` has not already reddened provenance the way a
+        // corrupt `prose.jsonl` has (see the comment on the `if let
+        // Ok(prose_events)` block below) — it must be reported here or
+        // not at all.
+        let acks_read = acks::load_all(&snapshot_dir);
+        if let Err(e) = &acks_read {
+            findings.acks_unreadable = Some(e.to_string());
+        }
+        let acks_list = acks_read.unwrap_or_default();
+
         // Prose blocks whose text (or citations) postdate the settling
         // of what they cite. Read `prose.jsonl` directly rather than via
         // `prose::load_all`, which discards every timestamp — see
@@ -175,7 +190,11 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         // is the same claim list already handed to `analyze_ledger`
         // above, imported from the rendered document, which is what
         // every `proposition_digest` on record was actually computed
-        // over.
+        // over. `ack_claims`/`ack_identity`, by contrast, deliberately
+        // *are* the snapshot's own `claims.jsonl` and `identity.json` —
+        // the source an acknowledgement's own digests and identity were
+        // computed against; see `checks::prose_after_proof`'s doc
+        // comment and `crate::acks`.
         // `if let Ok(...)` here — silently skipping a `prose.jsonl` that
         // exists but fails to parse — is *not* the silent-drop shape
         // `checks::prose_after_proof`'s own doc comment warns against
@@ -198,7 +217,16 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         if let Ok(prose_events) =
             workspace::read_jsonl::<prose::ProseEvent>(&snapshot_dir.join("prose.jsonl"))
         {
-            let mut listed = checks::prose_after_proof(&prose_events, &ledger.claims, &evidence_records);
+            let ack_claims = claims::load_all(&snapshot_dir).unwrap_or_default();
+            let ack_identity = workspace::identity_of(&snapshot_dir);
+            let (mut listed, mut acknowledged) = checks::prose_after_proof(
+                &prose_events,
+                &ledger.claims,
+                &evidence_records,
+                &acks_list,
+                &ack_claims,
+                ack_identity.as_deref(),
+            );
             // The line each block's text begins on in the rendered
             // document — from the one function that describes the
             // block-to-line correspondence, so this can't drift from
@@ -207,8 +235,12 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
                 for item in &mut listed {
                     item.line = offsets.get(&item.block_id).copied();
                 }
+                for item in &mut acknowledged {
+                    item.line = offsets.get(&item.block_id).copied();
+                }
             }
             findings.prose_revised_since_proof = listed;
+            findings.prose_acknowledged = acknowledged;
         }
     }
     // A rendered target row with no snapshot behind it cannot be graded

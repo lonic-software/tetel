@@ -103,6 +103,20 @@ citations, so the earlier-settled one is never compared against the wording on i
 co-cited claim that keeps being revised and re-entering proof keeps raising the anchor, and \
 whether the wording was ever actually examined against the earlier-settled claim is never \
 answered by any listing here",
+    // --- what a `tetel prose --ack` acknowledgement does not establish --
+    // An acknowledgement records that a human said they re-read a block;
+    // it does not verify the reading, does not judge the paragraph, and
+    // is only ever as current as the last render. Printed for the same
+    // reason as every entry above: a discharge that fired is easily read
+    // as a stronger finding than it is.
+    "whether an acknowledged paragraph is actually faithful to the claims it cites — an \
+acknowledgement records that a human said they re-read it and found nothing to change; nothing \
+here verifies the reading happened or judges the paragraph itself",
+    "an acknowledgement minted after this memo's last render — it is not in the snapshot this \
+check reads, so it suppresses nothing until the memo is rendered again",
+    "a hand-edited or hand-added acknowledgement log — a snapshot's acks.jsonl is shipped but \
+never re-rendered, the same standing exclusion as counters.json, pending.json, refusals.log and \
+identity.json, so provenance drift does not cover it",
 ];
 
 /// Renders a Unix timestamp (seconds) as a UTC calendar date and time a
@@ -190,11 +204,12 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.out_of_proof.len()
         + findings.uncensused_targets.len()
         + findings.unquoted_premises.len()
+        + usize::from(findings.acks_unreadable.is_some())
         + usize::from(findings.provenance_failed());
     let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
 dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, \
 uncensused modification targets, transplant premises that are not the donor's words or that \
-nothing answers, provenance drift";
+nothing answers, an unreadable acknowledgement log, provenance drift";
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -228,6 +243,14 @@ nothing answers, provenance drift";
         }
         for e in &findings.unquoted_premises {
             out.push_str(&format!("  - [unquoted-premise] {e}\n"));
+        }
+        if let Some(e) = &findings.acks_unreadable {
+            out.push_str(&format!(
+                "  - [ack-log-unreadable] a snapshot exists beside this document but its \
+acknowledgement log (acks.jsonl) could not be read ({e}) — reported rather than passed over, \
+because an unreadable record is not a matching one. Unlike prose.jsonl, this file is never read \
+by `render`, so nothing else here has already caught it.\n"
+            ));
         }
         match &findings.provenance {
             Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
@@ -273,7 +296,7 @@ cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claim
 by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
 declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
  captured extent, refusals recorded in a fact's own mint window, prose revised after the claims \
-it cites settled, \
+it cites settled, prose whose revised-after-proof listing was acknowledged, \
 and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
     );
     for e in &findings.superseded_evidence {
@@ -373,6 +396,37 @@ after every claim below had already entered proof:\n",
                     first_proof
                 ));
             }
+        }
+    }
+    if !findings.prose_acknowledged.is_empty() {
+        // Same collapsed shape as the preamble above: one constant bullet,
+        // then one entry per block. A block reaching this list has left
+        // the demanding group above rather than sitting inside it with an
+        // annotation stapled on — the human act the group asks for has
+        // already been performed, so the standing demand should not stand.
+        out.push_str(
+            "  - prose acknowledged after the claims it cites settled (entries below): a human \
+said, in their own words, that they re-read each block's current text and citations against \
+every claim's current wording and found nothing to change. Nothing here verifies that reading or \
+judges whether the paragraph is faithful — the tool's silence past this point is the author's \
+assertion, not a finding of its own\n",
+        );
+        for a in &findings.prose_acknowledged {
+            let line = match a.line {
+                Some(n) => format!("line {n}"),
+                None => "line unknown (offset lookup failed)".to_string(),
+            };
+            out.push_str(&format!(
+                "  - {} ({}): acknowledged {} (raw {}) — cites [{}]\n",
+                a.block_id,
+                line,
+                format_unix(a.timestamp),
+                a.timestamp,
+                a.cited.join(", ")
+            ));
+            // Same verbatim rule as `revised because:` above: the
+            // author's own words, never paraphrased.
+            out.push_str(&format!("      acknowledged because: \"{}\"\n", a.why));
         }
     }
     for r in &findings.tree_states {

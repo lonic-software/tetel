@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 /// `pending.json` is included even though `render` never reads it: a
 /// non-empty buffer at snapshot time is a fact about how the document was
 /// finished, and silently dropping it would hide it.
-const SNAPSHOT_FILES: [&str; 9] = [
+const SNAPSHOT_FILES: [&str; 10] = [
     "facts.jsonl",
     "claims.jsonl",
     "prose.jsonl",
@@ -94,6 +94,13 @@ const SNAPSHOT_FILES: [&str; 9] = [
     // mechanism exists for — 78% scope-equal self-grounded against 33%
     // independent — and it was invisible until this file shipped.
     "identity.json",
+    // TET-61: `tetel prose --ack` discharges a `prose-revised-since-proof`
+    // listing, and the discharge is a record rather than a rewrite —
+    // see `acks.rs`'s module doc comment. Enumerated here, like every
+    // other entry, so a build predating this line never opens the file
+    // and reproduces the un-suppressed listing rather than silently
+    // reading nothing.
+    "acks.jsonl",
 ];
 
 /// A memo's snapshot directory: `<memo>.tetel`, sitting next to it —

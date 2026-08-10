@@ -1083,3 +1083,166 @@ async fn render_over_mcp_refuses_a_document_with_an_unanswered_premise() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+// --- TET-61: `prose --ack` over MCP -------------------------------------
+
+/// Mints a paragraph `P1` in workspace `ws` citing a real claim `C1` —
+/// the minimum a `prose --ack` call needs to have something to
+/// acknowledge.
+async fn mint_a_citable_block(sb: &Sandbox, client: &RunningService<RoleClient, DummyClientHandler>, ws: &str) {
+    sb.write(&format!("{ws}.rs"), "fn thing() {}\n");
+    let file = sb.dir.join(format!("{ws}.rs")).to_str().unwrap().to_string();
+    let call = |tool: &'static str, a: serde_json::Value| {
+        let c = client;
+        async move {
+            c.call_tool(CallToolRequestParams::new(tool).with_arguments(args(a)))
+                .await
+                .unwrap_or_else(|e| panic!("{tool} must succeed: {e}"))
+        }
+    };
+    call("look", serde_json::json!({"workspace": ws, "path": file})).await;
+    call("fact", serde_json::json!({"workspace": ws, "note": "a fact to rest a claim on"})).await;
+    call("claim", serde_json::json!({"workspace": ws, "proposition": "a claim", "cites": "F1"})).await;
+    call("prose", serde_json::json!({"workspace": ws, "text": "A paragraph.", "cites": "C1"})).await;
+}
+
+/// C12's own defect, positive side: before this design, `ProseParams`
+/// declared `text: String` with no `Option`, so any prose call omitting
+/// it — including every `ack`, which carries none — was refused by
+/// deserialisation before the handler, and therefore before
+/// `workspace::refuse`, ever ran. Relaxing the field to `Option<String>`
+/// is what lets an `ack` call reach the handler at all; this pins that it
+/// does, and that it succeeds.
+#[tokio::test]
+async fn ack_over_mcp_succeeds_without_a_text_field() {
+    let sb = Sandbox::new("mcp-ack-no-text");
+    let client = sb.connect().await;
+    mint_a_citable_block(&sb, &client, "w").await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": "w",
+            "ack": "P1",
+            "why": "re-read against C1, still accurate",
+        }))))
+        .await
+        .expect("an ack call must reach the handler rather than fail deserialisation");
+    assert_ne!(result.is_error, Some(true), "got: {:?}", result.structured_content);
+    let out = result.structured_content.expect("ack must carry structured_content");
+    assert_eq!(out["action"], "acknowledged");
+    assert_eq!(out["id"], "P1");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The other half of relaxing `text`: its absence for every *other* mode
+/// (not `ack`) must now be refused in code — the schema no longer does
+/// it for us. Refused rather than silently falling back to anything,
+/// since there is no stdin to fall back to over MCP.
+#[tokio::test]
+async fn mcp_prose_with_no_text_and_no_ack_is_refused_in_code() {
+    let sb = Sandbox::new("mcp-prose-no-text");
+    let client = sb.connect().await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": "w",
+        }))))
+        .await
+        .expect("a missing `text` must reach the handler, not fail deserialisation");
+    assert_eq!(result.is_error, Some(true), "got: {:?}", result.structured_content);
+    let s = result.structured_content.expect("structured refusal");
+    assert!(
+        s["guidance"].as_str().unwrap_or("").contains("requires text"),
+        "guidance was: {s}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// C12's own worked example: an ack combined with `text` must be refused
+/// explicitly, not silently discarded by the mode-selection chain.
+#[tokio::test]
+async fn ack_combined_with_text_is_refused_over_mcp() {
+    let sb = Sandbox::new("mcp-ack-text-conflict");
+    let client = sb.connect().await;
+    mint_a_citable_block(&sb, &client, "w").await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": "w",
+            "ack": "P1",
+            "why": "x",
+            "text": "should never be read",
+        }))))
+        .await
+        .expect("protocol level");
+    assert_eq!(result.is_error, Some(true), "got: {:?}", result.structured_content);
+    let s = result.structured_content.expect("structured refusal");
+    assert!(
+        s["guidance"].as_str().unwrap_or("").contains("cannot be combined with --text"),
+        "guidance was: {s}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The member the design memo says an enumeration written against the
+/// MCP shape alone would miss: the CLI has independent `--heading` and
+/// `--level` flags, but `ProseParams` folds both into one
+/// `heading_level`, so this single field stands in for refusing *both*
+/// on the MCP side.
+#[tokio::test]
+async fn ack_combined_with_heading_level_is_refused_over_mcp() {
+    let sb = Sandbox::new("mcp-ack-level-conflict");
+    let client = sb.connect().await;
+    mint_a_citable_block(&sb, &client, "w").await;
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": "w",
+            "ack": "P1",
+            "why": "x",
+            "heading_level": 2,
+        }))))
+        .await
+        .expect("protocol level");
+    assert_eq!(result.is_error, Some(true), "got: {:?}", result.structured_content);
+    let s = result.structured_content.expect("structured refusal");
+    assert!(
+        s["guidance"].as_str().unwrap_or("").contains("cannot be combined with --level"),
+        "guidance was: {s}"
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The remaining three of the six: `revise`, `cites` and `before`, each
+/// refused independently rather than silently dropped.
+#[tokio::test]
+async fn ack_combined_with_revise_cites_or_before_is_refused_over_mcp() {
+    let sb = Sandbox::new("mcp-ack-other-conflicts");
+    let client = sb.connect().await;
+    mint_a_citable_block(&sb, &client, "w").await;
+
+    for (field, value, needle) in [
+        ("revise", serde_json::json!("P1"), "cannot be combined with --revise"),
+        ("cites", serde_json::json!("C1"), "cannot be combined with --cites"),
+        ("before", serde_json::json!("P1"), "cannot be combined with --before"),
+    ] {
+        let mut a = serde_json::json!({"workspace": "w", "ack": "P1", "why": "x"});
+        a.as_object_mut().unwrap().insert(field.to_string(), value);
+        let result = client
+            .call_tool(CallToolRequestParams::new("prose").with_arguments(args(a)))
+            .await
+            .expect("protocol level");
+        assert_eq!(result.is_error, Some(true), "{field} must be refused when combined with ack");
+        let s = result.structured_content.expect("structured refusal");
+        assert!(
+            s["guidance"].as_str().unwrap_or("").contains(needle),
+            "{field}: guidance was: {s}"
+        );
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
