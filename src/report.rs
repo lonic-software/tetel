@@ -13,6 +13,76 @@ pub const EXIT_CLEAN: i32 = 0;
 pub const EXIT_CHECK_FAILED: i32 = 1;
 pub const EXIT_NO_ROWS: i32 = 2;
 
+/// Canonical category names for the MACHINE-CHECKED partition, in the
+/// order `render` sums their failures below. The single enumerated source
+/// for that partition: this module's own scope string and the MCP `check`
+/// tool description (`mcp::check_description`) both build their lists from
+/// this array rather than each restating it by hand, which is how the
+/// three hand-maintained enumerations this array replaced drifted apart —
+/// see `tests/mcp_cli.rs`'s `tool_descriptions_stay_tied_to_the_behaviour_they_promise`,
+/// which pins set membership against it, and the README test that does the
+/// same for the one consumer that cannot execute Rust.
+pub const MACHINE_CHECKED_CATEGORIES: &[&str] = &[
+    "grammar",
+    "subset (enumerated rows only)",
+    "abutting literals",
+    "unsettled citations",
+    "dependency cascades",
+    "evidence-ledger import",
+    "verdict disagreement",
+    "claims out of proof",
+    "uncensused modification targets",
+    "transplant premises that are not the donor's words or that nothing answers",
+    "an unreadable acknowledgement log",
+    "provenance drift",
+];
+
+/// Canonical category names for the HUMAN-OWED partition. Same rule and
+/// same guards as [`MACHINE_CHECKED_CATEGORIES`].
+///
+/// Two entries here — "whether a claim was graded by the workspace that
+/// authored it or an independent one" and "a missing snapshot" — were
+/// absent from this module's own scope string before this array existed,
+/// even though `render` already printed both (`findings.grounding_provenance`
+/// below, and the `Provenance::Missing`/`unverifiable_targets`/
+/// `unverifiable_transplants` cases). Both were already named correctly in
+/// the MCP description and, for the first, in the README — this array is
+/// the union of what every site got right, not a transcription of any one
+/// of them.
+pub const HUMAN_OWED_CATEGORIES: &[&str] = &[
+    "every READING/OBSERVED/ATTESTED row",
+    "every row whose domain or extent contains a proc:/external designator",
+    "the working-tree states this memo's facts were taken against",
+    "the RUN command\u{2194}proposition correspondence",
+    "cited-but-undefined and defined-but-uncited ids",
+    "ungrounded ledger claims",
+    "claims grounded only by attested (ingested) evidence",
+    "evidence sources that do not resolve",
+    "ledger claims with no declared scope at all",
+    "qualified verdicts",
+    "superseded evidence",
+    "facts whose note names a location outside their own captured extent",
+    "refusals recorded in a fact's own mint window",
+    "prose revised after the claims it cites settled",
+    "prose whose revised-after-proof listing was acknowledged",
+    "whether a claim was graded by the workspace that authored it or an independent one",
+    "a missing snapshot",
+    "tetel's own standing non-coverage",
+];
+
+/// Joins category labels into a natural-English list — plain commas
+/// between all but the last pair, `", and "` before the last — since these
+/// are read as prose, not printed as a slice. Shared by this module's own
+/// scope strings and by `mcp::check_description`, so the same join style
+/// renders both partitions everywhere they appear.
+pub fn join_categories(categories: &[&str]) -> String {
+    match categories {
+        [] => String::new(),
+        [only] => (*only).to_string(),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
 const NON_COVERAGE: &[&str] = &[
     "dependents that never declared themselves",
     "deleted premises",
@@ -206,10 +276,7 @@ This is a distinct state from a clean run, not a weaker way of spelling it (exit
         + findings.unquoted_premises.len()
         + usize::from(findings.acks_unreadable.is_some())
         + usize::from(findings.provenance_failed());
-    let scope = "grammar, subset (enumerated rows only), abutting literals, unsettled citations, \
-dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, \
-uncensused modification targets, transplant premises that are not the donor's words or that \
-nothing answers, an unreadable acknowledgement log, provenance drift";
+    let scope = join_categories(MACHINE_CHECKED_CATEGORIES);
     if failing {
         out.push_str(&format!(
             "machine-checked: {total_failures} failing — {scope}\n"
@@ -288,17 +355,10 @@ a matching one.\n"
     out.push('\n');
 
     // --- human-owed partition -----------------------------------------
-    out.push_str(
-        "human-owed: every READING/OBSERVED/ATTESTED row, every row whose domain or extent \
-contains a proc:/external designator, the working-tree states this memo's facts were taken \
-against, the RUN command\u{2194}proposition correspondence, \
-cited-but-undefined and defined-but-uncited ids, ungrounded ledger claims, claims grounded only \
-by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no \
-declared scope at all, qualified verdicts, superseded evidence, facts whose note names a location outside their own \
- captured extent, refusals recorded in a fact's own mint window, prose revised after the claims \
-it cites settled, prose whose revised-after-proof listing was acknowledged, \
-and tetel's own standing non-coverage \u{2014} none of this is settled by a passing check\n",
-    );
+    out.push_str(&format!(
+        "human-owed: {} \u{2014} none of this is settled by a passing check\n",
+        join_categories(HUMAN_OWED_CATEGORIES)
+    ));
     for e in &findings.superseded_evidence {
         out.push_str(&format!("  - superseded evidence: {e}\n"));
     }

@@ -570,6 +570,28 @@ struct RecordParams {
     note: Option<String>,
 }
 
+/// Builds the `check` tool's real MCP description from the same category
+/// arrays `report.rs` uses for its own scope strings —
+/// [`crate::report::MACHINE_CHECKED_CATEGORIES`] and
+/// [`crate::report::HUMAN_OWED_CATEGORIES`] — rather than hand-typing a
+/// second copy of either list here. `TetelServer::new` installs this
+/// text over the `#[tool(description = ...)]` placeholder on `check`
+/// immediately after construction; see that attribute's comment for why
+/// the macro cannot call this function directly.
+fn check_description() -> String {
+    format!(
+        "Check a rendered memo. Output is two partitions and never a single verdict. \
+MACHINE-CHECKED (exit 1 if any fail): {}. \
+HUMAN-OWED, never failing but never settled by a passing check: {}. \
+Exit {} means no tetel rows were found at all — out of scope, nothing checked, which is NOT a \
+clean run. Read-only: never writes a file, runs a command from the document, or makes a network \
+call.",
+        crate::report::join_categories(crate::report::MACHINE_CHECKED_CATEGORIES),
+        crate::report::join_categories(crate::report::HUMAN_OWED_CATEGORIES),
+        crate::report::EXIT_NO_ROWS,
+    )
+}
+
 /// The MCP server: authoring (`look`/`run`/`fact`/`claim`/`prose`/
 /// `render`/`query`) and verification (`check`/`brief`/`record`) in one
 /// process. Holds no state of its own — every tool resolves its
@@ -584,7 +606,17 @@ pub struct TetelServer {
 #[tool_router]
 impl TetelServer {
     pub fn new() -> Self {
-        Self { tool_router: Self::tool_router() }
+        let mut tool_router = Self::tool_router();
+        // `check`'s `#[tool(description = ...)]` above carries only a
+        // placeholder — see its comment for why the macro cannot compute
+        // this text itself. Patched once here, before the router is ever
+        // handed to a transport, so every real caller (including
+        // `list_tools`/`get_tool`) sees the generated text and nothing
+        // else ever does.
+        if let Some(route) = tool_router.map.get_mut("check") {
+            route.attr.description = Some(std::borrow::Cow::Owned(check_description()));
+        }
+        Self { tool_router }
     }
 
     #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
@@ -894,7 +926,16 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Check a rendered memo. Output is two partitions and never a single verdict. MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions (supports AND refutes on one claim), claims out of proof (every record grades a wording the claim no longer carries), an unreadable acknowledgement log, and provenance drift (the document is not what its own snapshot renders). HUMAN-OWED, never failing but never settled by a passing check: ungrounded claims, qualified verdicts with the grounder's own words, whether each claim was grounded by the workspace that authored it or an independent one, facts whose note names a location outside their captured extent, refusals recorded in a fact's own mint window, which working trees the facts were taken against when one tree was seen in more than one state, and a missing snapshot. Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is NOT a clean run. Read-only: never writes a file, runs a command from the document, or makes a network call.")]
+    // The literal below is never served: `rmcp-macros` parses a `#[tool]`
+    // attribute's `description` as a source-literal `String`
+    // (`ToolAttribute::description: Option<String>`), never an expression,
+    // so nothing computed can be spliced in at this call site. `Self::new`
+    // overwrites this route's baked-in description with
+    // `check_description()`'s output — built from the same
+    // `report::MACHINE_CHECKED_CATEGORIES`/`HUMAN_OWED_CATEGORIES` this
+    // file's own scope strings draw from — immediately after construction,
+    // before the server is ever served. See `check_description` below.
+    #[tool(description = "placeholder — see `check_description` in this file; `Self::new` replaces this text before the server is ever served")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
         match crate::check_file(&resolved(&p.file)) {
             Ok((code, report)) => {
@@ -1070,6 +1111,40 @@ impl ServerHandler for TetelServer {
         }
         let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
         self.tool_router.call(tcc).await
+    }
+
+    /// Written out by hand for the same reason `call_tool` is: `#[tool_handler]`'s
+    /// default `list_tools` calls the associated function `Self::tool_router()`
+    /// fresh on every request, rather than reading the `self.tool_router`
+    /// field — so a patch applied to *this instance's* router after
+    /// construction (see `TetelServer::new`, which overwrites `check`'s
+    /// placeholder description with `check_description()`'s output) would
+    /// never reach a caller that lists tools, only one that calls them.
+    /// Mirrors the generated body (`rmcp-macros` 3.1.1's `tool_handler.rs`)
+    /// with that one substitution.
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, ErrorData> {
+        let supports_cache_hints = context
+            .protocol_version()
+            .is_some_and(|version| version >= rmcp::model::ProtocolVersion::V_2026_07_28);
+        Ok(rmcp::model::ListToolsResult {
+            result_type: Some(rmcp::model::ResultType::COMPLETE),
+            tools: self.tool_router.list_all(),
+            meta: None,
+            next_cursor: None,
+            ttl_ms: supports_cache_hints.then_some(0),
+            cache_scope: supports_cache_hints.then_some(rmcp::model::CacheScope::Public),
+        })
+    }
+
+    /// Same reason and same substitution as `list_tools` above: reads
+    /// `self.tool_router` (this instance's, possibly patched) rather than
+    /// reconstructing a fresh one via `Self::tool_router()`.
+    fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
+        self.tool_router.get(name).cloned()
     }
 
     fn get_info(&self) -> ServerInfo {

@@ -689,6 +689,28 @@ async fn tool_descriptions_stay_tied_to_the_behaviour_they_promise() {
     // And it must name both partitions, since the two-partition contract
     // is the whole output shape.
     assert!(c.contains("MACHINE-CHECKED") && c.contains("HUMAN-OWED"), "got: {c}");
+    // Set equality against `report.rs`'s own category constants, not just
+    // the two partition headers above. Before this, a category could ship
+    // into `report::MACHINE_CHECKED_CATEGORIES`/`HUMAN_OWED_CATEGORIES`
+    // (or the hand-typed lists these replaced) and be missing from this
+    // description forever without reddening anything — the headers stayed
+    // present the whole time. This reads the category names from an
+    // independent source (the constant, not a parse of `c` itself — see
+    // that constant's own doc comment on why the enforcer must not share
+    // the parser it is checking) and checks each is a literal substring of
+    // the description the live server actually served.
+    for category in tetel::report::MACHINE_CHECKED_CATEGORIES {
+        assert!(
+            c.contains(category),
+            "check description is missing machine-checked category {category:?}: {c}"
+        );
+    }
+    for category in tetel::report::HUMAN_OWED_CATEGORIES {
+        assert!(
+            c.contains(category),
+            "check description is missing human-owed category {category:?}: {c}"
+        );
+    }
 
     // `render` promises the snapshot suffix that `snapshot_path` decides.
     let r = desc("render");
