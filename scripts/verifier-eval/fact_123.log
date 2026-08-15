@@ -1,0 +1,35 @@
+prompts          902+2416 bytes, shipped, read from src/verify.rs
+subjects         123 (fact), split configuration
+  10/123  $0.0751
+  20/123  $0.1307
+  30/123  $0.1869
+  40/123  $0.2360
+  50/123  $0.2855
+  60/123  $0.3205
+  70/123  $0.3715
+  80/123  $0.3987
+  90/123  $0.4423
+  100/123  $0.5127
+  110/123  $0.5948
+  120/123  $0.7150
+  123/123  $0.7381
+wrote fact_123.json
+verb             fact
+subjects         123   (123 ok, 0 not)
+cost             $0.7381 total, $0.00600 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          48/123   (39%)
+  findings         68
+    contradicts   28
+    overreaches   40
+  quoted verbatim  43/68
+  clause verbatim  67/68
+
+AGAINST THE DETERMINISTIC CHECK THAT ALREADY SHIPS (`scope`'s attention)
+  attention flags  12/123 of the same facts
+  both agree       7
+  attention only   5   <- semantic check missed what a substring test caught
+  verifier only    41   <- THE RESIDUE: what a model adds over `scope`
+  The residue is the whole argument for turning `fact` on. Every
+  one of those is worth reading by hand before it becomes a number.

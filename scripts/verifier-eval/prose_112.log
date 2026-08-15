@@ -1,0 +1,26 @@
+prompts          902+2416 bytes, shipped, read from src/verify.rs
+subjects         112 (prose), split configuration
+  10/112  $0.1365
+  20/112  $0.2459
+  30/112  $0.3293
+  40/112  $0.3914
+  50/112  $0.4738
+  60/112  $0.5334
+  70/112  $0.6107
+  80/112  $0.6512
+  90/112  $0.8006
+  100/112  $0.8927
+  110/112  $1.0136
+  112/112  $1.0233
+wrote prose_112.json
+verb             prose
+subjects         112   (112 ok, 0 not)
+cost             $1.0233 total, $0.00914 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          39/112   (35%)
+  findings         65
+    contradicts   44
+    overreaches   21
+  quoted verbatim  42/65
+  clause verbatim  65/65

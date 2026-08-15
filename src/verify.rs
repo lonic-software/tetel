@@ -214,6 +214,16 @@ pub struct Finding {
     /// span, which is exactly [`quoted`](Self::quoted) being false.
     #[serde(default)]
     pub facts: Vec<String>,
+    /// Which half of the captured record the verified span came from —
+    /// `output` or `extent`. Absent when nothing verified.
+    ///
+    /// Worth reporting rather than flattening, because the two mean
+    /// different things to whoever reads the finding: an `output` span is
+    /// the capture disagreeing with the text, an `extent` span is the
+    /// capture's *reach* disagreeing with it — which is usually what an
+    /// `overreaches` finding is actually about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quoted_from: Option<String>,
     /// The pre-set-valued spelling of [`facts`](Self::facts), read from
     /// logs written before it and never written again. Folded in by
     /// [`read_log`] so an existing log keeps its history instead of
@@ -272,6 +282,9 @@ impl Finding {
         });
         if let Some(e) = &self.evidence {
             out["evidence"] = json!(e);
+        }
+        if let Some(w) = &self.quoted_from {
+            out["quoted_from"] = json!(w);
         }
         if let Some(l) = &self.literal {
             out["literal"] = json!(l);
@@ -688,24 +701,77 @@ pub struct Subject {
     pub evidence: Vec<(String, Vec<String>, Vec<String>)>,
 }
 
+/// Where in the captured record a verified span was found.
+///
+/// Both halves are shown to the model by [`evidence_text`] and both are the
+/// tool's own record rather than the author's text — an extent label is
+/// generated from the designator `look`/`run` resolved, not typed — so a
+/// span from either is an honest quotation. They answer different questions
+/// and the payload says which: an output span shows what the capture
+/// *contains*, an extent span shows what it *covers*, which is the natural
+/// thing to point at when the disagreement is that a claim ranges wider
+/// than the capture does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QuotedFrom {
+    Output,
+    Extent,
+}
+
+impl QuotedFrom {
+    fn as_str(self) -> &'static str {
+        match self {
+            QuotedFrom::Output => "output",
+            QuotedFrom::Extent => "extent",
+        }
+    }
+}
+
 impl Subject {
-    /// Every fact whose captured output contains `span`.
+    /// Every fact whose captured record contains `span`, and where.
     ///
-    /// The same relation [`crate::facts::Fact::quotes`] applies — per
-    /// observation, no normalisation — but over the observations actually
-    /// put in front of the model rather than over the whole workspace. The
-    /// distinction is small and real: a span occurring only in some fact
-    /// this comparison never showed is not a quotation of the evidence, and
-    /// treating it as one would credit the model for text it could not have
-    /// read.
-    fn containing(&self, span: &str) -> Vec<String> {
+    /// Per observation and unnormalised, the relation
+    /// [`crate::facts::Fact::quotes`] applies, over the material actually
+    /// put in front of the model rather than the whole workspace: a span
+    /// occurring only in some fact this comparison never showed is not a
+    /// quotation of the evidence, and crediting it would credit the model
+    /// for text it could not have read.
+    ///
+    /// # Why the extent labels count
+    ///
+    /// They used to not, and that was a bug of exactly the kind
+    /// [`evidence_text`] documents itself against — "The two have to agree
+    /// or the quote check punishes honesty." That doc comment fixed the
+    /// joined-versus-per-observation half and missed this one: the labels
+    /// block is shown to the model under the heading "what was opened or
+    /// run", the model is told to quote the captured evidence, and a span it
+    /// copied from that block was then stripped as a fabrication.
+    ///
+    /// Measured over 123 real fact notes, **15 of the 25 rejected spans were
+    /// verbatim in the labels block** — so the fabrication rate the tool
+    /// reported was more than twice the real one, and two thirds of what it
+    /// called invention was the model quoting what it was shown. A rate that
+    /// wrong is worse than no rate, because `rejected_span` exists to be
+    /// tuned on.
+    ///
+    /// This does not touch [`crate::facts::Fact::quotes`], which stays the
+    /// output-only relation `transplant` refuses premises with. A premise is
+    /// a donor's own words and an extent label is not; the two checks want
+    /// different answers and now give them.
+    fn containing(&self, span: &str) -> Vec<(String, QuotedFrom)> {
         if span.is_empty() {
             return Vec::new();
         }
         self.evidence
             .iter()
-            .filter(|(_, _, obs)| obs.iter().any(|o| o.contains(span)))
-            .map(|(id, _, _)| id.clone())
+            .filter_map(|(id, extent, obs)| {
+                if obs.iter().any(|o| o.contains(span)) {
+                    Some((id.clone(), QuotedFrom::Output))
+                } else if extent.iter().any(|e| e.contains(span)) {
+                    Some((id.clone(), QuotedFrom::Extent))
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 }
@@ -999,14 +1065,20 @@ fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
         // the fidelity number it produced measured nothing the first had
         // not already decided. Computing both from one pass makes them
         // agree by construction and states the relation once.
-        let facts = subject.containing(&span);
-        let quoted = !facts.is_empty();
+        let found = subject.containing(&span);
+        let quoted = !found.is_empty();
+        // Named once, from the first match, because a span in two facts'
+        // records is in the same kind of place in both often enough that a
+        // per-fact answer would be noise. `facts` already carries the set.
+        let quoted_from = found.first().map(|(_, w)| *w);
+        let facts: Vec<String> = found.into_iter().map(|(id, _)| id).collect();
         let clause = str_field(row, "clause");
         out.push(Finding {
             kind,
             clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
             clause,
             facts,
+            quoted_from: quoted_from.map(|w| w.as_str().to_string()),
             legacy_fact: None,
             evidence: quoted.then(|| span.clone()),
             literal: None,
@@ -1205,6 +1277,7 @@ fn literal_findings(
             clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
             clause,
             facts: Vec::new(),
+            quoted_from: None,
             legacy_fact: None,
             evidence: None,
             literal: Some(literal),
@@ -1881,6 +1954,7 @@ mod tests {
             clause: "the function returns early".into(),
             clause_quoted: true,
             facts: vec!["F1".into()],
+            quoted_from: Some("output".into()),
             legacy_fact: None,
             evidence: Some("return".into()),
             literal: None,
@@ -2027,6 +2101,7 @@ mod tests {
         let f = Finding {
             evidence: None,
             facts: Vec::new(),
+            quoted_from: None,
             why: "invented".into(),
             quoted: false,
             rejected_span: Some("text that is in no captured output".into()),
@@ -2192,6 +2267,59 @@ mod tests {
     }
 
     #[test]
+    fn a_span_copied_from_the_extent_block_is_a_quotation_and_not_a_fabrication() {
+        // The model is shown the extent labels under "what was opened or
+        // run" and told to quote the captured evidence. Searching only the
+        // observations then stripped what it had honestly copied: measured
+        // over 123 real fact notes, 15 of the 25 spans called fabrications
+        // were verbatim in that block. A fabrication rate more than twice
+        // the real one is worse than none, because it is the number
+        // `rejected_span` exists to be tuned on.
+        let subject = Subject {
+            mint: "F1".into(),
+            verb: "fact".into(),
+            text: "the search covered every file".into(),
+            evidence: vec![(
+                "F1".into(),
+                vec!["search: /repo (grep: look_grep) — 10 files matched".into()],
+                vec!["fn look_grep() {}".into()],
+            )],
+        };
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"overreaches","clause":"every file","evidence":"10 files matched","why":"w"}]}"#,
+            &subject,
+        )
+        .expect("parsed");
+        assert!(f[0].quoted, "a span copied from the extent block was called a fabrication");
+        assert_eq!(f[0].facts, vec!["F1".to_string()]);
+        assert_eq!(f[0].quoted_from.as_deref(), Some("extent"));
+        assert_eq!(f[0].payload()["quoted_from"], "extent");
+
+        // An output span still reports as one, so the two are told apart
+        // rather than merged — `overreaches` usually wants the extent and
+        // `contradicts` usually wants the output.
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"contradicts","clause":"every file","evidence":"fn look_grep","why":"w"}]}"#,
+            &subject,
+        )
+        .expect("parsed");
+        assert_eq!(f[0].quoted_from.as_deref(), Some("output"));
+
+        // And `Fact::quotes` is untouched: it stays the output-only
+        // relation `transplant` refuses premises with, because a premise is
+        // the donor's own words and an extent label is not.
+        let fact = crate::facts::Fact {
+            id: "F1".into(),
+            note: String::new(),
+            extent: Vec::new(),
+            output: "fn look_grep() {}".into(),
+            pin: String::new(),
+            revisions: 0,
+        };
+        assert!(!fact.quotes("10 files matched"));
+    }
+
+    #[test]
     fn a_span_living_in_two_captures_names_both_rather_than_the_first() {
         // The defect this replaced: attribution took whichever fact came
         // first in the cite list, so a short or common span — a number, a
@@ -2295,6 +2423,7 @@ mod tests {
             kind: KIND_UNEVIDENCED.into(),
             clause: "the buffer is 4096 bytes".into(),
             facts: Vec::new(),
+            quoted_from: None,
             evidence: None,
             literal: Some("4096".into()),
             quoted: false,
