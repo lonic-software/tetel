@@ -3314,7 +3314,7 @@ fn verify_report_scores_both_quotations_and_the_literals_it_refuted() {
     // One verification carrying all four shapes: a span living in two
     // captures, a clause the author never wrote, an `unevidenced` literal,
     // and the two drop counters.
-    let log = r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","literals":true,"at":1,"cost":0.001,"elapsed_ms":900,"attempts":3,"not_verbatim":1,"literals_refuted":2,"findings":[{"kind":"contradicts","clause":"the read buffer is 4096 bytes","clause_quoted":true,"facts":["F1","F2"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"overreaches","clause":"the buffer is always 4096","clause_quoted":false,"facts":["F1"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"unevidenced","clause":"the read buffer is 4096 bytes","clause_quoted":true,"literal":"4096","facts":[],"why":"no capture carries it","quoted":false}]}"#;
+    let log = r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","literals":true,"at":1,"cost":0.001,"elapsed_ms":900,"attempts":3,"not_verbatim":1,"literals_refuted":2,"not_a_quantity":3,"findings":[{"kind":"contradicts","clause":"the read buffer is 4096 bytes","clause_quoted":true,"facts":["F1","F2"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"overreaches","clause":"the buffer is always 4096","clause_quoted":false,"facts":["F1"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"unevidenced","clause":"the read buffer is 4096 bytes","clause_quoted":true,"literal":"4096","facts":[],"why":"no capture carries it","quoted":false}]}"#;
     std::fs::write(ws.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
 
     let (code, out, err) = sb.run(&["verify-report", memo.to_str().unwrap()]);
@@ -3338,7 +3338,10 @@ fn verify_report_scores_both_quotations_and_the_literals_it_refuted() {
     assert!(out.contains("dropped, not the author's words   1"), "got:\n{out}");
     assert!(out.contains("unevidenced      1"), "got:\n{out}");
     assert!(out.contains("machine-refuted  2"), "got:\n{out}");
-    assert!(out.contains("wrong about 67% of what it raised"), "got:\n{out}");
+    assert!(out.contains("not a quantity   3"), "got:\n{out}");
+    // 5 of the 6 literals raised were dropped by a filter before the author
+    // saw them: 2 found in the capture, 3 naming no quantity.
+    assert!(out.contains("83% of what it raised was dropped"), "got:\n{out}");
 
     // Three calls is what `split` plus the literal check costs when
     // nothing is retried, so this must not be counted as a retry.

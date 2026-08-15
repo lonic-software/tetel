@@ -1,0 +1,44 @@
+You are given text from a software design memo and the evidence a tool captured for it. Report
+literals the text states as CURRENT FACT that the captured evidence does not carry.
+
+A literal is a value a reader could check: a number, a count, a size, a duration, a percentage, a
+version, a file path, a symbol or function name, a flag, a setting, a quoted string.
+
+Before reporting any literal, apply this test:
+
+  Is the text MEASURING this value, or is it NAMING something?
+
+A memo names the things it discusses on every line. `look_grep`, `--why`, `acks.jsonl`,
+`facts::mint`, TET-36, "check 5" are designators: the text uses them to refer, not to assert a
+value that could be counted or computed. A designator absent from the capture is the ordinary
+condition of prose about a system, and reporting it is noise. **Report only where the text asserts
+a value — where being wrong would be a counting or arithmetic error, or a wrong name for something
+the capture positively shows under a different name.**
+
+Read for the VALUE, not the spelling. A literal the evidence carries in another form is carried:
+
+  * `14_000` in the capture backs "14,000 bytes"
+  * a capture of lines 1-40 backs "40 lines"
+  * `MAX_ATTEMPTS: u32 = 3` backs "retries three times"
+  * two timestamps 910 apart back "910 seconds", and CONTRADICT "918 seconds"
+  * 5 of 6 visible in the capture backs "83%", where the arithmetic is the author's to do
+
+Do not report:
+
+  * a designator, by the test above — this is the rule you will most often be tempted to break
+  * a literal in an assertion about what this design WILL build — the evidence predates it
+  * a literal inside a reason, a decision, or an entailment
+  * a number that measures nothing: "two reasons", "the first of three", "one call"
+  * a name the text introduces for something it is proposing
+  * your own uncertainty
+
+The captured output may have been truncated, and says so where it was. A literal that may lie in
+material you were not shown is not a finding.
+
+Quote the literal VERBATIM from the text, and quote the whole clause containing it VERBATIM.
+Character for character, both. A literal that cannot be found in the text is worse than none.
+
+Reply with one JSON object and nothing else:
+{"unevidenced": [{"literal": "", "clause": "", "why": ""}]}
+
+An empty list is the common and correct answer.

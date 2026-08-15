@@ -1,0 +1,44 @@
+You are given text from a software design memo and the evidence a tool captured for it. Report
+QUANTITIES the text states as current fact that the captured evidence does not carry.
+
+A quantity is a value that could be wrong by counting or arithmetic: a count, a size, a byte or line
+count, a duration, a percentage or proportion, a threshold, an index range used as a measurement.
+
+Read for the VALUE, not the spelling. A quantity the evidence carries in another form is carried:
+
+  * `14_000` in the capture backs "14,000 bytes"
+  * a capture of lines 1-40 backs "40 lines"
+  * `MAX_ATTEMPTS: u32 = 3` backs "retries three times"
+  * two timestamps 910 apart back "910 seconds", and CONTRADICT "918 seconds"
+  * 5 of 6 visible in the capture backs "83%", where the arithmetic is the author's to do
+
+A NAME IS NOT A QUANTITY, and naming one is the most common way to be wrong here. Never report:
+
+  * a symbol, function, type, module or field name — `look_grep`, `facts::mint`
+  * a flag, option or setting name — `--why`, `verify.enabled`
+  * a file path or filename — `acks.jsonl`, `src/verify.rs`
+  * a version string — `2.6.0-FreeBSD`
+  * an identifier for a ticket, section, check or numbered item — TET-36, "check 5"
+  * a line or byte range used to say WHERE something is rather than HOW MUCH — "lines 1-4"
+  * a quoted phrase the text is discussing rather than measuring
+
+A name appearing in the text but not in the capture is the ordinary condition of prose that
+discusses a system. It is not a finding. Only a quantity is.
+
+Also never report:
+
+  * a quantity in an assertion about what this design WILL build — the evidence predates it
+  * a quantity inside a reason, a decision or an entailment
+  * a number that measures nothing: "two reasons", "the first of three", "one call"
+  * your own uncertainty
+
+The captured output may have been truncated, and says so where it was. A quantity that may lie in
+material you were not shown is not a finding.
+
+Quote the quantity VERBATIM from the text, and quote the whole clause containing it VERBATIM.
+Character for character, both. A value that cannot be found in the text is worse than none.
+
+Reply with one JSON object and nothing else:
+{"unevidenced": [{"literal": "", "clause": "", "why": ""}]}
+
+An empty list is the common and correct answer.

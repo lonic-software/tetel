@@ -1,0 +1,411 @@
+{
+ "model": "openai/gpt-5.6-luna",
+ "repeat": 1,
+ "effort": "high",
+ "prompt_bytes": 1616,
+ "prompt_origin": "shipped, read from src/verify.rs",
+ "chosen_population": "tp_cases.json",
+ "records": [
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C3",
+   "status": "ok",
+   "prop": "The ticket's anchor \u2014 \"revised since the last grounding pass\" \u2014 would have gone silent on the finding the ticket cites. `brief::build` returns every ledger claim unconditionally, including already-grounded ones (\"A claim leaves this list only by leaving the ledger itself \u2014 never by having been reported on\"), so every subsequent pass re-grades a claim whose wording never changed and appends records with strictly later timestamps against the same digest. This is measured, not inferred: in the two shipped memos, tet28's C9 carries ten records on one unchanged digest from three passes spanning 1690 seconds, and tet28's C13 was graded `qualifies` by two passes 918 seconds apart on unchanged text. So an anchor at the *latest* grading advances past any fix-round prose edit as soon as one more pass runs \u2014 and the FORK-94 trail the ticket describes ran six rounds. The anchor must instead be the *earliest* record grading the claim's current wording: the moment that wording first entered proof, which a later pass over unchanged text cannot move.",
+   "verdicts": [
+    [
+     "qualifies",
+     "The mechanism and the C9 measurement hold exactly: brief::build filters nothing and its doc comment carries the quoted sentence verbatim, and tet28's C9 does have ten records on the one digest 7fa084e7 from three passes spanning 1690 s. One numeric clause is wrong: tet28's C13 pair on unchanged text (digest 65ec3111, passes 2a166dfe and c1fa7b44) is **910 seconds** apart, not 918, and no (claim, digest) group in either shipped memo's evidence log has a span of 918 s. The rest of the proposition \u2014 that a latest-grading anchor advances as soon as one more pass runs, and that the earliest in-proof record cannot be moved by a later pass \u2014 follows from the same data, but \"the FORK-94 trail the ticket describes ran six rounds\" rests on a ticket I was not given and did not open."
+    ],
+    [
+     "supports",
+     "brief::build returns every ledger claim unconditionally (a bare map with no filter), and the quoted sentence appears verbatim in its doc comment."
+    ],
+    [
+     "supports",
+     "Both numbers reproduce exactly against tet28's evidence log: C9 = ten records, one digest, three passes, 1690s span; C13 = two passes 910s apart both `qualifies` on the identical digest. The FORK-94 six-round figure is not checked here, but the proposition itself marks it as the ticket's report rather than something it re-establishes."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "brief::build filters nothing and its doc comment carries the quoted sentence verbatim."
+    ],
+    [
+     "qualifies",
+     "Both measured figures are exact: tet28's C9 carries 10 records on one digest from 3 passes spanning 1690s, and tet28's C13 has two `qualifies` records on the unchanged digest 65ec3111 exactly 910s apart. The clause I cannot establish is \"per the ticket's own account ... the FORK-94 trail ran six rounds\": the ticket lives in a planning repository this pass must not open, so even the attribution is unwitnessed here. The anchor argument itself \u2014 that only the earliest in-proof record is immovable by a later pass \u2014 is confirmed by construction (a later record with the same digest never changes min)."
+    ],
+    [
+     "supports",
+     "`brief::build` is unconditional and its doc comment carries the quoted sentence verbatim. Both numbers check out exactly: tet28 C9 has 10 records, one digest, three passes, span 1690s; tet28 C13 has two `qualifies` records on the same digest 910s apart. The only unwitnessed element is the FORK-94 six-round count, which the proposition itself explicitly records as the ticket's report rather than re-establishing, so it is not something this claim asserts on its own authority."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "918 seconds",
+     "clause": "tet28's C13 was graded `qualifies` by two passes 918 seconds apart on unchanged text.",
+     "why": "The visible evidence shows timestamps 1786133118 and 1786134028, which are 910 seconds apart, not 918.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.002393325,
+   "elapsed": 18.26
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C12",
+   "status": "ok",
+   "prop": "TET-30 is free of the defect that forced both sibling tickets to be reformulated, and free of it for a checkable reason rather than by luck: its trigger reads no English. The citation edge is the `cite` field the author set with `--cites` on a prose event, and the ordering is two integers off two event logs \u2014 the rule was executed end to end over tet28's and tet29's shipped logs without inspecting a single character of prose or proposition text. What remains undecidable is not the trigger but the verdict: whether a listed paragraph actually asserts something its claims do not carry. That question is not narrowed, hinted at, or scored here. It is handed whole to the reader, which is what putting the line in the human-owed partition means \u2014 the partition whose own opening sentence ends \"none of this is settled by a passing check\".",
+   "verdicts": [
+    [
+     "qualifies",
+     "The core is witnessed by my own independent execution: the rule's trigger is the `cite` array and the `heading` flag off prose events plus two integer timestamps, and I ran it end to end over tet28's and tet29's shipped logs (F6) reaching the memo's stated outcomes without interpreting any prose or proposition text; and the human-owed partition's opening sentence does end \"none of this is settled by a passing check\" (F8). Two clauses I cannot grant as written. First, \"free of the defect that forced both sibling tickets to be reformulated\" presupposes a defect described in tickets I was not given and did not open, so the comparison is unverifiable here. Second, \"without inspecting a single character of prose or proposition text\" is loose: clause (c) requires sha256 of the claim's current proposition, so every character of every proposition is read and hashed \u2014 nothing is interpreted, but the text is consumed, and my own run had to hash it."
+    ],
+    [
+     "qualifies",
+     "The headline holds: I executed the rule end to end over tet28's and tet29's shipped logs and nothing in it interprets English \u2014 the citation edge is the `cite` array, the heading flag is a bool, and the ordering is integer comparison. But \"The one place text is consumed at all is the in-proof digest\" is wrong as written. C4's own definition of a block's text timestamp \u2014 \"the earliest event in its history whose text AND citation list both equal the current ones\" \u2014 requires a byte-equality comparison of prose text, which my execution performs and which is a second place text is consumed. It is still not interpretation (and the clause \"with nothing else looking at any text\" is the part that fails), so the claim is right in substance and wrong in that clause."
+    ],
+    [
+     "supports",
+     "The citation edge is the `cite` field parsed from `--cites` on a prose event, and `heading` is a plain bool on ProseEvent::Create \u2014 both machine fields, no English."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`cite` is a field on the prose event set from --cites via parse_ids, and `heading` is a bool on ProseEvent::Create \u2014 neither involves reading English."
+    ],
+    [
+     "supports",
+     "The reimplementation consumes text in exactly the two places named \u2014 sha256 of the proposition for the in-proof test, and byte equality of text and citation list for the timestamp \u2014 and nothing else parses or matches prose."
+    ],
+    [
+     "supports",
+     "The human-owed partition's opening sentence does end \"none of this is settled by a passing check\"."
+    ],
+    [
+     "supports",
+     "`heading` is a stored boolean and `cite` a stored list on the prose event; the ordering is integer comparison; and the only two consumptions of text under the rule are sha256 of a proposition and byte-equality of prose text plus citation list \u2014 which is precisely what my own independent implementation of the rule required, with no parsing of any sentence. The quoted partition sentence ends exactly as C12 says. The claim also correctly confines itself to the trigger and hands the verdict to the reader."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 2,
+   "kept": [
+    {
+     "literal": "TET-30",
+     "clause": "TET-30 is free of the defect that forced both sibling tickets to be reformulated, and free of it for a checkable reason rather than by luck",
+     "why": "The captured runs identify only tet28 and tet29; they do not carry the TET-30 identifier.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 1,
+   "cost": 0.010729530000000001,
+   "elapsed": 119.96
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C18",
+   "status": "ok",
+   "prop": "A directory containing nothing but tetel's output is still not \"explicitly named\", and the cost of that is concrete rather than theoretical. `docs/design` holds exactly nine entries \u2014 three rendered memos, three evidence ledgers, three snapshot directories \u2014 and nothing else. A search rooted there for the symbol `census` returns 184 lines and 1,200,881 bytes today; under this rule it returns nothing and exits 1. The alternative, treating a directory as named when everything beneath it happens to be tetel's, is a judgement about a directory's contents rather than a test on a path, and the project rules that out as a refusal trigger. So the exclusion stays a format test on the root itself, and the price is that searching across memos requires naming a memo file or a snapshot directory rather than the folder they sit in.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "The \"project rules that out\" clause is backed by README.md's stated rule that refusals are format-level and never heuristic; a contents-based judgement about a directory is not a decidable format test."
+    ],
+    [
+     "qualifies",
+     "Two clauses do not hold as written today. \"docs/design holds exactly nine entries\" \u2014 it holds twelve, in four triples of the described shape; the extra triple is tet46's own memo/ledger/snapshot, untracked, so the nine was correct before this memo was rendered. And \"returns 184 lines and 1,200,881 bytes today\" \u2014 the same search now returns 260 lines and 2,996,478 bytes. The load-bearing half is exact: with the root docs/design (a directory with no `.tetel` component, so exclusions are passed), the three exclusions leave nothing at all \u2014 no output, exit 1, as measured. I did not attempt to verify the separate assertion that \"the project rules that out as a refusal trigger\", which is a statement about project rules rather than about this repository's source."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.000954175,
+   "elapsed": 10.84
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C19",
+   "status": "ok",
+   "prop": "The three symbols this design tells an implementer to touch are bounded by census: `owed_claims` occurs nowhere in the worktree and is green field; `render_text` has exactly one production call site (src/lib.rs:214) and one unit test besides its definition; `grounding_provenance` has one call site and one printer. No part of this design requires modifying `BriefItem`, whose three-field shape is what withholds scope from a grounding pass.",
+   "verdicts": [
+    [
+     "qualifies",
+     "The census of the three named symbols is accurate; the list of what an implementer touches is not complete, and the omissions are not cosmetic. (a) `brief` has TWO production renderers, not one: src/brief.rs defines `render_text` at line 36 and `render_json` at line 62, and src/lib.rs 186-217 `brief_file(path: &Path, json: bool)` selects between them on that argument, wired to the CLI `--json` flag declared in src/main.rs 28-60 and passed at main.rs:351. An owed section added to `render_text` alone leaves `brief --json` \u2014 a live surface, exercised in F2 \u2014 with no owed list and no floor value at all. This is the mode axis a symbol census cannot see: `render_text`'s single call site is real, and it is one of two branches of one call. (b) `brief_file` itself must be modified and is named nowhere in the design: today it reads only the memo source and calls `ledger::import`; it loads no evidence records, resolves no snapshot identity, and takes no floor parameter \u2014 so all four inputs C11 says are memo-derivable are derived by `check`'s driver, not by the surface that has to emit the owed list. (c) Because C16 keeps the floor a parameter, main.rs's `Brief` variant must gain an argument and `brief_file`'s signature must change. Neither is censused, and neither appears in the Modification targets table."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "Five of the six census entries check out exactly: `owed_claims` has zero matches in any tracked file; `render_text`/`render_json` are two sibling renderers selected by lib.rs's `if json` and neither calls the other; `brief_file`'s whole signature is `(path: &Path, json: bool)` and it is called from exactly two places, src/main.rs:351 and src/mcp.rs:877; `grounding_provenance` has one call site (lib.rs:120-121) and one printer (report.rs:198); `BriefItem` has exactly three fields. The clause that misses is \"`EvidenceRecord`, whose 22 occurrences\". `git grep -o EvidenceRecord` gives 14 occurrences in src/checks.rs (lines 18, 69, 638, 647, 674 twice, 733, 790, 792, 795, 880, 974, 979, 984) and 9 in src/evidence.rs \u2014 23 occurrences on 22 lines. 22 is the line count that `git grep -c` prints, not the occurrence count. The load-bearing part of that entry, that they fall in exactly two modules so `world` touches one producer and one consumer, is correct."
+    ],
+    [
+     "qualifies",
+     "Re-graded against the current, seven-symbol wording. Six entries check out exactly: `owed_claims` has zero matches in any tracked file; `render_text`/`render_json` are siblings selected by lib.rs's `if json`; `brief_file`'s signature is `(path: &Path, json: bool)` with exactly two call sites, main.rs:351 and mcp.rs:877; `analyze_ledger` has one call site (lib.rs:93); `grounding_provenance` has one call site and one printer; `BriefItem` has three fields. The clause that misses is \"`EvidenceRecord`, whose 22 occurrences\". `git grep -o EvidenceRecord` gives 14 occurrences in src/checks.rs (18, 69, 638, 647, 674 twice, 733, 790, 792, 795, 880, 974, 979, 984) and 9 in src/evidence.rs \u2014 23 occurrences on 22 lines. 22 is what `git grep -c` prints, which counts lines. \"Fall in exactly two modules\" is correct."
+    ],
+    [
+     "supports",
+     "All seven clauses check out on the counts and line numbers given. One narrowing: \"no occurrence in the worktree\" for `owed_claims` was established with `git grep`, which searches tracked files only \u2014 the untracked memo under grading and its own sidecars were excluded by design, not searched and found empty."
+    ],
+    [
+     "qualifies",
+     "Every number reproduces: `owed_claims` 0 in src and tests; `EvidenceRecord` 22 lines in exactly two modules; `brief_file` definition plus two front-end call sites; `analyze_ledger` one call site; `grounding_provenance` one call site and one printing loop; `render_text`/`render_json` a sibling pair; `BriefItem` confined to one module with three fields. The clause that needs narrowing is \"`owed_claims` (green field, no occurrence in the worktree)\": a census over the entire working tree, not just src and tests, finds five lines carrying that identifier \u2014 all of them inside the memo's own text. True of the code, not of the worktree as stated."
+    ],
+    [
+     "supports",
+     "Every count in the census holds: `owed_claims` has no hit in src or tests and its only worktree occurrences are the memo's own files; `render_text`/`render_json` are two sibling renderers selected by the `json` bool in `brief_file`; `brief_file(path: &Path, json: bool)` is called only from src/main.rs:351 and src/mcp.rs:877; `analyze_ledger` has exactly one call site (src/lib.rs:93); `grounding_provenance` has one call site (src/lib.rs:120-121) and one printer (src/report.rs:198); `EvidenceRecord` occurs on 22 lines in exactly two modules (checks.rs 13, evidence.rs 9), one producer and one consumer. `BriefItem`'s three-field shape is as described."
+    ],
+    [
+     "qualifies",
+     "The census counts are right; the instruction to the implementer is not sized right, and this is the row that tells an implementer what to touch. The claim describes `brief_file`'s change as its \"whole signature today is a path and a bool\" plus a floor parameter threaded through two front ends. Read in lib.rs, `brief_file` also never calls `evidence::load`, never calls `analyze_ledger`, and never touches `snapshot::snapshot_path` or `workspace::identity_of` \u2014 every one of which the shipping predicate needs, since rules 1 and 2 are analyze_ledger outputs (C4), the floor counts digest-matched witnessed records (C24), and the undeterminable-attribution rule keys on the three-arm AuthoringIdentity (C10). Those four acquisitions are the substance of the change to `brief_file`, and none is a parameter. The census also does not reach them: `analyze_ledger`'s row is justified as \"single call site means a one-site change\", which is true of exposing its return value and false of the second call site this design adds; and `snapshot_path`/`identity_of`/`evidence::load` are not censused targets at all. An implementer sizing this row as written would build a signature change and discover a second ledger-analysis driver."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "Every counted item checks out: `owed_claims` has zero occurrences in src or tests; `brief_file(path: &Path, json: bool)` is called from exactly src/main.rs:351 and src/mcp.rs:877; `grounding_provenance` has one call site (lib.rs) and one printer (report.rs:198); `EvidenceRecord` occurs on 13 + 9 = 22 lines across exactly src/checks.rs and src/evidence.rs. The `render_text`/`render_json` sibling structure and BriefItem's three-field shape are confirmed separately in brief.rs."
+    ],
+    [
+     "qualifies",
+     "The six-symbol list holds for the owed feature but understates the C30 reporting line, and the clause about EvidenceRecord is where it overreaches. C19 says carrying `world` into `EvidenceRecord` \"touches one producer and one consumer\". That is true of the grading-pass operand only. C30's line reports each grading pass's tree \"beside the tree the memo's own facts were taken against\", and that second operand is produced by `worldstate::tree_report(&facts)` over the snapshot's shipped facts.jsonl, filling `findings.tree_states` \u2014 a third module, and in src/lib.rs it runs inside the `if snapshot_dir.is_dir()` block AFTER `findings.grounding_provenance` has already been assigned. `grounding_provenance` takes exactly three parameters and has no access to facts at all. So the line requires either a fourth parameter plus a reordering of the check driver, or a new `Findings` field plus a new print site in report.rs \u2014 and neither `worldstate::tree_report` nor `Findings` nor the driver ordering appears among the six censused targets. The rest of C19 is confirmed: `grounding_provenance`'s arms are exactly as C17 describes, and the `world` field does reach disk (non-empty on all 580 records across the five shipped evidence ledgers), so the read-back half is sound."
+    ],
+    [
+     "supports",
+     "owed_claims: zero occurrences. brief_file: signature (path, json) with no evidence/snapshot access (F7), called from main.rs:351 and mcp.rs:877. render_text/render_json are two sibling renderers selected by the json flag, and BriefItem has exactly three fields (F4). grounding_provenance has one call site and one printer (F11). EvidenceRecord occurs on exactly 22 lines in exactly two modules, checks.rs and evidence.rs."
+    ],
+    [
+     "supports",
+     "Every censused figure reproduces: owed_claims has no occurrence in src/ or tests/ (green); brief_file is (path, json), loads no evidence and resolves no snapshot, and is called at main.rs:351 and mcp.rs:877 (both opened directly, F6); grounding_provenance has one call site (lib.rs:120-121) and one printer (report.rs:198); EvidenceRecord falls on 22 lines in exactly two modules (13 in checks.rs, 9 in evidence.rs); tree_report has one production call site at lib.rs:139, inside the snapshot block and after grounding_provenance is assigned at 120-121, and grounding_provenance takes three parameters with no fact access (F4)."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "one unit test",
+     "clause": "`render_text` has exactly one production call site (src/lib.rs:214) and one unit test besides its definition",
+     "why": "The captured grep shows one additional `render_text` match at line 232, but does not show that the match is inside a unit test.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.002419625,
+   "elapsed": 23.13
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C23",
+   "status": "ok",
+   "prop": "On the same replay, a rule with no confirmation floor \u2014 one workspace-grading per wording \u2014 would have retained none of the seven discoveries while cutting workspace-gradings from 69 to 35; N=2 retains five of seven at 51 gradings (a 26% reduction, slightly less than the ticket's estimated 28%), N=3 retains six at 60, and N=4 retains all seven at 67. The floor is therefore what carries the discovery property, and the saving is bought against it monotonically.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "Every number reproduces on an independent re-run (35/51/60/67 gradings, 0/5/6/7 discoveries), but the one the design leans hardest on carries no information. A \"discovery\" is defined in this replay as a cross-workspace regrade giving a verdict no EARLIER workspace gave, so its ordinal is at least 2 for any ledger that could ever be replayed; the observed ordinals are [2,2,2,2,2,3,4]. Capping at one workspace per wording therefore retains zero discoveries by identity, on this ledger and on every other, including one where a floor would be worthless. So \"a rule with no confirmation floor would have retained none of the seven\" does not measure the floor's necessity \u2014 it restates the definition. Likewise N=4 retaining all seven is fixed by the maximum observed ordinal being 4. The empirical content of the replay is the ordinal distribution and the cost curve, and that content supports the weaker and still-useful proposition the memo could have made: five of the seven arrive at the second workspace, so N=2 buys 5/7 for 16 extra gradings. The sentence \"the floor is therefore what carries the discovery property\" is the one that spends the definitional figure as though it were an observation. Context worth stating: only 16 of the 35 pairs were ever graded by two or more distinct workspaces at all."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "Every figure reproduces on an independent replay of tet30's ledger: 35 (claim, digest) pairs, 69 unbounded workspace-gradings, 7 discoveries at ordinals 5/1/1, the curve 35/51/60/67 at N=1..4, and N=2 buying five of the seven for sixteen gradings above the dirty-only floor. The final clause does not hold. \"Each further N buys less\" is false at the step this design's default turns on: N=2->N=3 costs 9 gradings for 1 discovery, N=3->N=4 costs 7 gradings for the last 1. The marginal price per discovery falls from nine to seven, so returns are not monotonically diminishing in cost, and the run also shows N=4 retaining all seven discoveries at 67 of the 69 gradings full re-grading performs \u2014 a cap at 4 forgoes nothing and saves two. The prose at memo line 11, \"every further step buys less for more\", carries the same error. This matters because that monotonicity is the stated reason for stopping low; the measured curve supports a floor over no floor, and supports 2 over 1, but does not support 2 over 3 or 4 by diminishing returns."
+    ],
+    [
+     "supports",
+     "Cost curve reproduced: 35, 51, 60, 67 at N=1..4 against 69 unbounded, so N=2 is 16 gradings above the dirty-only floor and captures 5 of 7. The analytic point holds too \u2014 a discovery is defined as a verdict no earlier workspace gave, so its ordinal is at least 2 on any ledger and \"a floor of 1 retains nothing\" is entailed rather than measured. The only looseness is \"each further N buys less\": the marginal buys are 5, then 1, then 1, so the last two steps buy equally, though each costs less than the first per unit of schedule. Not enough to withhold support."
+    ],
+    [
+     "supports",
+     "The cost curve reproduces: 35/51/60/67 at N=1..4 against 69 unbounded, with marginal steps 9 (2 to 3, buying the one ordinal-3 discovery) and 7 (3 to 4, buying the ordinal-4 one), so the per-discovery price falls rather than rises. Seven verdict changes did occur and five arrived from the second workspace to read a wording. The claim that a floor of 1 retaining nothing is entailed rather than measured is correct: a discovery is defined as a verdict no earlier workspace gave, so its ordinal is at least 2 by construction. The \"only floor at which the feature saves materially\" judgement is stated over floors that retain any discovery at all (N=1 saves 34 but retains none by definition), and the proposition itself supplies that framing."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "Cost curve reproduces exactly: 35, 51, 60, 67 at N=1..4 against 69 unbounded. Seven verdict changes occurred, five from the second workspace to read a wording. The 2->3 step costs 9 gradings for one discovery and 3->4 costs 7 for the last, so the marginal price falls rather than rises, as stated. That a floor of 1 retains nothing is indeed entailed \u2014 a discovery's ordinal is >= 2 by its own definition \u2014 and my replay confirms it empirically too."
+    ],
+    [
+     "supports",
+     "Cost curve 35/51/60/67 against 69 unbounded reproduces exactly; seven verdict changes occurred, five from the second workspace to read a wording; marginal steps are 9 gradings for one discovery (2 to 3) and 7 for the last (3 to 4), so the price per discovery falls rather than rises. That N=1 retains nothing is indeed entailed: a discovery is defined as a verdict no earlier workspace gave, so its ordinal is at least 2 by construction, which the replay's ordinals (all >= 2) exhibit."
+    ],
+    [
+     "qualifies",
+     "Every numeric clause reproduces \u2014 7 verdict changes, 5 from the second workspace, the cost curve 35/51/60/67 against 69, and the marginal steps of 9 then 7 gradings per discovery, so \"the marginal price does not rise with N\" holds. The final clause does not follow from the replay: \"it is the only floor at which the feature saves materially at all\" is an evaluative judgement, and the same numbers show N=3 saving 9 gradings of 69 (13%) against N=2's 18 (26%) \u2014 a difference of degree, not the presence or absence of a saving. C31 in this same ledger declines to settle exactly that judgement (\"whether 9 gradings is worth the sixth discovery is a judgement the replay does not settle\"), and C31's own phrasing is the weaker \"not because it is the only floor that saves anything\"."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "28%",
+     "clause": "N=2 retains five of seven at 51 gradings (a 26% reduction, slightly less than the ticket's estimated 28%), N=3 retains six at 60, and N=4 retains all seven at 67.",
+     "why": "The capture supports the replay counts and the approximately 26% reduction from 51 of 69, but it contains no ticket estimate of 28%.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.001506075,
+   "elapsed": 18.03
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C25",
+   "status": "ok",
+   "prop": "Of the four pieces the ticket requires to ship together, only the confirmation floor's necessity is measured here \u2014 the replay shows the rule without it retains none of the seven findings; the necessity of pin detection, the closure and the visibility line is argued from the code in this memo and is not measured by anything, and this design does not extend the floor's evidence to cover them.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "The positive half is confirmed: the replay shows the no-floor rule (N=1) retaining 0 of the 7 discoveries, so the floor's necessity is measured. The negative half \u2014 that nothing else in this design is measured, and that pin detection, the closure and the visibility line are argued from code only \u2014 I could check only against the 27 propositions in the brief (C22 and C23 are the sole measurement propositions there, and both concern the floor). Whether the memo's prose reports some further measurement is not gradable from where I stand: this pass does not read the memo. Named so the clause is not taken as independently confirmed."
+    ],
+    [
+     "qualifies",
+     "Re-graded against the current wording. The positive half reproduces: on the replay, the no-floor rule (N=1) retains 0 of the 7 discoveries, so the floor's necessity is measured. The negative half \u2014 that the closure and the visibility line are \"not measured by anything\" \u2014 I could check only against the propositions in the brief, where C22 and C23 are the sole measurement claims and both concern the floor. Whether the memo's prose reports some further measurement is not gradable from here: this pass does not read the memo."
+    ],
+    [
+     "qualifies",
+     "The honesty of this claim is exactly the right instinct and it is one step short. \"Only the confirmation floor's necessity is measured here \u2014 the replay shows the rule without it retains none of the seven findings\" identifies the retention-at-N=1 figure as the measurement, and that figure is entailed by the replay's definition of a discovery (a verdict no earlier workspace gave, hence ordinal >= 2 always), so it comes out 0 on any ledger, floor-necessary or not. Reproduced independently: ordinals [2,2,2,2,2,3,4]. What is genuinely measured is the ordinal distribution and the cost curve, which support \"N=2 buys five of seven for sixteen extra gradings\" rather than \"some floor is necessary\". A claim whose whole purpose is to state what standing each piece has should not rest that standing on the one number that could not have come out differently."
+    ],
+    [
+     "qualifies",
+     "The measured half is confirmed: the replay is the only measurement anywhere in this claim set, and it shows the rule without a floor retaining none of the seven findings. But two clauses I cannot settle from the pinned repository. \"The four pieces the ticket requires to ship together\" names a document that is not in this tree \u2014 I have no way to check that the ticket asks for four, nor which four. And \"This design does not extend the floor's evidence to cover what is only argued\" is a statement about which facts this memo's own ledger rows rest on; that is the scope the brief withholds from me by construction, so I can neither confirm nor deny it. What I can say is that nothing I read in the code constitutes a measurement of the textual closure or of the visibility line, which is consistent with the claim."
+    ],
+    [
+     "qualifies",
+     "\"The closure and the visibility line are argued from the code in this memo, nothing measures what their absence would cost\" holds for the visibility line but understates the closure. The closure's yield is directly measurable from artifacts already on disk, at the cost of one run, and I measured it: applying the decided matcher (split each proposition on runs of non-alphanumeric bytes; a token is an edge when byte-equal to a sibling id the same ledger defines) to `brief --json` for all five rendered memos gives 7 edges over 93 claims \u2014 tet28 0, tet29 2, tet30 2, tet46 0, tet47 3 \u2014 sourced from only 4 claims corpus-wide, with two memos yielding none. Two of the seven (C12->C4, C12->C5) are the false-positive kind C13 names, C12 mentioning \"this memo's own C4 naming C5\" only as an illustration, so 5 real edges remain. The claim's honesty about standing is real, but \"nothing measures\" reads as \"not measurable here\" for a quantity that is measurable here and is small, and the design's own disposal standard \u2014 memo line 91, that a rule \"fires on nothing that has ever been written here\" is grounds to kill it, the standard used against rule 3 and against `citation_ids_in` \u2014 is never turned on rule 5 with the matcher it chose. Rule 5 is also the disjunct with the largest surface (a new reverse index, a BFS, three transplant premises, five claims). The measured yield does not refute the closure, but the memo asserts an absence of measurement where a cheap and unflattering one exists."
+    ],
+    [
+     "qualifies",
+     "The parts about the measurement are right: the replay's content is the ordinal distribution and the cost curve, and \"a floor of 1 finds nothing\" is entailed by how a discovery is defined rather than measured. The clause I cannot establish is the self-referential one \u2014 \"This design does not extend the measurement's standing to what is only argued\", and with it \"nothing measures what their absence would cost\". Both are assertions about the memo's own text and about the absence of any measurement anywhere in it, and this pass is barred from opening the memo, so neither is checkable from source. Nothing I read contradicts them."
+    ],
+    [
+     "qualifies",
+     "The measured piece is confirmed exactly as characterised: the replay's ordinal distribution ({2:5, 3:1, 4:1}) and cost curve (35/51/60/67 against 69) are what say what a floor of 2 buys and at what price, and the floor-of-1 headline is entailed by the definition of a discovery rather than measured. That pin-change detection does not ship as a scheduling rule is consistent with what I graded on C24 and C29. What I could not establish is the enumeration clause \u2014 \"the four pieces the ticket requires to ship together\". The ticket is not in this repository and this pass is bound to it, so I cannot check that there are four, nor which. Likewise, \"nothing measures what their absence would cost\" is an absence claim over the memo's own evidence, which this pass does not open."
+    ],
+    [
+     "qualifies",
+     "The proposition's frame is the ticket's requirements \u2014 \"the four pieces the ticket requires to ship together\" \u2014 and the ticket is not in this repository, so I cannot check that there are four pieces or that this design's coverage maps onto them the way the sentence says. What I can confirm: the replay's ordinal distribution and cost curve are a real measurement and reproduce exactly; the headline that a floor of 1 finds nothing is entailed by the definition of a discovery rather than measured, since a discovery's ordinal is at least 2 on any ledger whatever; and the pin rule is not implementable as a scheduling condition on this corpus. The clause \"nothing measures what their absence would cost\" is a universal negative over the memo's own text, which this pass must not read."
+    ],
+    [
+     "qualifies",
+     "The apportionment is right on its facts: the only measurement here is the replay's ordinal distribution and cost curve, which I reproduced independently; the headline that a floor of 1 finds nothing is entailed by the definition of a discovery rather than measured; the closure and the visibility line rest on code readings with nothing measuring the cost of their absence; and pin-change detection is indeed not a scheduling rule, since a claim pin and a record pin are different kinds and can never compare equal. The final clause \u2014 \"This design does not extend the measurement's standing to what is only argued\" \u2014 is a claim about how the memo's own prose is written, which this pass is barred from reading, so it is stated here and not witnessed."
+    ],
+    [
+     "qualifies",
+     "The measurable half checks out: the replay's ordinal distribution and cost curve reproduce exactly (F15), and the N=1 headline is an entailment of how a discovery is defined, not a finding. The repository's one measurement script, scripts/measure-loop.py, has only `yield` and `cost` verbs and measures neither a textual closure nor a provenance line, so nothing here measures those. But \"this design does not extend the measurement's standing to what is only argued\" is a claim about what the memo's own prose does, and this pass may not open the memo \u2014 I cannot establish it either way."
+    ],
+    [
+     "qualifies",
+     "The parts I can settle hold: the measurement is the replay's ordinal distribution and cost curve and it reproduces (F11); the floor-of-1 headline is entailed by the definition of a discovery rather than measured; pin-change detection cannot ship as a scheduling rule (F6/F9 via C6); and nothing in this repository \u2014 including scripts/measure-loop.py, which computes yield-per-pass and token cost and neither of these \u2014 measures what the closure's or the visibility line's absence would cost. What I cannot establish is the framing premise, \"the four pieces the ticket requires to ship together\": the ticket is not in this repository and this pass has no access to it, so the enumeration and its \"requires to ship together\" are taken on the memo's word."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "four",
+     "clause": "Of the four pieces the ticket requires to ship together",
+     "why": "The evidence does not state or establish that the ticket requires four pieces.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.001157675,
+   "elapsed": 13.81
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C1",
+   "status": "ok",
+   "prop": "Every observation in this memo was taken against /Volumes/SSD/Documents/lonic/tetel at HEAD 81137aa683bdced9bf01a94d34c66b7f4a1758fd on branch tet30-prose-revised-since-proof, with a clean working tree.",
+   "verdicts": [
+    [
+     "qualifies",
+     "HEAD and branch check out exactly: 81137aa683bdced9bf01a94d34c66b7f4a1758fd on tet30-prose-revised-since-proof. Two qualifications. (a) \"clean working tree\" holds only for tracked files \u2014 `git status --porcelain=v1 -uall` returns eleven `??` entries (the memo, its .evidence.jsonl and ten .tetel/ snapshot files). No tracked path is modified or staged, so the tree is clean in the sense that matters for reproducing a read, but not in the sense of an empty `git status`. (b) I cannot establish the \"every observation in this memo\" quantifier at all: settling it would require reading the memo's evidence ledger, which this pass is barred from opening."
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "clean working tree",
+     "clause": "Every observation in this memo was taken against /Volumes/SSD/Documents/lonic/tetel at HEAD 81137aa683bdced9bf01a94d34c66b7f4a1758fd on branch tet30-prose-revised-since-proof, with a clean working tree.",
+     "why": "F20 status output lists multiple untracked files, so the captured evidence does not carry a clean working tree.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "cost": 0.0003916,
+   "elapsed": 5.64
+  }
+ ]
+}

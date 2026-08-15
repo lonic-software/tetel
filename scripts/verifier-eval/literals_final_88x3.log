@@ -1,0 +1,60 @@
+prompt           2534 bytes, shipped, read from src/verify.rs
+cases            88 x 3 draw(s)
+  10/264  $0.0135
+  20/264  $0.0462
+  30/264  $0.0741
+  40/264  $0.0902
+  50/264  $0.0972
+  60/264  $0.1130
+  70/264  $0.1232
+  80/264  $0.1296
+  90/264  $0.1320
+  100/264  $0.1371
+  110/264  $0.1408
+  120/264  $0.1458
+  130/264  $0.1642
+  140/264  $0.1678
+  150/264  $0.1746
+  160/264  $0.1790
+  170/264  $0.1837
+  180/264  $0.1954
+  190/264  $0.2041
+  200/264  $0.2106
+  210/264  $0.2178
+  220/264  $0.2405
+  230/264  $0.2505
+  240/264  $0.2728
+  250/264  $0.3133
+  260/264  $0.3424
+  264/264  $0.3495
+wrote literals_final_88x3.json
+cases            264   (263 ok, 1 not)
+  unparsable     1
+cost             $0.3495 total, $0.00132 each
+
+MACHINE-REFUTATION  (needs no ground truth)
+  literals raised          93
+  not the author's words   0
+  not a quantity           16
+  in the capture after all 30
+  survived to the author   47
+  dropped by a filter      49% of what it raised
+
+STABILITY  6/29 distinct literals were raised in every draw of their claim;
+  the rest appeared in some draws and not others. Only majority literals count below.
+
+CLAIM-LEVEL JOIN  (comparable with the shipped 83%/30%, wrong denominator on purpose)
+  claims                   88
+  flagged                  10
+    later needed work      8
+    later only supported   2   <- flags on claims already sound
+  never flagged, later refuted  9
+  precision                80%   (8/10)
+  recall                   16%   (8/50)
+
+LITERAL-IN-GRADER-NOTE  (of literals raised on claims a pass did not simply support)
+  literal >= 1 chars    7/10   (70% named in what the grader wrote)
+  literal >= 3 chars    7/10   (70% named in what the grader wrote)
+  literal >= 5 chars    6/8   (75% named in what the grader wrote)
+
+CLAUSE FIDELITY   12/12 surviving findings quoted the author's clause verbatim

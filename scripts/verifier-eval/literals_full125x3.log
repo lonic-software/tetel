@@ -1,0 +1,83 @@
+prompt           1616 bytes, read from src/verify.rs
+cases            125 x 3 draw(s)
+  10/375  $0.0353
+  20/375  $0.0785
+  30/375  $0.1080
+  40/375  $0.1677
+  50/375  $0.1967
+  60/375  $0.2791
+  70/375  $0.3722
+  80/375  $0.4173
+  90/375  $0.4908
+  100/375  $0.5295
+  110/375  $0.5917
+  120/375  $0.6432
+  130/375  $0.6901
+  140/375  $0.7135
+  150/375  $0.7501
+  160/375  $0.8025
+  170/375  $0.8376
+  180/375  $0.8667
+  190/375  $0.8712
+  200/375  $0.8874
+  210/375  $0.9173
+  220/375  $0.9273
+  230/375  $0.9413
+  240/375  $0.9666
+  250/375  $0.9809
+  260/375  $1.0113
+  270/375  $1.0208
+  280/375  $1.0309
+  290/375  $1.0507
+  300/375  $1.0626
+  310/375  $1.0912
+  320/375  $1.1068
+  330/375  $1.1326
+  340/375  $1.1434
+  350/375  $1.1767
+  360/375  $1.2355
+  370/375  $1.2827
+  375/375  $1.3026
+wrote literals_full125x3.json
+cases            375   (375 ok, 0 not)
+cost             $1.3026 total, $0.00347 each
+
+EXCLUDED: 111 claims whose facts carry no usable captured output (legacy records
+  with no `out_len`, or facts that captured nothing). Every literal in such a text is
+  trivially unevidenced, so they cannot share a denominator with the rest. They
+  produced 506 surviving findings between them — reported at the end, not counted below.
+
+MACHINE-REFUTATION  (needs no ground truth)
+  literals raised          96
+  not the author's words   0
+  in the capture after all 29
+  survived to the author   67
+  the model was wrong about 30% of what it raised
+
+STABILITY  11/37 distinct literals were raised in every draw of their claim;
+  the rest appeared in some draws and not others. Only majority literals count below.
+
+CLAIM-LEVEL JOIN  (comparable with the shipped 83%/30%, wrong denominator on purpose)
+  claims                   88
+  flagged                  17
+    later needed work      7
+    later only supported   10   <- flags on claims already sound
+  never flagged, later refuted  9
+  precision                41%   (7/17)
+  recall                   14%   (7/50)
+
+LITERAL-IN-GRADER-NOTE  (of literals raised on claims a pass did not simply support)
+  literal >= 1 chars    2/7   (29% named in what the grader wrote)
+  literal >= 3 chars    2/7   (29% named in what the grader wrote)
+  literal >= 5 chars    1/5   (20% named in what the grader wrote)
+
+CLAUSE FIDELITY   17/17 surviving findings quoted the author's clause verbatim
+
+THE BLIND POPULATION  (no captured output; excluded above)
+  claims                   111
+  literals raised          506
+  survived to the author   506
+  claims flagged           78%
+  Nothing here is a judgement about the check. With no capture, the filter that
+  makes an `unevidenced` finding trustworthy has nothing to search, so it cannot
+  reject anything. This is what the shipped code does on such a claim today.

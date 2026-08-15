@@ -1503,7 +1503,7 @@ async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default()
         // Every setting must be visible in the output it affects, which
         // for three of these five is true only because of this echo.
         assert_eq!(v["deterministic"], false, "{verb}: {v}");
-        for key in ["model", "approach", "timeout_ms", "verbs", "guidance"] {
+        for key in ["model", "approach", "timeout_ms", "verbs", "literals", "guidance"] {
             assert!(v.get(key).is_some(), "{verb} omits `{key}`: {v}");
         }
     }
@@ -1513,6 +1513,15 @@ async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default()
     // `prose` being the least-evidenced comparison of the three.
     assert_eq!(claimed["verify"]["approach"], "split");
     assert_eq!(claimed["verify"]["verbs"], serde_json::json!(["claim"]));
+    assert_eq!(claimed["verify"]["literals"], false);
+    // The timeout default is computed rather than constant — 60s per
+    // provider call the approach makes, so `split` is two. `tetel config
+    // verify.timeout_ms` reports the *file's* value and prints "(unset)"
+    // here, which is correct for that command and would leave the number
+    // actually in force invisible. This echo is the only place it appears,
+    // and this file's rule is that a setting must be visible in the output
+    // it affects.
+    assert_eq!(claimed["verify"]["timeout_ms"], 120_000);
 
     client.cancel().await.expect("clean shutdown");
 }
