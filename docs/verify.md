@@ -124,9 +124,12 @@ and a workspace can override any of them in its own state directory with `--work
   but not with this arm's prompt pairing, and no one-call figure was carried into the decision to
   ship. `split` is the default because `split` is the configuration whose numbers are on the page.
 
-The design also names a third mode — a three-call pipeline whose findings are re-derivable without a
-model — and it is **not built**. `verify.approach extract` is refused by name rather than quietly
-served by one of the two above.
+The design also names a third mode — a **two-call** extract-then-compare pipeline whose findings are
+re-derivable without a model, because a deterministic comparator rather than a model decides — and it
+is **not built**. `verify.approach extract` is refused by name rather than quietly served by one of
+the two above. (It is not the three-call extract-then-judge arm, which this page previously called
+it: that one puts a model in the deciding seat, so its findings are not re-derivable, and it is the
+arm the one-call comparison beat.)
 
 ### `literals`, and why it is off
 
