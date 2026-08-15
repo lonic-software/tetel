@@ -174,21 +174,70 @@ impl Status {
 /// `rejected_span` — see that method for why the two differ.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Finding {
-    /// `contradicts` or `overreaches` — the only two kinds. Anything else
-    /// the model returns makes the whole reply [`Status::Unparsable`].
+    /// `contradicts`, `overreaches` or `unevidenced`. Anything else the
+    /// model returns makes the whole reply [`Status::Unparsable`].
     pub kind: String,
     /// The author's own clause being judged.
     pub clause: String,
-    /// The fact whose captured output it was judged against.
-    pub fact: String,
-    /// The captured span, present only when
-    /// [`crate::facts::Fact::quotes`] accepted it.
+    /// Whether [`clause`](Self::clause) is a verbatim substring of the text
+    /// that was verified.
+    ///
+    /// Both system prompts demand *both* quotations verbatim, and for a
+    /// long time only one of the two was checked. The asymmetry mattered in
+    /// the direction least likely to be noticed: a fabricated evidence span
+    /// sends the reader to text that does not exist, which they discover
+    /// immediately, whereas a paraphrased clause reads as a quotation of
+    /// prose the author is already looking at.
+    ///
+    /// Unlike a rejected span this is reported rather than withheld. The
+    /// span points *outside* the finding, so an unverified one is worse
+    /// than none; the clause points at the author's own visible text, where
+    /// a paraphrase is still a usable pointer and deleting it would leave a
+    /// finding with nothing to attach to.
+    #[serde(default)]
+    pub clause_quoted: bool,
+    /// Every fact whose captured output contains
+    /// [`evidence`](Self::evidence) — not the first, and not the model's
+    /// word for it.
+    ///
+    /// The model is never asked which fact it read, because it is never
+    /// asked to track ids. That is the right division of labour, but it
+    /// used to be resolved by searching for the span and keeping the
+    /// *first* fact that contained it, falling back to the first fact
+    /// overall when none did. Two states were thereby collapsed into a
+    /// confident-looking answer: a span living in several captures got
+    /// attributed by cite order rather than by truth, and a span living in
+    /// none got attributed anyway.
+    ///
+    /// Containment is the honest relation and it is set-valued, so this
+    /// says so. Empty means no capture shown to the model contained the
+    /// span, which is exactly [`quoted`](Self::quoted) being false.
+    #[serde(default)]
+    pub facts: Vec<String>,
+    /// The pre-set-valued spelling of [`facts`](Self::facts), read from
+    /// logs written before it and never written again. Folded in by
+    /// [`read_log`] so an existing log keeps its history instead of
+    /// arriving as unparsable lines.
+    #[serde(default, rename = "fact", skip_serializing)]
+    pub legacy_fact: Option<String>,
+    /// The captured span, present only when some fact in
+    /// [`facts`](Self::facts) contains it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evidence: Option<String>,
+    /// For `unevidenced`: the literal in the author's text that no cited
+    /// capture carries. Absent on the two disagreement kinds, which quote
+    /// the captured side instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literal: Option<String>,
     /// Why the two disagree, in the model's words.
     pub why: String,
     /// False when a span was offered and rejected — said in the payload
     /// rather than left for the reader to notice an absence.
+    ///
+    /// Always false on an `unevidenced` finding, where nothing was quoted
+    /// from the capture because the whole assertion is that there is
+    /// nothing there to quote. [`report_text`] scores quote fidelity over
+    /// the evidence-bearing kinds alone for that reason.
     pub quoted: bool,
     /// The span [`crate::facts::Fact::quotes`] refused, kept here and
     /// nowhere else.
@@ -216,16 +265,33 @@ impl Finding {
         let mut out = json!({
             "kind": self.kind,
             "clause": self.clause,
-            "fact": self.fact,
+            "clause_quoted": self.clause_quoted,
+            "facts": self.facts,
             "why": self.why,
             "quoted": self.quoted,
         });
         if let Some(e) = &self.evidence {
             out["evidence"] = json!(e);
         }
+        if let Some(l) = &self.literal {
+            out["literal"] = json!(l);
+        }
         out
     }
+
+    /// Whether this kind quotes the captured side at all — true for the two
+    /// disagreement kinds, false for `unevidenced`, whose entire content is
+    /// that the capture holds nothing to quote.
+    pub fn quotes_evidence(&self) -> bool {
+        self.kind != KIND_UNEVIDENCED
+    }
 }
+
+/// The three kinds, named once. `parse_findings` refuses a reply carrying
+/// anything else, so a fourth cannot arrive by a model inventing it.
+const KIND_CONTRADICTS: &str = "contradicts";
+const KIND_OVERREACHES: &str = "overreaches";
+const KIND_UNEVIDENCED: &str = "unevidenced";
 
 /// Why this reply has no verification of its own to report.
 ///
@@ -259,6 +325,7 @@ pub struct Settings {
     pub approach: String,
     pub timeout_ms: u64,
     pub verbs: Vec<String>,
+    pub literals: bool,
 }
 
 pub fn settings(workspace_dir: &Path) -> Settings {
@@ -269,6 +336,7 @@ pub fn settings(workspace_dir: &Path) -> Settings {
         approach: config::verify_approach(d),
         timeout_ms: config::verify_timeout_ms(d),
         verbs: config::verify_verbs(d),
+        literals: config::verify_literals(d),
     }
 }
 
@@ -307,6 +375,12 @@ pub struct Record {
     pub status: String,
     pub model: String,
     pub approach: String,
+    /// Whether the literal check ran. Recorded for the same reason
+    /// `approach` is: it changes how many calls a clean verification makes,
+    /// so `expected_calls` cannot tell a retry from a configuration without
+    /// it, and it changes which kinds could appear at all.
+    #[serde(default)]
+    pub literals: bool,
     pub findings: Vec<Finding>,
     pub at: u64,
     /// What the provider reported this verification cost, summed across
@@ -329,6 +403,16 @@ pub struct Record {
     /// `unavailable`, and they are three different problems.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// [`Telemetry::not_verbatim`], persisted. A finding that reached the
+    /// author carries its own fidelity marks; these two count what was
+    /// dropped *before* anything reached them, and a drop nobody can see
+    /// is the same un-actionable silence `rejected_span` exists to break.
+    #[serde(default)]
+    pub not_verbatim: u32,
+    /// [`Telemetry::literals_refuted`], persisted — the only accuracy
+    /// signal the `unevidenced` kind has, since no eval has scored it.
+    #[serde(default)]
+    pub literals_refuted: u32,
 }
 
 // ---------------------------------------------------------------------
@@ -348,9 +432,10 @@ pub struct Record {
 /// caller loads once and may never read again, while the finding that
 /// needs it arrives alone.
 const GUIDANCE: &str = "Not an error and not a refusal. A model compared what you wrote \
-against what the tool captured, and the two look inconsistent to it. Read the quoted \
-evidence and decide: fix the wording, look at something you have not opened, or leave \
-it alone because the finding is wrong. It is wrong a meaningful fraction of the time.";
+against what the tool captured, and the two look inconsistent to it. Read the quoted span \
+— or, on an `unevidenced` finding, the literal it names, which is there precisely because \
+no capture carried it — and decide: fix the wording, look at something you have not opened, \
+or leave it alone because the finding is wrong. It is wrong a meaningful fraction of the time.";
 
 /// The `verify` object for one reply.
 ///
@@ -409,6 +494,7 @@ pub fn block(
         "approach": settings.approach.clone(),
         "timeout_ms": settings.timeout_ms,
         "verbs": settings.verbs.clone(),
+        "literals": settings.literals,
         "guidance": GUIDANCE,
     });
     let map = out.as_object_mut().expect("json object");
@@ -492,7 +578,21 @@ fn read_log(dir: &Path) -> (Vec<Record>, usize) {
     let mut skipped = 0;
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         match serde_json::from_str::<Record>(line) {
-            Ok(r) => records.push(r),
+            Ok(mut r) => {
+                // Fold the pre-set-valued attribution forward. A log
+                // written before `facts` existed carries `fact` instead,
+                // and the alternative to reading it is a report that
+                // announces every past record as an unparsable line —
+                // discarding exactly the history the report is for.
+                for f in &mut r.findings {
+                    if let Some(one) = f.legacy_fact.take() {
+                        if f.facts.is_empty() && !one.is_empty() {
+                            f.facts.push(one);
+                        }
+                    }
+                }
+                records.push(r);
+            }
             Err(_) => skipped += 1,
         }
     }
@@ -552,6 +652,28 @@ pub struct Subject {
     pub evidence: Vec<(String, Vec<String>, Vec<String>)>,
 }
 
+impl Subject {
+    /// Every fact whose captured output contains `span`.
+    ///
+    /// The same relation [`crate::facts::Fact::quotes`] applies — per
+    /// observation, no normalisation — but over the observations actually
+    /// put in front of the model rather than over the whole workspace. The
+    /// distinction is small and real: a span occurring only in some fact
+    /// this comparison never showed is not a quotation of the evidence, and
+    /// treating it as one would credit the model for text it could not have
+    /// read.
+    fn containing(&self, span: &str) -> Vec<String> {
+        if span.is_empty() {
+            return Vec::new();
+        }
+        self.evidence
+            .iter()
+            .filter(|(_, _, obs)| obs.iter().any(|o| o.contains(span)))
+            .map(|(id, _, _)| id.clone())
+            .collect()
+    }
+}
+
 /// Start a verification on a detached thread and return at once.
 ///
 /// Returns whether a thread actually started. The caller needs that
@@ -570,11 +692,13 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
     let Some(model) = settings.model.clone() else { return false };
     let dir = dir.to_path_buf();
     let approach = settings.approach.clone();
+    let literals = settings.literals;
     let budget = Duration::from_millis(settings.timeout_ms);
     std::thread::spawn(move || {
         let started = Instant::now();
         let mut tel = Telemetry::default();
-        let (status, findings) = run(&key, &model, &approach, &subject, started, budget, &mut tel);
+        let (status, findings) =
+            run(&key, &model, &approach, literals, &subject, started, budget, &mut tel);
         let record = Record {
             seq: next_seq(&dir),
             mint: subject.mint.clone(),
@@ -582,11 +706,14 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             status: status.as_str().to_string(),
             model,
             approach,
-            findings: verified_quotes(&dir, findings),
+            literals,
+            findings,
             at: workspace::now_unix(),
             cost: tel.cost,
             elapsed_ms: started.elapsed().as_millis() as u64,
             attempts: tel.attempts,
+            not_verbatim: tel.not_verbatim,
+            literals_refuted: tel.literals_refuted,
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
@@ -597,37 +724,6 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
     true
 }
 
-/// Put every finding's quoted span through the same relation `transplant`
-/// uses, and downgrade the ones it rejects.
-fn verified_quotes(dir: &Path, findings: Vec<Finding>) -> Vec<Finding> {
-    let facts = facts::load_all(dir).unwrap_or_default();
-    findings
-        .into_iter()
-        .map(|mut f| {
-            let accepted = f
-                .evidence
-                .as_deref()
-                .filter(|span| !span.is_empty())
-                .is_some_and(|span| {
-                    facts
-                        .iter()
-                        .find(|fact| fact.id == f.fact)
-                        .is_some_and(|fact| fact.quotes(span))
-                });
-            if !accepted {
-                // Moved, not deleted: withheld from the author, kept for
-                // whoever later asks how often the model invents a
-                // quotation.
-                f.rejected_span = f.evidence.take().filter(|s| !s.is_empty());
-                f.quoted = false;
-            } else {
-                f.quoted = true;
-            }
-            f
-        })
-        .collect()
-}
-
 /// What one verification spent getting to its answer, accumulated across
 /// however many calls the approach and the retries required.
 #[derive(Default)]
@@ -635,12 +731,25 @@ pub struct Telemetry {
     pub cost: f64,
     pub attempts: u32,
     pub detail: Option<String>,
+    /// Text the model attributed to the author that the author did not
+    /// write, dropped rather than passed on: a classify assertion that was
+    /// not a substring of the claim, or a literal the literal check could
+    /// not find in the text. One counter for both because it is one
+    /// failure — the model returning its own words as a quotation.
+    pub not_verbatim: u32,
+    /// `unevidenced` findings dropped because the literal turned out to be
+    /// in the capture after all. The model's claim was checkable and
+    /// checked; this counts how often it was wrong, which is the only
+    /// accuracy signal that kind has.
+    pub literals_refuted: u32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     key: &str,
     model: &str,
     approach: &str,
+    literals: bool,
     subject: &Subject,
     started: Instant,
     budget: Duration,
@@ -657,9 +766,26 @@ fn run(
     // drops carries the claim text alone, while the one it keeps carries
     // the evidence blob. The ratio is measured nowhere.
     let labelled = if approach == "split" {
-        match call(key, model, CLASSIFY_SYSTEM, &classify_prompt(subject), started, budget, tel) {
-            Ok(body) => Some(body),
+        let body = match call(key, model, CLASSIFY_SYSTEM, &classify_prompt(subject), started, budget, tel)
+        {
+            Ok(b) => b,
             Err(s) => return (s, Vec::new()),
+        };
+        // Decoded, not forwarded. The classify reply used to be spliced
+        // into the check prompt as whatever string came back, which meant
+        // its declared schema was documentation rather than a contract: a
+        // refusal, a preamble, a half-written object or a reasoning dump
+        // all went into the second call verbatim, and `split` could
+        // silently degrade to `direct`-plus-noise with no status to show
+        // for it. It is re-emitted in the same shape the eval fed, so
+        // decoding it changes what the check call sees only where what it
+        // used to see was not an answer.
+        match parse_assertions(&body, &subject.text, tel) {
+            Ok(canonical) => Some(canonical),
+            Err(why) => {
+                tel.detail = Some(why);
+                return (Status::Unparsable, Vec::new());
+            }
         }
     } else {
         None
@@ -667,7 +793,21 @@ fn run(
     let prompt = check_prompt(subject, labelled.as_deref());
     match call(key, model, CHECK_SYSTEM, &prompt, started, budget, tel) {
         Ok(body) => match parse_findings(&body, subject) {
-            Some(f) => (Status::Ok, f),
+            Some(mut f) => {
+                if literals {
+                    match literal_findings(key, model, subject, started, budget, tel) {
+                        Ok(mut l) => f.append(&mut l),
+                        // The check leg succeeded and its findings are
+                        // discarded anyway. That is the cost of the setting
+                        // and it is the conservative direction: `ok` means
+                        // the configured comparison happened, and a partial
+                        // answer delivered under it is the clean-bill
+                        // confusion this module exists to prevent.
+                        Err(s) => return (s, Vec::new()),
+                    }
+                }
+                (Status::Ok, f)
+            }
             None => {
                 // Say what could not be read. "Unparsable" alone sends
                 // whoever is tuning this back to the provider to guess.
@@ -785,49 +925,179 @@ fn call(
 /// values. `None` here becomes [`Status::Unparsable`], which is what keeps
 /// an unreadable answer from arriving as a clean bill.
 fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
-    let start = body.find('{')?;
-    let end = body.rfind('}')?;
-    let v: serde_json::Value = serde_json::from_str(body.get(start..=end)?).ok()?;
+    let v = json_object(body)?;
     let rows = v.get("disagreements")?.as_array()?;
     let mut out = Vec::new();
     for row in rows {
-        let kind = row.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
-        if kind != "contradicts" && kind != "overreaches" {
+        let kind = str_field(row, "kind");
+        if kind != KIND_CONTRADICTS && kind != KIND_OVERREACHES {
             return None;
         }
-        let evidence = row
-            .get("evidence")
-            .and_then(|e| e.as_str())
-            .unwrap_or_default()
-            .to_string();
-        // The model is not asked which fact it read, because it is not
-        // asked to track ids; the span is attributed to whichever cited
-        // fact actually contains it, and to the first when none does —
-        // where `verified_quotes` will then drop the quotation.
-        let fact = subject
-            .evidence
-            .iter()
-            .find(|(_, _, obs)| {
-                !evidence.is_empty() && obs.iter().any(|o| o.contains(&evidence))
-            })
-            .or_else(|| subject.evidence.first())
-            .map(|(id, _, _)| id.clone())
-            .unwrap_or_default();
+        let span = str_field(row, "evidence");
+        // One containment search, not two. It used to run here to pick an
+        // attribution and again in a separate pass to "verify" the
+        // quotation — the same predicate over the same text, so the second
+        // could only ever reject what the first had failed to match, and
+        // the fidelity number it produced measured nothing the first had
+        // not already decided. Computing both from one pass makes them
+        // agree by construction and states the relation once.
+        let facts = subject.containing(&span);
+        let quoted = !facts.is_empty();
+        let clause = str_field(row, "clause");
         out.push(Finding {
-            kind: kind.to_string(),
-            clause: row
-                .get("clause")
-                .and_then(|c| c.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            fact,
-            evidence: Some(evidence),
-            why: row.get("why").and_then(|w| w.as_str()).unwrap_or_default().to_string(),
+            kind,
+            clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
+            clause,
+            facts,
+            legacy_fact: None,
+            evidence: quoted.then(|| span.clone()),
+            literal: None,
+            why: str_field(row, "why"),
+            quoted,
+            // Moved, not deleted: withheld from the author, kept for
+            // whoever later asks how often the model invents a quotation.
+            rejected_span: (!quoted && !span.is_empty()).then_some(span),
+        });
+    }
+    Some(out)
+}
+
+/// The three labels [`CLASSIFY_SYSTEM`] may return, in one place so the
+/// prompt and the validator cannot drift.
+const CLASSIFY_LABELS: [&str; 3] = ["current", "proposed", "argument"];
+
+/// Decode the classify reply, drop the assertions it did not quote
+/// verbatim, and re-emit the rest in the shape the prompt declared.
+///
+/// The verbatim rule is the whole value of the step. `CLASSIFY_SYSTEM` says
+/// "You are only sorting the author's own words", and an assertion that is
+/// not a substring of the claim is not a sorting of them — it is a
+/// paraphrase that the check call will then be told is the author's text,
+/// and may report a disagreement against. Dropped rather than corrected,
+/// and counted in [`Telemetry::paraphrased`] so the rate is visible.
+///
+/// `Err` is [`Status::Unparsable`]: no object, no `assertions` array, a
+/// label outside [`CLASSIFY_LABELS`], or nothing left after the verbatim
+/// filter. The last is the one worth stating — a `split` run whose split
+/// produced nothing usable has not done what `split` means, and returning
+/// `None` there would quietly run the `direct` comparison under the
+/// `split` name.
+fn parse_assertions(body: &str, claim: &str, tel: &mut Telemetry) -> Result<String, String> {
+    let v = json_object(body).ok_or("classify reply held no JSON object")?;
+    let rows = v
+        .get("assertions")
+        .and_then(|a| a.as_array())
+        .ok_or("classify reply had no `assertions` array")?;
+    let mut kept = Vec::new();
+    for row in rows {
+        let text = str_field(row, "text");
+        let label = str_field(row, "label");
+        if !CLASSIFY_LABELS.contains(&label.as_str()) {
+            return Err(format!(
+                "classify returned the label {label:?}, which is not one of {}",
+                CLASSIFY_LABELS.join(", ")
+            ));
+        }
+        if text.is_empty() || !claim.contains(&text) {
+            tel.not_verbatim += 1;
+            continue;
+        }
+        kept.push(json!({"text": text, "label": label}));
+    }
+    if kept.is_empty() {
+        return Err(format!(
+            "classify returned {} assertion(s), none of them quoted verbatim from the claim",
+            rows.len()
+        ));
+    }
+    Ok(json!({"assertions": kept}).to_string())
+}
+
+/// The literal check: one call, then two machine filters over what it says.
+///
+/// The model's job here is the judgement — is this number, path or name
+/// asserted as *current* fact, and could a capture have carried it. Every
+/// factual component of the finding is decided in code afterwards:
+///
+///   1. the literal must be verbatim in the author's own text, or the
+///      finding points at nothing;
+///   2. no observation shown to the model may contain it, because that is
+///      the entire assertion, and it is one [`Subject::containing`] already
+///      answers exactly.
+///
+/// Filter 2 is what makes this kind cheap to trust relative to the other
+/// two: a `contradicts` finding rests on the model's reading, while an
+/// `unevidenced` one rests on a substring search anyone can rerun. It also
+/// biases hard toward silence — a literal that occurs incidentally
+/// anywhere in the capture is dropped, so `40` inside a line range
+/// suppresses a genuine finding about a different `40`. Under-reporting is
+/// the right direction for an advisory that costs the author attention.
+fn literal_findings(
+    key: &str,
+    model: &str,
+    subject: &Subject,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Result<Vec<Finding>, Status> {
+    let prompt = format!("TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
+    let body = call(key, model, LITERALS_SYSTEM, &prompt, started, budget, tel)?;
+    let Some(v) = json_object(&body) else {
+        tel.detail = Some(format!(
+            "literal check replied with no JSON object; {} bytes beginning: {}",
+            body.len(),
+            body.chars().take(200).collect::<String>()
+        ));
+        return Err(Status::Unparsable);
+    };
+    let Some(rows) = v.get("unevidenced").and_then(|u| u.as_array()) else {
+        tel.detail = Some("literal check reply had no `unevidenced` array".into());
+        return Err(Status::Unparsable);
+    };
+    let mut out = Vec::new();
+    for row in rows {
+        let literal = str_field(row, "literal");
+        if literal.is_empty() || !subject.text.contains(&literal) {
+            tel.not_verbatim += 1;
+            continue;
+        }
+        if !subject.containing(&literal).is_empty() {
+            tel.literals_refuted += 1;
+            continue;
+        }
+        let clause = str_field(row, "clause");
+        out.push(Finding {
+            kind: KIND_UNEVIDENCED.to_string(),
+            clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
+            clause,
+            facts: Vec::new(),
+            legacy_fact: None,
+            evidence: None,
+            literal: Some(literal),
+            why: str_field(row, "why"),
+            // Nothing was quoted from the capture, and nothing could be:
+            // the finding is that the capture is silent. Distinct from a
+            // rejected span, which is a quotation that failed.
             quoted: false,
             rejected_span: None,
         });
     }
-    Some(out)
+    Ok(out)
+}
+
+/// The largest brace-delimited substring of a reply, decoded.
+///
+/// Models wrap the object in prose or a fence often enough that finding it
+/// is part of reading the answer rather than a leniency. `None` here always
+/// becomes [`Status::Unparsable`] — never a clean bill.
+fn json_object(body: &str) -> Option<serde_json::Value> {
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    serde_json::from_str(body.get(start..=end)?).ok()
+}
+
+fn str_field(row: &serde_json::Value, name: &str) -> String {
+    row.get(name).and_then(|v| v.as_str()).unwrap_or_default().to_string()
 }
 
 /// What the model is shown — and it must be exactly what
@@ -973,6 +1243,49 @@ Reply with one JSON object and nothing else:
 
 An empty list is the common and correct answer."#;
 
+// The literal check is a separate call with a separate prompt, and that is
+// not an accident of layering. `CHECK_SYSTEM` above is the eval's prompt,
+// and the precision and recall `docs/verify.md` quotes describe the two
+// kinds it returns. Adding a third kind to it would have changed the
+// measured configuration, so the numbers on the page would no longer be
+// numbers about the thing that shipped. Off by default, its own call, its
+// own prompt: what the retrodiction measured stays byte-identical when this
+// is off, and when it is on the new kind's accuracy is separately unknown
+// rather than blended into a figure that was earned by something else.
+const LITERALS_SYSTEM: &str = r#"You are given text from a software design memo and the evidence a
+tool captured for it. Report literals the text states as CURRENT FACT that the captured evidence
+does not carry.
+
+A literal is a value a reader could check: a number, a count, a size, a duration, a percentage, a
+version, a file path, a symbol or function name, a flag, a setting, a quoted string.
+
+Read for the VALUE, not the spelling. A literal the evidence carries in another form is carried:
+
+  * `14_000` in the capture backs "14,000 bytes"
+  * a capture of lines 1-40 backs "40 lines"
+  * `MAX_ATTEMPTS: u32 = 3` backs "retries three times"
+  * 5 of 6 visible in the capture backs "83%", where the arithmetic is the author's to do
+
+Do not report:
+
+  * a literal in an assertion about what this design WILL build, add or change — the evidence was
+    captured before that exists, so its absence is expected and is never a finding
+  * a literal inside a reason, a decision, or an entailment
+  * a number that measures nothing: "two reasons", "the first of three", "one call"
+  * a name the text introduces for something it is proposing
+  * your own uncertainty
+
+The captured output may have been truncated, and says so where it was. A literal that may lie in
+material you were not shown is not a finding.
+
+Quote the literal VERBATIM from the text, and quote the whole clause containing it VERBATIM.
+Character for character, both. A literal that cannot be found in the text is worse than none.
+
+Reply with one JSON object and nothing else:
+{"unevidenced": [{"literal": "", "clause": "", "why": ""}]}
+
+An empty list is the common and correct answer."#;
+
 // ---------------------------------------------------------------------
 // Assembling the subject for each verb.
 // ---------------------------------------------------------------------
@@ -1106,6 +1419,18 @@ pub fn log_records(workspace_dir: &Path) -> (Vec<Record>, usize) {
 struct Row {
     claim: String,
     flagged: bool,
+    /// Flagged by at least one of the two *measured* kinds, as opposed to
+    /// by an `unevidenced` finding alone.
+    ///
+    /// The precision and recall below were earned by `contradicts` and
+    /// `overreaches`. Turning `verify.literals` on adds a kind no eval has
+    /// scored, and counting its flags into the same fraction would quietly
+    /// restate an unmeasured check's accuracy as the measured one's — the
+    /// exact contamination that keeping it in a separate call avoids
+    /// upstream. The rows stay joined over everything the author actually
+    /// saw, which is the honest denominator; this says how much of it is
+    /// the new kind.
+    disagreed: bool,
     findings: usize,
     /// None when no pass has graded this claim yet — which is not a miss
     /// and not a false positive, and leaves every denominator.
@@ -1170,7 +1495,8 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
     let mut times: Vec<u64> = records.iter().map(|r| r.elapsed_ms).collect();
     times.sort_unstable();
     let median = times.get(times.len() / 2).copied().unwrap_or(0);
-    let retried = records.iter().filter(|r| r.attempts > expected_calls(&r.approach)).count();
+    let retried =
+        records.iter().filter(|r| r.attempts > expected_calls(&r.approach, r.literals)).count();
 
     out.push_str(&format!("\nVERIFICATIONS   {}\n", records.len()));
     for (status, n) in &by_status {
@@ -1193,6 +1519,8 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
         }
     }
 
+    out.push_str(&fidelity_text(&records, show_spans));
+
     // ---- the join: flags against verdicts ----
     let (evidence, _) = crate::evidence::load(memo)?;
     let mut verdicts: std::collections::BTreeMap<String, Verdicts> = Default::default();
@@ -1214,10 +1542,12 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
         let row = rows.entry(r.mint.clone()).or_insert_with(|| Row {
             claim: r.mint.clone(),
             flagged: false,
+            disagreed: false,
             findings: 0,
             later: None,
         });
         row.flagged |= !r.findings.is_empty();
+        row.disagreed |= r.findings.iter().any(Finding::quotes_evidence);
         row.findings += r.findings.len();
     }
     for row in rows.values_mut() {
@@ -1270,24 +1600,89 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
             100.0 * worked_flagged as f64 / ever_worked as f64
         ));
     }
-
-    // ---- quotations ----
-    let all: Vec<&Finding> = records.iter().flat_map(|r| r.findings.iter()).collect();
-    let quoted = all.iter().filter(|f| f.quoted).count();
-    let rejected: Vec<&&Finding> = all.iter().filter(|f| f.rejected_span.is_some()).collect();
-    out.push_str(&format!("\nQUOTATIONS\n  findings         {}\n", all.len()));
-    if !all.is_empty() {
+    // Said only when it is true, and then said plainly. The two fractions
+    // above describe the kinds an eval scored; a claim flagged solely by
+    // the literal check is inside them without any of that behind it.
+    let literal_only = flagged.iter().filter(|r| !r.disagreed).count();
+    if literal_only > 0 {
         out.push_str(&format!(
-            "  quoted verbatim  {quoted}   ({:.0}%)\n  span rejected    {}\n",
-            100.0 * quoted as f64 / all.len() as f64,
-            rejected.len()
+            "\n  {literal_only} of those {} flags came only from `unevidenced` findings, a kind no\n  \
+             evaluation has scored. The two fractions above were earned by `contradicts`\n  \
+             and `overreaches`; read them knowing that.\n",
+            flagged.len()
+        ));
+    }
+
+    Ok(out)
+}
+
+/// The fidelity half of the report: how faithfully the model quoted the
+/// two sides it was told to quote, and what was dropped before anything
+/// reached the author.
+///
+/// Split out and called *before* the ledger join, because it needs no
+/// ledger. It used to sit after it, behind the early return for a memo
+/// nobody has graded yet — so the numbers that exist from the very first
+/// verification were withheld until a grounding pass had run, which is
+/// precisely the period when you are deciding whether the settings are
+/// right.
+fn fidelity_text(records: &[Record], show_spans: bool) -> String {
+    let mut out = String::new();
+    let all: Vec<&Finding> = records.iter().flat_map(|r| r.findings.iter()).collect();
+    // Scored over the kinds that quote the captured side. An `unevidenced`
+    // finding is `quoted: false` by construction — its whole content is
+    // that the capture holds nothing to quote — so counting it here would
+    // read as a fidelity collapse the moment the setting was turned on.
+    let evidential: Vec<&&Finding> = all.iter().filter(|f| f.quotes_evidence()).collect();
+    let quoted = evidential.iter().filter(|f| f.quoted).count();
+    let rejected: Vec<&&&Finding> = evidential.iter().filter(|f| f.rejected_span.is_some()).collect();
+    let unevidenced = all.len() - evidential.len();
+    let ambiguous = evidential.iter().filter(|f| f.facts.len() > 1).count();
+    let clause_ok = all.iter().filter(|f| f.clause_quoted).count();
+    out.push_str(&format!("\nQUOTATIONS\n  findings         {}\n", all.len()));
+    if !evidential.is_empty() {
+        out.push_str(&format!(
+            "  quoted verbatim  {quoted}   ({:.0}% of {} evidence-bearing)\n  span rejected    {}\n  span in >1 fact  {ambiguous}   <- attributed to all of them, not the first\n",
+            100.0 * quoted as f64 / evidential.len() as f64,
+            evidential.len(),
+            rejected.len(),
+        ));
+    }
+    if !all.is_empty() {
+        // The other half of the same discipline. Both prompts demand the
+        // author's own words back verbatim; for a long time only the
+        // captured side was checked, so this number did not exist and its
+        // absence looked like a clean one.
+        out.push_str(&format!(
+            "  clause verbatim  {clause_ok}   ({:.0}% of all findings)\n",
+            100.0 * clause_ok as f64 / all.len() as f64
+        ));
+    }
+    // What never reached a finding at all. Dropped material is the half of
+    // the fidelity picture the findings themselves cannot show, and a drop
+    // nobody can count is the same silence a deleted `rejected_span` would
+    // have been.
+    let not_verbatim: u32 = records.iter().map(|r| r.not_verbatim).sum();
+    let refuted: u32 = records.iter().map(|r| r.literals_refuted).sum();
+    if not_verbatim > 0 {
+        out.push_str(&format!(
+            "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
+        ));
+    }
+    let raised = unevidenced + refuted as usize;
+    if raised > 0 {
+        out.push_str(&format!(
+            "\nLITERALS\n  unevidenced      {unevidenced}   <- stated as current fact, in no capture\n  \
+             machine-refuted  {refuted}   <- the literal was in the capture after all\n  \
+             wrong about {:.0}% of what it raised, by a check anyone can rerun\n",
+            100.0 * refuted as f64 / raised as f64
         ));
     }
     if show_spans {
         for f in &rejected {
             out.push_str(&format!(
                 "\n  [{}] {}\n    the model offered: {}\n",
-                f.fact,
+                if f.facts.is_empty() { "no fact contained it".to_string() } else { f.facts.join(", ") },
                 f.clause.chars().take(120).collect::<String>(),
                 f.rejected_span
                     .as_deref()
@@ -1301,16 +1696,18 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
         out.push_str("  (--spans prints the spans that failed verification)\n");
     }
 
-    Ok(out)
+
+    out
 }
 
 /// How many calls an approach makes when nothing is retried, so a retry
 /// can be counted rather than inferred.
-fn expected_calls(approach: &str) -> u32 {
-    match approach {
+fn expected_calls(approach: &str, literals: bool) -> u32 {
+    let base = match approach {
         "split" => 2,
         _ => 1,
-    }
+    };
+    base + u32::from(literals)
 }
 
 #[cfg(test)]
@@ -1324,6 +1721,36 @@ mod tests {
             approach: "direct".into(),
             timeout_ms: 60_000,
             verbs: vec!["claim".into()],
+            literals: false,
+        }
+    }
+
+    fn finding_fixture() -> Finding {
+        Finding {
+            kind: KIND_CONTRADICTS.into(),
+            clause: "the function returns early".into(),
+            clause_quoted: true,
+            facts: vec!["F1".into()],
+            legacy_fact: None,
+            evidence: Some("return".into()),
+            literal: None,
+            why: "it does not".into(),
+            quoted: true,
+            rejected_span: None,
+        }
+    }
+
+    fn subject_fixture(text: &str, evidence: &[(&str, &[&str])]) -> Subject {
+        Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: text.into(),
+            evidence: evidence
+                .iter()
+                .map(|(id, obs)| {
+                    ((*id).to_string(), Vec::new(), obs.iter().map(|o| (*o).to_string()).collect())
+                })
+                .collect(),
         }
     }
 
@@ -1363,12 +1790,14 @@ mod tests {
     }
 
     #[test]
-    fn every_block_echoes_all_five_settings() {
+    fn every_block_echoes_all_six_settings() {
         // `config.rs` admits a key only if it is visible in the output it
-        // affects. Three of the five are invisible without this echo.
+        // affects. Four of the six are invisible without this echo —
+        // `literals` most of all, since with it off the author sees
+        // findings of two kinds and nothing saying a third exists.
         for delivered in [None, Some(&record_fixture())] {
             let b = block(&settings_fixture(), "claim", delivered, Trigger::NotAttempted);
-            for key in ["model", "approach", "timeout_ms", "verbs"] {
+            for key in ["model", "approach", "timeout_ms", "verbs", "literals"] {
                 assert!(b.get(key).is_some(), "{key} missing from {b}");
             }
             assert_eq!(b["deterministic"], false, "{b}");
@@ -1383,6 +1812,9 @@ mod tests {
             status: "ok".into(),
             model: "openai/gpt-5.6-luna".into(),
             approach: "split".into(),
+            literals: false,
+            not_verbatim: 0,
+            literals_refuted: 0,
             findings: Vec::new(),
             at: 0,
             cost: 0.0,
@@ -1441,13 +1873,12 @@ mod tests {
     #[test]
     fn a_rejected_span_is_kept_in_the_log_and_withheld_from_the_author() {
         let f = Finding {
-            kind: "contradicts".into(),
-            clause: "the function returns early".into(),
-            fact: "F1".into(),
             evidence: None,
+            facts: Vec::new(),
             why: "invented".into(),
             quoted: false,
             rejected_span: Some("text that is in no captured output".into()),
+            ..finding_fixture()
         };
         // The author must not be sent to check against text that does not
         // exist...
@@ -1468,17 +1899,18 @@ mod tests {
     #[test]
     fn a_clean_finding_carries_its_span_to_the_author() {
         let f = Finding {
-            kind: "overreaches".into(),
+            kind: KIND_OVERREACHES.into(),
             clause: "every call site".into(),
-            fact: "F2".into(),
+            facts: vec!["F2".into()],
             evidence: Some("fn a() {}".into()),
             why: "one file was opened".into(),
             quoted: true,
-            rejected_span: None,
+            ..finding_fixture()
         };
         let payload = f.payload();
         assert_eq!(payload["evidence"], "fn a() {}");
         assert_eq!(payload["quoted"], true);
+        assert_eq!(payload["facts"], json!(["F2"]));
         assert!(payload.get("rejected_span").is_none());
     }
 
@@ -1597,20 +2029,171 @@ mod tests {
 
     #[test]
     fn a_span_is_attributed_to_the_fact_that_contains_it() {
-        let subject = Subject {
-            mint: "C1".into(),
-            verb: "claim".into(),
-            text: "x".into(),
-            evidence: vec![
-                ("F1".into(), vec![], vec!["alpha".to_string()]),
-                ("F2".into(), vec![], vec!["beta".to_string()]),
-            ],
-        };
+        let subject = subject_fixture("x", &[("F1", &["alpha"]), ("F2", &["beta"])]);
         let f = parse_findings(
             r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"beta","why":"w"}]}"#,
             &subject,
         )
         .expect("parsed");
-        assert_eq!(f[0].fact, "F2");
+        assert_eq!(f[0].facts, vec!["F2".to_string()]);
+        assert!(f[0].quoted);
+    }
+
+    #[test]
+    fn a_span_living_in_two_captures_names_both_rather_than_the_first() {
+        // The defect this replaced: attribution took whichever fact came
+        // first in the cite list, so a short or common span — a number, a
+        // path, an identifier — sent the author to a fact chosen by the
+        // order they happened to type `--cites` in.
+        let subject = subject_fixture("x", &[("F1", &["shared token"]), ("F2", &["shared token"])]);
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"shared","why":"w"}]}"#,
+            &subject,
+        )
+        .expect("parsed");
+        assert_eq!(f[0].facts, vec!["F1".to_string(), "F2".to_string()]);
+    }
+
+    #[test]
+    fn a_span_in_no_capture_is_attributed_to_nothing_at_all() {
+        // And specifically not to the first fact, which is what made a
+        // placeholder attribution indistinguishable from a real one in the
+        // payload.
+        let subject = subject_fixture("x", &[("F1", &["alpha"])]);
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"gamma","why":"w"}]}"#,
+            &subject,
+        )
+        .expect("parsed");
+        assert!(f[0].facts.is_empty(), "{:?}", f[0].facts);
+        assert!(!f[0].quoted);
+        assert_eq!(f[0].rejected_span.as_deref(), Some("gamma"));
+        assert!(f[0].payload().get("evidence").is_none());
+    }
+
+    #[test]
+    fn a_clause_the_author_never_wrote_is_marked_as_not_theirs() {
+        // The other half of "both VERBATIM". Reported rather than
+        // withheld: the clause points at the author's own visible text, so
+        // a paraphrase is still a usable pointer.
+        let subject = subject_fixture("the parser is recursive", &[("F1", &["alpha"])]);
+        let f = parse_findings(
+            r#"{"disagreements":[
+                 {"kind":"contradicts","clause":"the parser is recursive","evidence":"alpha","why":"w"},
+                 {"kind":"contradicts","clause":"the parser uses recursion","evidence":"alpha","why":"w"}]}"#,
+            &subject,
+        )
+        .expect("parsed");
+        assert!(f[0].clause_quoted, "a verbatim clause was marked as a paraphrase");
+        assert!(!f[1].clause_quoted, "a paraphrase was passed off as a quotation");
+        assert_eq!(f[1].payload()["clause_quoted"], false);
+        assert_eq!(f[1].payload()["clause"], "the parser uses recursion");
+    }
+
+    #[test]
+    fn a_classify_reply_that_paraphrases_the_claim_drops_the_paraphrase() {
+        let mut tel = Telemetry::default();
+        let canonical = parse_assertions(
+            r#"{"assertions":[{"text":"the cache is warm","label":"current"},
+                              {"text":"the cache gets warmed","label":"current"}]}"#,
+            "the cache is warm and that is why it is fast",
+            &mut tel,
+        )
+        .expect("one assertion survived");
+        assert!(canonical.contains("the cache is warm"));
+        assert!(!canonical.contains("gets warmed"), "{canonical}");
+        assert_eq!(tel.not_verbatim, 1);
+    }
+
+    #[test]
+    fn a_classify_reply_that_is_not_an_answer_fails_rather_than_becoming_direct() {
+        // The old behaviour forwarded whatever came back into the check
+        // prompt, so `split` degraded to `direct`-plus-noise silently.
+        let mut tel = Telemetry::default();
+        for body in [
+            "I cannot help with that.",
+            r#"{"assertions":[{"text":"nowhere in the claim","label":"current"}]}"#,
+            r#"{"assertions":[{"text":"the cache is warm","label":"speculative"}]}"#,
+            r#"{"result":"ok"}"#,
+        ] {
+            assert!(
+                parse_assertions(body, "the cache is warm", &mut tel).is_err(),
+                "accepted a non-answer: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_classify_reply_that_answers_survives_decoding() {
+        let mut tel = Telemetry::default();
+        let canonical = parse_assertions(
+            r#"Here you go: {"assertions":[{"text":"the cache is warm","label":"current"}]}"#,
+            "the cache is warm",
+            &mut tel,
+        )
+        .expect("decoded");
+        let v: serde_json::Value = serde_json::from_str(&canonical).expect("re-emitted as JSON");
+        assert_eq!(v["assertions"][0]["label"], "current");
+        assert_eq!(tel.not_verbatim, 0);
+    }
+
+    #[test]
+    fn an_unevidenced_finding_quotes_the_authors_literal_and_no_capture() {
+        let f = Finding {
+            kind: KIND_UNEVIDENCED.into(),
+            clause: "the buffer is 4096 bytes".into(),
+            facts: Vec::new(),
+            evidence: None,
+            literal: Some("4096".into()),
+            quoted: false,
+            ..finding_fixture()
+        };
+        let payload = f.payload();
+        assert_eq!(payload["literal"], "4096");
+        assert_eq!(payload["kind"], "unevidenced");
+        assert!(payload.get("evidence").is_none());
+        // It must not be scored as a failed quotation: nothing was quoted
+        // from the capture because the finding is that there is nothing
+        // there to quote.
+        assert!(!f.quotes_evidence());
+        assert!(finding_fixture().quotes_evidence());
+    }
+
+    #[test]
+    fn a_legacy_log_line_keeps_its_attribution_instead_of_becoming_unreadable() {
+        // `fact` predates `facts`. A log written before the change must
+        // still be readable, or the report announces the whole history as
+        // unparsable lines — which is exactly the history it exists for.
+        let dir = std::env::temp_dir().join(format!("tetel-verify-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let line = r#"{"seq":1,"mint":"C3","verb":"claim","status":"ok","model":"m","approach":"split","findings":[{"kind":"contradicts","clause":"c","fact":"F7","why":"w","quoted":true,"evidence":"e"}],"at":0}"#;
+        std::fs::write(log_path(&dir), format!("{line}\n")).unwrap();
+        let (records, skipped) = read_log(&dir);
+        assert_eq!(skipped, 0, "a legacy line was dropped");
+        assert_eq!(records[0].findings[0].facts, vec!["F7".to_string()]);
+        // And it is never written back out under the old name.
+        let round = serde_json::to_string(&records[0]).unwrap();
+        assert!(!round.contains(r#""fact":"#), "{round}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_literal_check_adds_a_call_that_a_retry_count_must_not_mistake() {
+        assert_eq!(expected_calls("split", false), 2);
+        assert_eq!(expected_calls("split", true), 3);
+        assert_eq!(expected_calls("direct", false), 1);
+        assert_eq!(expected_calls("direct", true), 2);
+    }
+
+    #[test]
+    fn the_two_measured_prompts_are_untouched_by_the_literal_check() {
+        // The gate's precision and recall describe `CHECK_SYSTEM`'s two
+        // kinds. If the third kind ever appears in that prompt, the
+        // numbers in `docs/verify.md` stop being numbers about the thing
+        // that produced them.
+        assert!(!CHECK_SYSTEM.contains(KIND_UNEVIDENCED), "the measured prompt grew a third kind");
+        assert!(!CLASSIFY_SYSTEM.contains(KIND_UNEVIDENCED));
+        assert!(LITERALS_SYSTEM.contains("unevidenced"));
     }
 }

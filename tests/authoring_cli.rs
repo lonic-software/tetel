@@ -3280,6 +3280,71 @@ fn verify_report_joins_flags_to_the_verdicts_graders_later_reached() {
     assert!(out.contains("a span that was never captured"), "got:\n{out}");
 }
 
+/// The fidelity half of the report: what the model quoted faithfully, what
+/// it attributed to more than one capture, what it put in the author's
+/// mouth, and what the literal check raised that a substring search then
+/// refuted.
+///
+/// All four are counts of things that either never reached the author or
+/// reached them with a caveat, so none of them is visible in the findings
+/// themselves. A number nobody can see is one nobody can tune on, which is
+/// the same argument that keeps a rejected span in the log.
+#[test]
+fn verify_report_scores_both_quotations_and_the_literals_it_refuted() {
+    let sb = Sandbox::new("verify-report-fidelity");
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    let memo = sb.dir.join("memo.md");
+
+    sb.run(&["--workspace", "author", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines a()"]);
+    sb.run(&["--workspace", "author", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "author", "fact", "--note", "read again"]);
+    let (code, _o, err) = sb.run(&[
+        "--workspace", "author", "claim",
+        "--proposition", "the read buffer is 4096 bytes", "--cites", "F1,F2",
+    ]);
+    assert_eq!(code, 0, "claim failed:\n{err}");
+    sb.run(&["--workspace", "author", "prose", "--text", "About it.", "--cites", "C1"]);
+    let (code, _o, err) =
+        sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "render failed:\n{err}");
+
+    let ws = sb.state_home().join("workspaces").join("author");
+    // One verification carrying all four shapes: a span living in two
+    // captures, a clause the author never wrote, an `unevidenced` literal,
+    // and the two drop counters.
+    let log = r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","literals":true,"at":1,"cost":0.001,"elapsed_ms":900,"attempts":3,"not_verbatim":1,"literals_refuted":2,"findings":[{"kind":"contradicts","clause":"the read buffer is 4096 bytes","clause_quoted":true,"facts":["F1","F2"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"overreaches","clause":"the buffer is always 4096","clause_quoted":false,"facts":["F1"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"unevidenced","clause":"the read buffer is 4096 bytes","clause_quoted":true,"literal":"4096","facts":[],"why":"no capture carries it","quoted":false}]}"#;
+    std::fs::write(ws.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
+
+    let (code, out, err) = sb.run(&["verify-report", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "verify-report failed:\n{err}");
+
+    // Quote fidelity is scored over the evidence-bearing kinds alone. The
+    // `unevidenced` finding is `quoted: false` by construction, and
+    // counting it here would read as a collapse the moment the setting was
+    // turned on.
+    assert!(out.contains("findings         3"), "got:\n{out}");
+    assert!(out.contains("quoted verbatim  2   (100% of 2 evidence-bearing)"), "got:\n{out}");
+
+    // A span in two captures is named in both, not attributed to whichever
+    // the author happened to cite first.
+    assert!(out.contains("span in >1 fact  1"), "got:\n{out}");
+
+    // The author's own words, checked — one of the three was a paraphrase.
+    assert!(out.contains("clause verbatim  2   (67% of all findings)"), "got:\n{out}");
+
+    // What never became a finding at all.
+    assert!(out.contains("dropped, not the author's words   1"), "got:\n{out}");
+    assert!(out.contains("unevidenced      1"), "got:\n{out}");
+    assert!(out.contains("machine-refuted  2"), "got:\n{out}");
+    assert!(out.contains("wrong about 67% of what it raised"), "got:\n{out}");
+
+    // Three calls is what `split` plus the literal check costs when
+    // nothing is retried, so this must not be counted as a retry.
+    assert!(out.contains("retried        0"), "got:\n{out}");
+}
+
 /// `--unset` names one setting to remove. The two shapes that name none
 /// used to be ignored, and one of them did the opposite of what was asked.
 #[test]

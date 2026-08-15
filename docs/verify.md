@@ -108,6 +108,7 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
 | `verify.timeout_ms` | integer ≥ 1000 | `60000` | how long one verification may take, **end to end across retries** |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim` | which verbs are verified |
+| `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
 ### `approach`
 
@@ -126,6 +127,55 @@ and a workspace can override any of them in its own state directory with `--work
 The design also names a third mode — a three-call pipeline whose findings are re-derivable without a
 model — and it is **not built**. `verify.approach extract` is refused by name rather than quietly
 served by one of the two above.
+
+### `literals`, and why it is off while the feature is on
+
+The other four settings configure the comparison the retrodiction measured. This one adds a **third
+finding kind** that no evaluation has ever scored, so it defaults off — turning it on by default
+would fold an unmeasured check into the precision and recall quoted further down, which were earned
+by something else.
+
+With it on, each verification makes **one extra call**, which asks a narrower question: does your
+text state a *literal* — a number, a count, a size, a version, a file path, a symbol name, a flag, a
+quoted string — as a fact about how things behave **today**, where nothing you cited carries it?
+
+```sh
+tetel config verify.literals true
+```
+
+The model's job here is only the judgement: is this literal an assertion of current fact, and could
+a capture have carried it. **Every factual part of the finding is then decided in code**, by two
+filters the model cannot talk its way past:
+
+1. the literal must be a verbatim substring of your own text, or the finding points at nothing;
+2. no observation the model was shown may contain it — which is the entire assertion, and is a
+   substring search anyone can rerun.
+
+That second filter is what makes this kind cheaper to trust than the other two: a `contradicts`
+finding rests on the model's reading, an `unevidenced` one rests on a search you can repeat. It also
+biases hard toward silence, and deliberately. A literal occurring *anywhere* in the capture is
+dropped, so a `40` inside a line range will suppress a real finding about a different `40`.
+Under-reporting is the right direction for an advisory that costs you attention.
+
+Two costs to know before turning it on:
+
+- **One more call per mint** — roughly +50% on `split`, +100% on `direct`. See [what it costs](#what-it-costs).
+- **A failure in that call fails the whole verification.** If the literal leg times out or comes back
+  unreadable, the status is that failure and the disagreement findings are discarded with it. `ok`
+  means the configured comparison happened; a partial answer delivered under it would be exactly the
+  clean-bill confusion the status vocabulary exists to prevent.
+
+`verify.timeout_ms` bounds the whole verification, not each call, so three legs share the budget one
+or two used to have. Nothing sits in front of your reply, so raise it rather than let it clip:
+
+```sh
+tetel config verify.timeout_ms 120000
+```
+
+One consequence to know for `verify-report`: a claim flagged only by an `unevidenced` finding still
+counts as flagged in the precision and recall join, because that join reports what you were actually
+shown. The report says how many flags came from the literal check alone, so you can read those two
+fractions knowing which part of them has an evaluation behind it.
 
 ### `verbs`, and why the default is `claim` alone
 
@@ -169,9 +219,9 @@ unreadable, and an empty array would read as a clean bill in every one of those 
 Under any status but `ok`, **there is no `findings` key at all**. Do not treat its absence as "no
 disagreements found".
 
-Every response also echoes the five settings in force (`model`, `approach`, `timeout_ms`, `verbs`)
-plus `deterministic: false` and a `guidance` string — because tetel only admits a setting that is
-visible in the output it affects, and three of those five would otherwise be invisible.
+Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
+`literals`) plus `deterministic: false` and a `guidance` string — because tetel only admits a setting
+that is visible in the output it affects, and four of those five would otherwise be invisible.
 
 ### A finding
 
@@ -179,13 +229,15 @@ visible in the output it affects, and three of those five would otherwise be inv
 {
   "kind": "contradicts",
   "clause": "counted.rs defines exactly two functions",
-  "fact": "F1",
+  "clause_quoted": true,
+  "facts": ["F1"],
   "evidence": "fn a() {}\nfn b() {}\nfn c() {}",
   "why": "The captured file defines three functions, not exactly two.",
   "quoted": true
 }
 ```
 
+- `kind` is `contradicts`, `overreaches`, or — only when `verify.literals` is on — `unevidenced`.
 - `clause` is **your** wording, the part being judged.
 - `evidence` is the captured span it was judged against, present **only** when that span was verified
   as a verbatim substring of a single captured observation — the same relation `transplant` uses to
@@ -194,6 +246,40 @@ visible in the output it affects, and three of those five would otherwise be inv
   captured record. The finding still ships; its quotation does not.
 - There is **no confidence score**, deliberately. A number invites deference; a quotation invites
   checking, and checking is the only safe response when the check is wrong.
+
+#### The two fidelity marks
+
+Both system prompts demand two quotations verbatim — your clause, and the captured span. Neither is
+taken on trust, and each finding says how it fared:
+
+- **`facts`** lists every cited fact whose captured output contains the span. Not the model's word
+  for it: the model is never asked which fact it read, because it is never asked to track ids. An
+  empty list means no capture contained the span, which is the same thing `quoted: false` says. **A
+  list of more than one is not a bug** — a short span (a number, a path, a common identifier) genuinely
+  lives in several captures, and naming all of them is honest where naming the first would send you
+  to a fact picked by the order you happened to type `--cites` in.
+- **`clause_quoted: false`** means the clause shown is the model's paraphrase, not your words. It is
+  reported rather than withheld, unlike a rejected span: the span points *outside* the finding, so an
+  unverified one sends you to text that does not exist, whereas the clause points at prose you are
+  already looking at, where a paraphrase is still a usable pointer.
+
+#### An `unevidenced` finding
+
+```json
+{
+  "kind": "unevidenced",
+  "clause": "the read buffer is 4096 bytes",
+  "clause_quoted": true,
+  "literal": "4096",
+  "facts": [],
+  "why": "No captured output carries this size; the buffer's declaration was never opened.",
+  "quoted": false
+}
+```
+
+It names a `literal` instead of quoting evidence, because **the finding is the absence**. `quoted` is
+always `false` here and `facts` always empty — there was nothing in the capture to quote. That is why
+`verify-report` scores quote fidelity over the two disagreement kinds alone.
 
 ---
 
@@ -261,6 +347,11 @@ captured extent. A real claim is a paragraph judged against the joined output of
 The closest measured analogues on the same corpus sit at 0.63–0.65 of `split`, so expect about a third
 off. Nothing measures the shipped `direct` pairing itself.
 
+`verify.literals` adds one more call, and it is one of the **expensive** ones: like the check call, it
+carries the whole evidence blob. Nothing has measured it, so take the arithmetic rather than a
+figure — on `split` it is a third call of roughly check-call size, so budget **about +50%**; on
+`direct` it doubles the calls and roughly doubles the cost.
+
 Revisions are where the volume is: in the largest memo on disk, two thirds of claim traffic is
 revision. A revision that changes the text being compared is a new comparison and makes a new call.
 
@@ -292,6 +383,14 @@ Read that honestly:
 - **Expect roughly 8 warnings on a 40-claim design, 6 of them real.** Arriving when the fix costs one
   re-look rather than one revision round, blocking nothing, for a few tens of cents.
 
+**These numbers describe the two disagreement kinds only.** They were produced by the `split`
+configuration with `verify.literals` off, and that prompt is untouched by the literal check — the
+third kind runs as a separate call with its own prompt precisely so these figures keep describing
+what produced them. The `unevidenced` kind has **no measured precision or recall at all**. What it
+does have is the machine filter: `verify-report` prints how often the model raised a literal that
+turned out to be in the capture after all, which is an accuracy signal you accumulate on your own
+memos rather than one inherited from an eval.
+
 The one bucket the corpus cannot settle: 60 claims carried a *qualifies* verdict and 18 were flagged.
 A qualification is often legitimate scope-narrowing rather than a defect, so nothing in that data
 says whether those flags were welcome or noise. That is what `verify-report` exists to answer, going
@@ -304,7 +403,9 @@ forward, on your own memos.
 Each workspace keeps `verify.log`, one JSONL record per completed verification, carrying the
 findings, the status and why a failure failed, plus `cost`, `elapsed_ms` and `attempts`. It also keeps
 the spans that failed quote verification — withheld from you at mint time, kept here, because a
-fabrication rate you can never look at is not one you can act on.
+fabrication rate you can never look at is not one you can act on. The same reasoning puts
+`not_verbatim` and `literals_refuted` on each record: they count what was dropped *before* a finding
+reached you, which nothing in the findings themselves can show.
 
 **`verify.log` is never copied into a snapshot.** Snapshot contents are an explicit enumeration and
 this name is not in it, so non-reproducible model output cannot travel beside a memo. Nothing in the
@@ -348,13 +449,34 @@ FLAGS AGAINST WHAT THE GRADERS LATER SAID
   recall           50%   (1/2)
 
 QUOTATIONS
-  findings         2
-  quoted verbatim  1   (50%)
+  findings         3
+  quoted verbatim  1   (50% of 2 evidence-bearing)
   span rejected    1
+  span in >1 fact  0   <- attributed to all of them, not the first
+  clause verbatim  3   (100% of all findings)
+  dropped, not the author's words   1   <- returned as a quotation, absent from the text
+
+LITERALS
+  unevidenced      1   <- stated as current fact, in no capture
+  machine-refuted  2   <- the literal was in the capture after all
+  wrong about 67% of what it raised, by a check anyone can rerun
 
   [F1] proposition number 2
     the model offered: pub fn never_captured() -> usize
 ```
+
+The three fidelity lines are what you tune on:
+
+- **`span in >1 fact`** counts findings whose quotation lives in several captures. High is not a
+  fault — it usually means short spans — but it tells you how often the attribution is a set rather
+  than a name.
+- **`clause verbatim`** is how often the model quoted *your* words back rather than paraphrasing.
+- **`dropped, not the author's words`** counts what never became a finding at all: classify
+  assertions and literals the model attributed to you that were not in your text. These are dropped
+  before anything reaches you, and counted here so the drop is visible rather than silent.
+- **`machine-refuted`** is the only accuracy number the `unevidenced` kind has. It counts literals the
+  model called unevidenced that a substring search found in the capture anyway. Nothing was shown to
+  you for those — the filter ran first — but a high rate means the literal check is guessing.
 
 Claims nobody has graded yet leave every denominator rather than counting as correct silences.
 
@@ -376,3 +498,6 @@ verifier. Run it yourself.
   with a key present.
 - **It has been measured on tetel's own memos and nowhere else.** Seven memos, one corpus, one
   authoring style. `verify-report` is how you find out whether any of it holds for yours.
+- **`verify.literals` has not been measured at all.** Every number on this page describes the two
+  disagreement kinds. The literal check is off by default for that reason, and its findings are
+  filtered by a substring search rather than vouched for by an eval.
