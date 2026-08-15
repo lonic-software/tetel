@@ -5,3 +5,4 @@ If the donor states it somewhere F5 never opened, look there and mint a fact tha
 1786788845	claim	cited fact(s) do not exist: ["F29"]; try `tetel query facts` to see what exists
 1786788863	claim	cited fact(s) do not exist: ["F29"]; try `tetel query facts` to see what exists
 1786788908	claim	cited fact(s) do not exist: ["F28"]; try `tetel query facts` to see what exists
+1786802514	fact	pending observation buffer is empty; run `tetel look` or `tetel run` first, then `tetel fact`

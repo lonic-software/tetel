@@ -147,6 +147,19 @@ Two labelled partitions, each stating its own scope, and **never a single docume
 Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean
 run.
 
+## The mint-time verifier
+
+Optional, off by default, and the one part of tetel that reaches the network. When enabled, `fact`,
+`claim` and `prose` compare what you just wrote against the evidence the tool already captured for
+it, and report disagreements in the tool result — `scope.rs` for meaning rather than for location.
+It never refuses, never blocks a mint, and never runs inside `check`.
+
+It flags about 8 things on a 40-claim design, 6 of them real, for a few tens of cents. It also misses
+most of what a grounding pass catches, and it says so.
+
+**[`docs/verify.md`](docs/verify.md)** — configuration, every option, what the statuses mean, what it
+costs, and how well it actually works.
+
 ## Constraints — the things this must not become
 
 - **No auto-bless.** A stored value that silently updates to match a fresh run turns *"the claim still

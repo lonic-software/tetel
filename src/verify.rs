@@ -102,6 +102,17 @@ const KEY_VARS: [&str; 2] = ["OPENROUTER_API_KEY", "TETEL_API_KEY"];
 const MAX_ATTEMPTS: u32 = 3;
 const FIRST_TOKEN_CAP: u32 = 4000;
 
+/// How much captured output one verification may send.
+///
+/// The same bound the harness that measured this feature used. Without it
+/// the numbers on the page describe a different input from the one the
+/// code sends: a fact folded from a large `run` would go whole, and the
+/// cost, the latency and the truncation rate would all be figures nobody
+/// measured. It also keeps a promise the prompt already makes — "the
+/// captured output may have been truncated, and says so where it was" —
+/// which nothing was emitting.
+const MAX_EVIDENCE_BYTES: usize = 14_000;
+
 /// Every terminal state of a verification, and the three decidable
 /// without a call. Total by construction: a state that maps to nothing
 /// here would reproduce the defect the whole object exists to prevent.
@@ -638,9 +649,13 @@ fn run(
     // `split` classifies the claim's assertions before checking them, so
     // the check can be told which ones the captured evidence is even
     // able to speak to. It costs a second call and it is the default,
-    // because it is the configuration the retrodiction measured — the
-    // one-call `direct` comparison won an earlier fifteen-case eval on
-    // synthetic cases, and nothing has measured it on a real memo.
+    // because it is the configuration the retrodiction measured. One-call
+    // comparisons have been run over the same corpus, but not this arm's
+    // prompt pairing, and none of their numbers were carried into the
+    // decision to ship. `direct` is cheaper, but not by the half a
+    // reader would assume from "one call instead of two": the call it
+    // drops carries the claim text alone, while the one it keeps carries
+    // the evidence blob. The ratio is measured nowhere.
     let labelled = if approach == "split" {
         match call(key, model, CLASSIFY_SYSTEM, &classify_prompt(subject), started, budget, tel) {
             Ok(body) => Some(body),
@@ -830,13 +845,46 @@ fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
 fn evidence_text(subject: &Subject) -> String {
     let mut labels = String::new();
     let mut blob = String::new();
+    let mut budget = MAX_EVIDENCE_BYTES;
+    let mut withheld = 0usize;
     for (id, extent, observations) in &subject.evidence {
         for e in extent {
             labels.push_str(&format!("  - [{id}] {e}\n"));
         }
         for (n, output) in observations.iter().enumerate() {
-            blob.push_str(&format!("--- {id} observation {} ---\n{output}\n", n + 1));
+            blob.push_str(&format!("--- {id} observation {} ---\n", n + 1));
+            // Cut on a character boundary, and say what was cut. An
+            // undisclosed truncation is worse than a small budget: the
+            // prompt forbids reporting a disagreement resting on material
+            // the model was not shown, and it can only obey that if the
+            // absence is visible.
+            let take = if output.len() <= budget {
+                output.len()
+            } else {
+                let mut t = budget;
+                while t > 0 && !output.is_char_boundary(t) {
+                    t -= 1;
+                }
+                t
+            };
+            if take < output.len() {
+                withheld += output.len() - take;
+                blob.push_str(&output[..take]);
+                blob.push_str(&format!(
+                    "\n[... {} bytes of captured output not shown]\n",
+                    output.len() - take
+                ));
+            } else {
+                blob.push_str(output);
+                blob.push('\n');
+            }
+            budget = budget.saturating_sub(take);
         }
+    }
+    if withheld > 0 {
+        blob.push_str(&format!(
+            "\n[{withheld} bytes of captured output withheld in total — this comparison saw a bounded view]\n"
+        ));
     }
     format!("EVIDENCE — what was opened or run:\n{labels}\nEVIDENCE — captured output:\n{blob}")
 }
@@ -1510,6 +1558,41 @@ mod tests {
         // The common, correct answer.
         let empty = parse_findings(r#"{"disagreements": []}"#, &subject).expect("parsed");
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn a_large_capture_is_bounded_and_says_that_it_was() {
+        // Unbounded, the input would be a different thing from the one
+        // the cost and accuracy figures were measured on — and a big
+        // enough fact would overrun the model's context into a truncated
+        // draw, three retries and triple the spend.
+        let big = "x".repeat(MAX_EVIDENCE_BYTES * 2);
+        let subject = Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: "a claim".into(),
+            evidence: vec![("F1".into(), vec!["big.txt".into()], vec![big])],
+        };
+        let text = evidence_text(&subject);
+        assert!(text.len() < MAX_EVIDENCE_BYTES * 2, "the bound did not apply: {} bytes", text.len());
+        // Disclosed, not silent: the prompt forbids reporting a
+        // disagreement resting on material the model was not shown, and
+        // it can only obey that if the absence is visible.
+        assert!(text.contains("bytes of captured output not shown"), "truncation was silent");
+        assert!(text.contains("withheld in total"), "no summary of what was withheld");
+    }
+
+    #[test]
+    fn a_capture_that_fits_is_sent_whole_and_unmarked() {
+        let subject = Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: "a claim".into(),
+            evidence: vec![("F1".into(), vec![], vec!["fn a() {}".into()])],
+        };
+        let text = evidence_text(&subject);
+        assert!(text.contains("fn a() {}"));
+        assert!(!text.contains("not shown"), "an untruncated capture claimed truncation");
     }
 
     #[test]

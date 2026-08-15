@@ -744,6 +744,8 @@ impl TetelServer {
     #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (what was refused in the window that produced it, verbatim) — a refused `look` leaves the buffer untouched, so if you expected to fold a file and see a refusal instead, that is where it went. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `fact` it is `off` unless you have turned the verb on, because `scope` already covers half of this comparison deterministically and for free. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
+        // Captured before the request consumes `p.revise`.
+        let revise_target = p.revise.clone();
         let req = match p.revise {
             Some(id) => facts::FactRequest::Revise { id, note: p.note, why: p.why },
             None => facts::FactRequest::Mint { note: p.note },
@@ -759,6 +761,18 @@ impl TetelServer {
         // triggered it, so this is where it lands.
         let settings = crate::verify::settings(&dir);
         let delivered = crate::verify::peek_delivered(&dir);
+        // The note as it stood before this call. `facts::revise` refuses
+        // only a missing id, an empty `--why` and an empty note — it
+        // appends happily for a note byte-identical to the current one —
+        // so the no-op skip has to be made here, as it is for the other
+        // two verbs.
+        let previous_note = match (&revise_target, crate::verify::verb_enabled(&settings, "fact")) {
+            (Some(id), true) => facts::load_all(&dir)
+                .ok()
+                .and_then(|fs| fs.into_iter().find(|f| &f.id == id))
+                .map(|f| f.note),
+            _ => None,
+        };
         match facts::dispatch(&dir, req) {
             Ok(facts::FactOutcome::Minted(f)) => {
                 let queued = start_verification(&dir, &settings, "fact", || {
@@ -769,12 +783,16 @@ impl TetelServer {
             }
             Ok(facts::FactOutcome::Revised { id }) => {
                 // A revision changes the note, which is the text being
-                // compared, so it is a new comparison rather than a
-                // repeat. What makes no call is a revision that leaves the
-                // compared text alone, and `facts::dispatch` refuses those
-                // before they reach here.
+                // compared, so it is normally a new comparison. A note
+                // revised to byte-identical text is not, and nothing
+                // below this stops it — `facts::revise` appends such an
+                // event without complaint — so the check is made here.
                 let queued = start_verification(&dir, &settings, "fact", || {
-                    crate::verify::fact_subject(&dir, &id).ok()
+                    let subject = crate::verify::fact_subject(&dir, &id).ok()?;
+                    if previous_note.as_deref() == Some(subject.text.as_str()) {
+                        return None;
+                    }
+                    Some(subject)
                 });
                 let verify = verify_block(&dir, &settings, "fact", delivered, &queued);
                 Ok(CallToolResult::structured(fact_result(
@@ -793,6 +811,8 @@ impl TetelServer {
     #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued` mean no finding is being reported to you, and `ok`/`unavailable`/`timeout`/`unparsable` report a comparison started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
+        // Captured before the request consumes `p.revise`.
+        let revise_target = p.revise.clone();
         let req = if let Some(id) = p.withdraw {
             claims::ClaimRequest::Withdraw { id, why: p.why }
         } else if let Some(id) = p.revise {
@@ -802,6 +822,22 @@ impl TetelServer {
         };
         let settings = crate::verify::settings(&dir);
         let delivered = crate::verify::peek_delivered(&dir);
+        // The wording as it stood before this call, so a revision that
+        // leaves the compared text alone can make no call — which is what
+        // this design promised, and where most of the volume lives: two
+        // thirds of claim traffic in the largest memo on disk is
+        // revision. Read only when the verb is actually on, so a disabled
+        // feature pays nothing for it.
+        let previous_prop = match (&revise_target, crate::verify::verb_enabled(&settings, "claim")) {
+            (Some(id), true) => claims::load_all(&dir)
+                .ok()
+                .and_then(|cs| cs.into_iter().find(|c| &c.id == id))
+                // Both halves of the comparison, not just the author's:
+                // a revision that keeps the proposition and changes the
+                // cited facts is a different comparison.
+                .map(|c| (c.prop, c.from)),
+            _ => None,
+        };
         match claims::dispatch(&dir, req) {
             Ok(claims::ClaimOutcome::Created(outcome)) => {
                 let overlap: Vec<_> =
@@ -837,6 +873,11 @@ impl TetelServer {
                     // whole claim log is what the laziness is for, and
                     // verification is off by default.
                     let c = claims::load_all(&dir).ok()?.into_iter().find(|c| c.id == id)?;
+                    if previous_prop.as_ref() == Some(&(c.prop.clone(), c.from.clone())) {
+                        // Same text, same evidence, same answer as the
+                        // call that already paid for it.
+                        return None;
+                    }
                     let overlap = claims::overlap_for(&dir, &c.from).unwrap_or_default();
                     crate::verify::claim_subject(&dir, &c.id, &c.prop, &c.from, &overlap).ok()
                 });
@@ -927,6 +968,8 @@ impl TetelServer {
     #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block whose current text and citations you re-read against the claims they cite and found nothing to change (requires `why`; discharges a `prose-revised-since-proof` finding for it, and refuses if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `prose` it is `off` unless you have turned the verb on, this being the highest-volume verb and the least-evidenced comparison of the three. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
+        // Captured before the request consumes `p.revise`.
+        let revise_target = p.revise.clone();
         let req = if let Some(id) = p.ack {
             // `heading` has no MCP-side equivalent to refuse independently
             // of `text`: unlike the CLI, this schema has no separate
@@ -968,6 +1011,15 @@ impl TetelServer {
         };
         let settings = crate::verify::settings(&dir);
         let delivered = crate::verify::peek_delivered(&dir);
+        // Same reason as `claim`: an unchanged text is a comparison
+        // already paid for.
+        let previous_text = match (&revise_target, crate::verify::verb_enabled(&settings, "prose")) {
+            (Some(id), true) => prose::load_all(&dir)
+                .ok()
+                .and_then(|bs| bs.into_iter().find(|b| &b.id == id))
+                .map(|b| (b.text, b.cite)),
+            _ => None,
+        };
         match prose::dispatch(&dir, req) {
             Ok(prose::ProseOutcome::Created(b)) => {
                 // A heading cites nothing and asserts nothing about
@@ -989,6 +1041,9 @@ impl TetelServer {
                     // Inside the closure, for the same reason.
                     let b = prose::load_all(&dir).ok()?.into_iter().find(|b| b.id == id)?;
                     if b.heading || b.cite.is_empty() {
+                        return None;
+                    }
+                    if previous_text.as_ref() == Some(&(b.text.clone(), b.cite.clone())) {
                         return None;
                     }
                     crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite).ok()

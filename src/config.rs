@@ -87,7 +87,8 @@ pub const KEY_GROUNDING_FLOOR: &str = "grounding.floor";
 pub const KEY_VERIFY_ENABLED: &str = "verify.enabled";
 /// Which model performs the comparison, as `vendor/model`.
 pub const KEY_VERIFY_MODEL: &str = "verify.model";
-/// `direct` (one call) or `extract` (three calls, re-derivable findings).
+/// `split` (two calls, the default) or `direct` (one). See
+/// [`VERIFY_APPROACHES`], which is the authority on what is accepted.
 pub const KEY_VERIFY_APPROACH: &str = "verify.approach";
 /// How long one mint's verification may take, end to end across retries.
 pub const KEY_VERIFY_TIMEOUT_MS: &str = "verify.timeout_ms";
@@ -101,10 +102,11 @@ pub const KEY_VERIFY_VERBS: &str = "verify.verbs";
 /// `split` is the configuration the retrodiction actually ran: assertions
 /// classified before they are checked, with the whole claim in view. The
 /// direct one-call comparison won the earlier fifteen-case eval, but the
-/// numbers the decision to build rests on came from `split`, and shipping
-/// a default whose accuracy nothing measured on real memos would be
-/// choosing the cheaper of two things on the strength of the other one's
-/// evidence.
+/// numbers the decision to build rests on came from `split`. One-call
+/// comparisons were run over the same corpus; this arm's exact prompt
+/// pairing was not, and no one-call figure reached the gate. Defaulting
+/// to it would pick the cheaper of two mechanisms on the strength of the
+/// other one's evidence.
 ///
 /// The design also names a third mode — a three-call extract-then-judge
 /// pipeline, kept for findings re-derivable by anyone holding the two
@@ -204,7 +206,8 @@ the key comes from the environment, and a credential-shaped value is refused her
         name: KEY_VERIFY_APPROACH,
         summary: "`split` — two calls, the default: classify the claim's assertions, then check \
 only the ones the evidence can speak to. This is the configuration measured on real memos. \
-Or `direct` — one call, cheaper, and measured only on synthetic cases",
+Or `direct` — one call, so cheaper, though by how much is not measured: the call it drops \
+carries the claim alone while the one it keeps carries the evidence",
         accepts: Accepts::OneOf(VERIFY_APPROACHES),
     },
     KeyDef {
