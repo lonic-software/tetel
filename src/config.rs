@@ -112,11 +112,19 @@ pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
 /// to it would pick the cheaper of two mechanisms on the strength of the
 /// other one's evidence.
 ///
-/// The design also names a third mode — a three-call extract-then-judge
-/// pipeline, kept for findings re-derivable by anyone holding the two
-/// extracted records with no model in the loop. It is **not built**, and
-/// is absent here rather than accepted and quietly treated as one of the
-/// two above.
+/// The design also names a third mode — a **two-call** extract-then-compare
+/// pipeline, whose findings are re-derivable by anyone holding the two
+/// extracted records with no model in the loop, because a deterministic
+/// comparator and not a model is what decides. It is **not built**, and is
+/// absent here rather than accepted and quietly treated as one of the two
+/// above.
+///
+/// It is not the three-call extract-then-judge pipeline, which this comment
+/// used to call it. That one hands the same two records to a *model* to
+/// judge, so its findings are not re-derivable at all — and it is the arm
+/// the one-call comparison beat in the fifteen-case columns. The two are
+/// told apart by exactly the property that makes one of them worth keeping,
+/// which is what made the mistake easy and worth naming here.
 pub const VERIFY_APPROACHES: &[&str] = &["split", "direct"];
 
 /// The verbs [`KEY_VERIFY_VERBS`] accepts. Not every authoring verb: only
