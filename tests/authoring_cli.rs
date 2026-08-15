@@ -29,6 +29,18 @@ impl Sandbox {
         self.dir.join("state-home")
     }
 
+    /// A config home inside the sandbox, so a developer's own
+    /// `~/.config/tetel` cannot decide what these tests measure.
+    ///
+    /// Not a nicety: `verify.enabled` in a real global file would have the
+    /// suite making provider calls on someone's key, and `grounding.floor`
+    /// would silently move what `brief` reports as owed. Both settings
+    /// apply to every workspace by design, which is exactly why the tests
+    /// have to opt out of them.
+    fn config_home(&self) -> PathBuf {
+        self.dir.join("config-home")
+    }
+
     fn write(&self, name: &str, content: &str) -> PathBuf {
         let path = self.dir.join(name);
         if let Some(parent) = path.parent() {
@@ -42,7 +54,7 @@ impl Sandbox {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&self.dir);
-        cmd.env("TETEL_STATE_HOME", self.state_home());
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
         cmd
     }
 
@@ -2122,7 +2134,7 @@ fn a_marker_tracks_the_tree_that_was_read_not_the_one_the_process_stood_in() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&a);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     };
@@ -2169,7 +2181,7 @@ fn a_run_marker_names_the_tree_the_command_ran_in() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
     cmd.args(["run", "--", "echo", "hello"]);
     cmd.current_dir(&a);
-    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
     let out = cmd.output().expect("failed to run tetel");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
@@ -2188,7 +2200,7 @@ fn check_reports_which_facts_saw_which_tree_state() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&a);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         assert!(
             out.status.code() == Some(0) || out.status.code() == Some(1),
@@ -2244,7 +2256,7 @@ fn a_witnessed_record_carries_the_tree_it_graded_and_an_ingested_one_cannot() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&repo);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         (
             out.status.code().unwrap(),
@@ -2325,7 +2337,7 @@ fn a_grep_of_a_single_file_is_keyed_by_that_file_not_by_a_line_number() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
     cmd.args(["look", target.to_str().unwrap(), "--grep", "beta"]);
     cmd.current_dir(&elsewhere);
-    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
     let out = cmd.output().expect("failed to run tetel");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
@@ -2515,7 +2527,7 @@ fn two_facts_from_identical_observations_pin_identically() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2549,7 +2561,7 @@ fn a_fact_taken_against_a_changed_tree_pins_differently() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2621,7 +2633,7 @@ fn a_grep_that_matched_records_where_it_was_rooted() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2666,7 +2678,7 @@ fn a_search_entry_survives_the_fold_into_a_fact() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2722,7 +2734,7 @@ fn a_target_is_refused_when_its_census_swept_less_than_the_worktree() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2756,7 +2768,7 @@ fn a_census_pattern_must_be_the_symbol_itself() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2776,7 +2788,7 @@ fn a_fact_that_was_read_rather_than_searched_censuses_nothing() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2801,7 +2813,7 @@ fn a_target_row_the_snapshot_never_declared_fails_the_machine_partition() {
 
     let run = |args: &[&str]| -> bool {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         c.output().unwrap().status.success()
     };
 
@@ -2843,7 +2855,7 @@ fn the_targets_section_renders_when_it_is_empty() {
 
     let run = |args: &[&str]| -> bool {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         c.output().unwrap().status.success()
     };
 
@@ -2887,10 +2899,14 @@ fn repo_with_a_commented_donor(sb: &Sandbox) -> std::path::PathBuf {
 /// target (T1) and a transplant (X1) declared between them.
 fn transplant_fixture(sb: &Sandbox, repo: &std::path::Path) -> impl Fn(&[&str]) -> (bool, String) {
     let state = sb.state_home();
+    let config = sb.config_home();
     let repo = repo.to_path_buf();
     move |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", &state);
+        c.args(args)
+            .current_dir(&repo)
+            .env("TETEL_STATE_HOME", &state)
+            .env("TETEL_CONFIG_HOME", &config);
         let o = c.output().unwrap();
         (
             o.status.success(),
@@ -3176,4 +3192,206 @@ fn a_premise_answered_by_a_withdrawn_claim_is_unanswered_again() {
     let (ok, out) = run(&["render", "--out", "memo2.md"]);
     assert!(!ok, "withdrawing the answering claim leaves the premise unanswered: {out}");
     assert!(out.contains("X1.1"), "{out}");
+}
+
+/// `verify-report` is the measurement the design ends by asking for: the
+/// verifier's flags beside the verdicts a grading pass later reached.
+///
+/// The fixture plants a verification log rather than making a provider
+/// call, which is the point — the join is between two files on disk, and
+/// it has to be right whether or not anyone can reach a model today.
+#[test]
+fn verify_report_joins_flags_to_the_verdicts_graders_later_reached() {
+    let sb = Sandbox::new("verify-report-join");
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    let memo = sb.dir.join("memo.md");
+
+    sb.run(&["--workspace", "author", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines a()"]);
+    for (n, prop) in [
+        (1, "alpha.rs defines exactly one function"),
+        (2, "alpha.rs is a Rust source file"),
+        (3, "alpha.rs defines no macros"),
+    ] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "author", "claim", "--proposition", prop, "--cites", "F1",
+        ]);
+        assert_eq!(code, 0, "claim {n} failed:\n{err}");
+        sb.run(&[
+            "--workspace", "author", "prose",
+            "--text", &format!("Something about claim {n}."),
+            "--cites", &format!("C{n}"),
+        ]);
+    }
+    let (code, _o, err) = sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "render failed:\n{err}");
+
+    // What the graders concluded later. C1 was refuted, C2 only ever
+    // supported, C3 qualified.
+    sb.run(&["--workspace", "g", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "g", "fact", "--note", "read for grading"]);
+    for (claim, verdict, note) in [
+        ("C1", "refutes", "there are two, counting the test"),
+        ("C2", "supports", "it is"),
+        ("C3", "qualifies", "true of this file only"),
+    ] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "g", "record", memo.to_str().unwrap(),
+            "--from-fact", "F1", "--claim", claim, "--verdict", verdict, "--note", note,
+        ]);
+        assert_eq!(code, 0, "record {claim} failed:\n{err}");
+    }
+
+    // What the verifier said at mint time: it flagged C1 (which later
+    // needed work — a hit) and C2 (which was already sound — a false
+    // positive), and stayed silent on C3.
+    let ws = sb.state_home().join("workspaces").join("author");
+    let log = [
+        r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","at":1,"cost":0.0004,"elapsed_ms":900,"attempts":2,"findings":[{"kind":"contradicts","clause":"exactly one function","fact":"F1","evidence":"fn a() {}","why":"two","quoted":true}]}"#,
+        r#"{"seq":2,"mint":"C2","verb":"claim","status":"ok","model":"m/x","approach":"split","at":2,"cost":0.0004,"elapsed_ms":1100,"attempts":2,"findings":[{"kind":"overreaches","clause":"a Rust source file","fact":"F1","why":"invented","quoted":false,"rejected_span":"a span that was never captured"}]}"#,
+        r#"{"seq":3,"mint":"C3","verb":"claim","status":"ok","model":"m/x","approach":"split","at":3,"cost":0.0004,"elapsed_ms":1000,"attempts":2,"findings":[]}"#,
+        r#"{"seq":4,"mint":"C3","verb":"claim","status":"unavailable","model":"m/x","approach":"split","at":4,"cost":0.0,"elapsed_ms":50,"attempts":1,"findings":[],"detail":"provider replied 429"}"#,
+    ]
+    .join("\n");
+    std::fs::write(ws.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
+
+    let (code, out, err) = sb.run(&["verify-report", memo.to_str().unwrap(), "--spans"]);
+    assert_eq!(code, 0, "verify-report failed:\n{err}");
+
+    // The memo found its authoring workspace through the snapshot's
+    // identity — nothing records what a workspace rendered to.
+    assert!(out.contains("workspace    author"), "got:\n{out}");
+
+    // The join: two flags, one on a claim that later needed work and one
+    // on a claim that was already sound; one refuted claim it did catch.
+    assert!(out.contains("claims verified  3"), "got:\n{out}");
+    assert!(out.contains("flagged          2"), "got:\n{out}");
+    assert!(out.contains("later needed work  1"), "got:\n{out}");
+    assert!(out.contains("later only supported  1"), "got:\n{out}");
+    assert!(out.contains("precision        50%"), "got:\n{out}");
+
+    // The operational half, and a failure that says which failure.
+    assert!(out.contains("provider replied 429"), "got:\n{out}");
+    assert!(out.contains("unavailable"), "got:\n{out}");
+
+    // And the span that failed verification is readable here, having been
+    // withheld from the author at mint time.
+    assert!(out.contains("a span that was never captured"), "got:\n{out}");
+}
+
+/// `--unset` names one setting to remove. The two shapes that name none
+/// used to be ignored, and one of them did the opposite of what was asked.
+#[test]
+fn unset_is_refused_rather_than_ignored_when_it_names_nothing() {
+    let sb = Sandbox::new("config-unset-misuse");
+
+    // With a value: this asked to write and to remove the same key. It
+    // used to write the value and exit 0.
+    let (code, _o, err) = sb.run(&["config", "verify.enabled", "true", "--unset"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("cannot be given a value"), "got:\n{err}");
+    let (_c, out, _e) = sb.run(&["config", "verify.enabled"]);
+    assert!(out.contains("(unset)"), "the refused call still wrote:\n{out}");
+
+    // With no key at all: it used to print the whole listing and exit 0.
+    let (code, _o, err) = sb.run(&["config", "--unset"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("needs the setting to remove"), "got:\n{err}");
+}
+
+/// A value the key's own consumer cannot parse must be *rejected*, so the
+/// "ignoring …" warning fires, rather than resolving cleanly and being
+/// dropped in silence further down.
+#[test]
+fn a_floor_too_large_to_use_is_reported_rather_than_silently_ignored() {
+    let sb = Sandbox::new("config-floor-overflow");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+    std::fs::write(
+        sb.config_home().join("config.toml"),
+        "[grounding]\nfloor = 5000000000\n",
+    )
+    .unwrap();
+
+    let (code, _out, err) = sb.run(&["config", "grounding.floor"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("is not a value"), "got:\n{err}");
+}
+
+/// The read path must not echo a value that might be a credential — the
+/// rule `set` and `list` already enforce, on the path likeliest to end up
+/// in a terminal capture.
+#[test]
+fn reading_a_rejected_model_does_not_print_it_back() {
+    let sb = Sandbox::new("config-model-no-echo");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+    let secret = "sk-or-v1-must-not-appear-in-any-output";
+    std::fs::write(
+        sb.config_home().join("config.toml"),
+        format!("[verify]\nmodel = \"{secret}\"\n"),
+    )
+    .unwrap();
+
+    let (code, out, err) = sb.run(&["config", "verify.model"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(!format!("{out}{err}").contains(secret), "the credential was echoed:\n{out}{err}");
+    assert!(err.contains("not echoed here"), "got:\n{err}");
+
+    // And the listing, which was already correct, stays correct.
+    let (_c, out, _e) = sb.run(&["config"]);
+    assert!(!out.contains(secret), "the listing echoed it:\n{out}");
+}
+
+/// A setting the registry does not know cannot be "removed" successfully,
+/// and a rejected value stays discoverable even when a lower scope
+/// supplies a working one.
+#[test]
+fn unset_and_shadowed_rejections_do_not_mislead() {
+    let sb = Sandbox::new("config-unset-and-shadow");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+
+    // A typo used to print "removed …" and exit 0 while the real setting
+    // stayed in force.
+    let (code, _o, err) = sb.run(&["config", "--unset", "grounding.flooor"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("unknown setting"), "got:\n{err}");
+
+    // Writing workspace-scoped settings into a workspace that does not
+    // exist would leave a hollow one behind in `tetel workspaces`.
+    let (code, _o, err) = sb.run(&["--workspace", "w", "config", "--workspace-scope", "grounding.floor", "2"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("no workspace at"), "got:\n{err}");
+    assert!(
+        !sb.state_home().join("workspaces").join("w").exists(),
+        "a phantom workspace directory was created anyway"
+    );
+
+    // A broken workspace value masked by a good global one: the value in
+    // force is the global, and the broken file must still be named.
+    std::fs::write(sb.config_home().join("config.toml"), "[grounding]\nfloor = 3\n").unwrap();
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    sb.run(&["--workspace", "w", "look", alpha.to_str().unwrap()]);
+    let (code, _o, err) = sb.run(&["--workspace", "w", "config", "--workspace-scope", "grounding.floor", "2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let ws_config = sb.state_home().join("workspaces").join("w").join("config.toml");
+    std::fs::write(&ws_config, "[grounding]\nfloor = 0\n").unwrap();
+
+    let (_c, out, _e) = sb.run(&["--workspace", "w", "config"]);
+    assert!(out.contains("3  (from global)"), "the global value should be in force:\n{out}");
+    assert!(
+        out.contains("`0` in the workspace file is not a value this key accepts"),
+        "the shadowed rejection was not reported:\n{out}"
+    );
+}
+
+/// Reading a setting the registry does not know is a typo, not an unset
+/// key — the same class of mistake `set` and `unset` already refuse.
+#[test]
+fn reading_an_unknown_setting_is_refused_not_reported_as_unset() {
+    let sb = Sandbox::new("config-read-unknown");
+    let (code, out, err) = sb.run(&["config", "grounding.flooor"]);
+    assert_eq!(code, 1, "stdout:\n{out}\nstderr:\n{err}");
+    assert!(err.contains("unknown setting"), "got:\n{err}");
+    assert!(!out.contains("(unset)"), "a typo read as a real, unset key:\n{out}");
 }

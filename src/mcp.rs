@@ -174,6 +174,7 @@ fn fact_result(
     action: &str,
     folded: Vec<String>,
     refused: Vec<String>,
+    verify: serde_json::Value,
 ) -> serde_json::Value {
     let attention: Vec<serde_json::Value> = crate::scope::for_fact(dir, id)
         .iter()
@@ -197,7 +198,89 @@ fn fact_result(
         "attention": attention,
         "folded": folded,
         "refused_since_previous_fact": refused,
+        // Built by `verify_block` rather than here, so the status
+        // vocabulary, the model name, the guidance string and the
+        // non-determinism marker are one definition reaching all three
+        // verbs. `fact_result` builds only `fact` results; the other two
+        // are assembled inline at their own sites, and the verb this
+        // design ships enabled is one of the two it never touches.
+        "verify": verify,
     })
+}
+
+/// Start a verification for a mint that has just been committed, if this
+/// verb is one the settings turn on, and return the mint id it was started
+/// for.
+///
+/// The subject is built lazily: assembling the captured side means loading
+/// every fact in the workspace, and a disabled verb should not pay for
+/// that. Nothing here can fail the mint — a subject that cannot be
+/// assembled simply starts nothing, because the record is already written
+/// and the reply is already owed.
+fn start_verification(
+    dir: &Path,
+    settings: &crate::verify::Settings,
+    verb: &str,
+    subject: impl FnOnce() -> Option<crate::verify::Subject>,
+) -> Start {
+    if !crate::verify::verb_enabled(settings, verb) {
+        return Start::NotAttempted;
+    }
+    let Some(s) = subject() else {
+        // The verb is on; this call simply wrote nothing a captured
+        // record can be compared against — a heading, a block citing no
+        // claim, a withdrawal. Reporting that as `off` would tell an
+        // author who has just enabled the feature that it is disabled.
+        return Start::NothingToCompare;
+    };
+    let mint = s.mint.clone();
+    // Only report a mint as queued if a thread actually started for it.
+    // Saying `queued` for a verification that never began promises a
+    // finding that can never arrive, and the author polls for it forever.
+    if crate::verify::spawn(dir, settings, s) {
+        Start::Queued(mint)
+    } else {
+        Start::NotAttempted
+    }
+}
+
+/// What `start_verification` did, in the caller's owned form.
+enum Start {
+    Queued(String),
+    NothingToCompare,
+    NotAttempted,
+}
+
+impl Start {
+    fn trigger(&self) -> crate::verify::Trigger<'_> {
+        match self {
+            Start::Queued(m) => crate::verify::Trigger::Queued(m),
+            Start::NothingToCompare => crate::verify::Trigger::NothingToCompare,
+            Start::NotAttempted => crate::verify::Trigger::NotAttempted,
+        }
+    }
+}
+
+/// Build the `verify` object for a reply that is about to go back, and
+/// only then mark a delivered verification as delivered.
+///
+/// The commit belongs here and not beside the peek. A refusal is an
+/// ordinary outcome — an empty pending buffer, an unknown id — and a
+/// refusal reply carries no `verify` object, so consuming the finding
+/// when the log is read would throw it away on any call that happened to
+/// be refused. Committing where the payload is built makes the worst case
+/// showing a finding twice rather than losing one.
+fn verify_block(
+    dir: &Path,
+    settings: &crate::verify::Settings,
+    verb: &str,
+    delivered: Option<(usize, crate::verify::Record)>,
+    started: &Start,
+) -> serde_json::Value {
+    if let Some((at, _)) = &delivered {
+        crate::verify::commit_delivered(dir, *at);
+    }
+    crate::verify::block(settings, verb, delivered.as_ref().map(|(_, r)| r), started.trigger())
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -658,7 +741,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (what was refused in the window that produced it, verbatim) — a refused `look` leaves the buffer untouched, so if you expected to fold a file and see a refusal instead, that is where it went. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
+    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (what was refused in the window that produced it, verbatim) — a refused `look` leaves the buffer untouched, so if you expected to fold a file and see a refusal instead, that is where it went. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `fact` it is `off` unless you have turned the verb on, because `scope` already covers half of this comparison deterministically and for free. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = match p.revise {
@@ -671,22 +754,43 @@ impl TetelServer {
             .map(|b| facts::describe_buffer(&b, workspace::now_unix()))
             .unwrap_or_default();
         let refused = facts::refusals_since_last_mint(&dir);
+        // Every authoring call in the workspace delivers whatever finished
+        // since the last one — a verification outlives the reply that
+        // triggered it, so this is where it lands.
+        let settings = crate::verify::settings(&dir);
+        let delivered = crate::verify::peek_delivered(&dir);
         match facts::dispatch(&dir, req) {
             Ok(facts::FactOutcome::Minted(f)) => {
-                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded, refused)))
+                let queued = start_verification(&dir, &settings, "fact", || {
+                    crate::verify::fact_subject(&dir, &f.id).ok()
+                });
+                let verify = verify_block(&dir, &settings, "fact", delivered, &queued);
+                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded, refused, verify)))
             }
-            Ok(facts::FactOutcome::Revised { id }) => Ok(CallToolResult::structured(fact_result(
-                &dir,
-                &id,
-                "revised",
-                Vec::new(),
-                Vec::new(),
-            ))),
+            Ok(facts::FactOutcome::Revised { id }) => {
+                // A revision changes the note, which is the text being
+                // compared, so it is a new comparison rather than a
+                // repeat. What makes no call is a revision that leaves the
+                // compared text alone, and `facts::dispatch` refuses those
+                // before they reach here.
+                let queued = start_verification(&dir, &settings, "fact", || {
+                    crate::verify::fact_subject(&dir, &id).ok()
+                });
+                let verify = verify_block(&dir, &settings, "fact", delivered, &queued);
+                Ok(CallToolResult::structured(fact_result(
+                    &dir,
+                    &id,
+                    "revised",
+                    Vec::new(),
+                    Vec::new(),
+                    verify,
+                )))
+            }
             Err(e) => Ok(refusal("fact", &p.workspace, e)),
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued` mean no finding is being reported to you, and `ok`/`unavailable`/`timeout`/`unparsable` report a comparison started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.withdraw {
@@ -696,19 +800,64 @@ impl TetelServer {
         } else {
             claims::ClaimRequest::Create { prop: p.proposition, from: p.cites }
         };
+        let settings = crate::verify::settings(&dir);
+        let delivered = crate::verify::peek_delivered(&dir);
         match claims::dispatch(&dir, req) {
             Ok(claims::ClaimOutcome::Created(outcome)) => {
                 let overlap: Vec<_> =
                     outcome.overlap.iter().map(|(id, keys)| json!({"id": id, "keys": keys})).collect();
+                // The captured side is the cited facts TOGETHER WITH the
+                // overlap set. Cited alone would be author-selected, and
+                // an overreaching proposition could then be made to agree
+                // with its evidence by citing only the facts that agree
+                // with it — the author's diligence checking the author's
+                // diligence, which is the failure the construction exists
+                // to avoid. Both are already on disk at this point and
+                // neither costs a new mechanism.
+                let queued = start_verification(&dir, &settings, "claim", || {
+                    crate::verify::claim_subject(
+                        &dir,
+                        &outcome.claim.id,
+                        &outcome.claim.prop,
+                        &outcome.claim.from,
+                        &outcome.overlap,
+                    )
+                    .ok()
+                });
                 Ok(CallToolResult::structured(json!({
                     "id": outcome.claim.id,
                     "action": "created",
                     "overlap": overlap,
+                    "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
                 })))
             }
-            Ok(claims::ClaimOutcome::Revised { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "revised"}))),
+            Ok(claims::ClaimOutcome::Revised { id }) => {
+                let queued = start_verification(&dir, &settings, "claim", || {
+                    // Inside the closure, not before it: replaying the
+                    // whole claim log is what the laziness is for, and
+                    // verification is off by default.
+                    let c = claims::load_all(&dir).ok()?.into_iter().find(|c| c.id == id)?;
+                    let overlap = claims::overlap_for(&dir, &c.from).unwrap_or_default();
+                    crate::verify::claim_subject(&dir, &c.id, &c.prop, &c.from, &overlap).ok()
+                });
+                Ok(CallToolResult::structured(json!({
+                    "id": id,
+                    "action": "revised",
+                    "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
+                })))
+            }
+            // A withdrawal leaves no text to compare, so it starts
+            // nothing — but it is still an authoring call, and still
+            // delivers whatever finished before it. Routed through the
+            // same helper so that with the verb on it reports `skipped`
+            // rather than `off`.
             Ok(claims::ClaimOutcome::Withdrawn { id }) => {
-                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
+                let queued = start_verification(&dir, &settings, "claim", || None);
+                Ok(CallToolResult::structured(json!({
+                    "id": id,
+                    "action": "withdrawn",
+                    "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
+                })))
             }
             Err(e) => Ok(refusal("claim", &p.workspace, e)),
         }
@@ -775,7 +924,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block whose current text and citations you re-read against the claims they cite and found nothing to change (requires `why`; discharges a `prose-revised-since-proof` finding for it, and refuses if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
+    #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block whose current text and citations you re-read against the claims they cite and found nothing to change (requires `why`; discharges a `prose-revised-since-proof` finding for it, and refuses if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `prose` it is `off` unless you have turned the verb on, this being the highest-volume verb and the least-evidenced comparison of the three. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.ack {
@@ -817,10 +966,51 @@ impl TetelServer {
                 prose::ProseRequest::Paragraph { text, cite: p.cites, before: p.before }
             }
         };
+        let settings = crate::verify::settings(&dir);
+        let delivered = crate::verify::peek_delivered(&dir);
         match prose::dispatch(&dir, req) {
-            Ok(prose::ProseOutcome::Created(b)) => Ok(CallToolResult::structured(json!({"id": b.id, "action": "appended"}))),
-            Ok(prose::ProseOutcome::Revised { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "revised"}))),
-            Ok(prose::ProseOutcome::Acked { id }) => Ok(CallToolResult::structured(json!({"id": id, "action": "acknowledged"}))),
+            Ok(prose::ProseOutcome::Created(b)) => {
+                // A heading cites nothing and asserts nothing about
+                // captured evidence, so there is no comparison to make.
+                let queued = start_verification(&dir, &settings, "prose", || {
+                    if b.heading || b.cite.is_empty() {
+                        return None;
+                    }
+                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite).ok()
+                });
+                Ok(CallToolResult::structured(json!({
+                    "id": b.id,
+                    "action": "appended",
+                    "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
+                })))
+            }
+            Ok(prose::ProseOutcome::Revised { id }) => {
+                let queued = start_verification(&dir, &settings, "prose", || {
+                    // Inside the closure, for the same reason.
+                    let b = prose::load_all(&dir).ok()?.into_iter().find(|b| b.id == id)?;
+                    if b.heading || b.cite.is_empty() {
+                        return None;
+                    }
+                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite).ok()
+                });
+                Ok(CallToolResult::structured(json!({
+                    "id": id,
+                    "action": "revised",
+                    "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
+                })))
+            }
+            // An acknowledgement changes no text and cites nothing new, so
+            // the comparison would be the one the previous call already
+            // made. It starts nothing and delivers as any authoring call
+            // does.
+            Ok(prose::ProseOutcome::Acked { id }) => {
+                let queued = start_verification(&dir, &settings, "prose", || None);
+                Ok(CallToolResult::structured(json!({
+                    "id": id,
+                    "action": "acknowledged",
+                    "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
+                })))
+            }
             Err(e) => Ok(refusal("prose", &p.workspace, e)),
         }
     }
@@ -966,7 +1156,18 @@ they are in the snapshot but nothing in the document rests on them"
                 "guidance": "tetel: `brief` requires a memo, or `authoring: true`",
             })));
         };
-        let floor = p.confirm.unwrap_or(crate::brief::DEFAULT_FLOOR);
+        // The settings file is consulted here exactly as the CLI consults
+        // it. The grounding floor is the setting the whole `config`
+        // module was justified by, and grounding passes run through this
+        // server — a floor that applied only to the CLI would be a
+        // setting silently ignored on the surface it was written for.
+        //
+        // Global scope only: `brief` takes no workspace (it reads a memo
+        // on disk), so there is no workspace file to resolve against.
+        let floor = match p.confirm {
+            Some(n) => n,
+            None => crate::config::grounding_floor(None).0.unwrap_or(crate::brief::DEFAULT_FLOOR),
+        };
         if floor == 0 {
             return Ok(CallToolResult::structured_error(json!({
                 "error": "refused",

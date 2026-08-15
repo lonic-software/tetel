@@ -85,6 +85,14 @@ impl Sandbox {
         self.dir.join("state-home")
     }
 
+    /// A config home inside the sandbox, so a developer's own
+    /// `~/.config/tetel` cannot decide what these tests measure — most
+    /// sharply `verify.enabled`, which would have the suite making
+    /// provider calls on someone's key.
+    fn config_home(&self) -> PathBuf {
+        self.dir.join("config-home")
+    }
+
     fn workspace_dir(&self) -> PathBuf {
         self.state_home().join("workspaces").join("rt")
     }
@@ -110,7 +118,7 @@ impl Sandbox {
         cmd.args(["--workspace", "rt"]);
         cmd.args(args);
         cmd.current_dir(&self.dir);
-        cmd.env("TETEL_STATE_HOME", self.state_home());
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = cmd.spawn().expect("failed to spawn tetel");
         let mut stdin = child.stdin.take().unwrap();

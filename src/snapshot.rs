@@ -228,6 +228,23 @@ mod tests {
     }
 
     #[test]
+    fn no_verifier_output_can_reach_a_snapshot() {
+        // A snapshot is the thing a reader is entitled to recompute, and
+        // the verifier's findings are the one class of text in a workspace
+        // that does not recompute: the same input can produce a different
+        // answer. They stay out by construction rather than by manners —
+        // `write` walks exactly this array and copies exactly these names,
+        // so a file whose name is absent cannot be shipped at all.
+        // Shipping one later would take a deliberate line here.
+        for name in SNAPSHOT_FILES {
+            assert!(
+                !name.starts_with("verify"),
+                "`{name}` would ship non-reproducible model output into a snapshot"
+            );
+        }
+    }
+
+    #[test]
     fn a_missing_snapshot_directory_is_missing_not_a_match() {
         assert!(matches!(
             check(Path::new("/nonexistent/memo.md"), "whatever"),

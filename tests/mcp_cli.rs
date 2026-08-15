@@ -48,6 +48,14 @@ impl Sandbox {
         self.dir.join("state-home")
     }
 
+    /// A config home inside the sandbox, so a developer's own
+    /// `~/.config/tetel` cannot decide what these tests measure — most
+    /// sharply `verify.enabled`, which would have the suite making
+    /// provider calls on someone's key.
+    fn config_home(&self) -> PathBuf {
+        self.dir.join("config-home")
+    }
+
     fn write(&self, name: &str, content: &str) -> PathBuf {
         let path = self.dir.join(name);
         if let Some(parent) = path.parent() {
@@ -69,7 +77,7 @@ impl Sandbox {
         let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.arg("mcp");
         cmd.current_dir(&self.dir);
-        cmd.env("TETEL_STATE_HOME", self.state_home());
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
         let transport = TokioChildProcess::new(cmd).expect("failed to spawn `tetel mcp`");
         DummyClientHandler.serve(transport).await.expect("mcp initialise handshake failed")
     }
@@ -92,7 +100,7 @@ impl Sandbox {
         let mut cmd = tokio::process::Command::new(&exe);
         cmd.arg("mcp");
         cmd.current_dir(&self.dir);
-        cmd.env("TETEL_STATE_HOME", self.state_home());
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
         let transport = TokioChildProcess::new(cmd).expect("failed to spawn the copied `tetel mcp`");
         let client = DummyClientHandler
             .serve(transport)
@@ -563,7 +571,28 @@ async fn every_cli_subcommand_has_an_mcp_tool() {
         .filter_map(|l| l.split_whitespace().next())
         .map(str::to_string)
         // `mcp` is the server, not a tool it can offer; `help` is clap's.
-        .filter(|c| c != "mcp" && c != "help")
+        //
+        // `config` is withheld deliberately, and the reason is not
+        // convenience. The one setting it carries is the grounding
+        // floor, which decides how many claims a pass is asked to
+        // grade — so an author with access to it could shorten the list
+        // it is about to be graded on. Settings belong to the person, are
+        // set from their terminal, and are visible in the output they
+        // affect (`brief` prints the floor it used). Nothing an agent
+        // needs to *read* is hidden by withholding the verb; what is
+        // withheld is the ability to change the rules mid-run.
+        //
+        // `verify-report` is withheld for a sharper version of the same
+        // reason. It joins the verifier's flags to the verdicts a
+        // grading pass later reached — so it reads the graders' output,
+        // which `brief` withholds from the author on purpose (scope
+        // withheld, ids and propositions only). Handing an authoring
+        // agent a tool that reports what the graders concluded would
+        // undo that withholding, and would additionally tell it how
+        // often the verifier is wrong, which is a calibration for
+        // ignoring it. It is an analysis command for the person, run
+        // from their terminal, over a machine that holds the workspace.
+        .filter(|c| c != "mcp" && c != "help" && c != "config" && c != "verify-report")
         .collect();
 
     assert!(
@@ -833,7 +862,7 @@ async fn a_memo_authored_over_mcp_ships_an_identity_in_its_snapshot() {
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_tetel"))
             .arg("check")
             .arg(&memo)
-            .env("TETEL_STATE_HOME", sb.state_home())
+            .env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home())
             .output()
             .expect("check must run");
         (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
@@ -1422,6 +1451,301 @@ async fn overlap_report_over_mcp_never_carries_a_note_field() {
     let f1 = overlap.iter().find(|e| e["id"] == "F1").unwrap_or_else(|| panic!("F1 missing from overlap: {out}"));
     assert!(f1.get("note").is_none(), "an overlap entry must never carry a note field: {f1}");
     assert!(f1.get("keys").is_some(), "an overlap entry must carry its shared keys: {f1}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// `verify` is an object with a mandatory `status`, on every one of the
+/// three verbs, and it is `off` until someone turns it on.
+///
+/// Off is the default because the feature makes an outbound call, and a
+/// tool that reaches the network the first time it is run without being
+/// asked is not one anybody should install. The rest of the assertion is
+/// the contract that makes the object worth having over a third array:
+/// under any status but `ok`, there is no `findings` key at all, so a
+/// caller cannot read a silent outage, a disabled feature or a call still
+/// in flight as a clean bill.
+#[tokio::test]
+async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default() {
+    let sb = Sandbox::new("verify-block-default-off");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &path).await;
+    let minted = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "note": "read_me.rs defines a()",
+        }))))
+        .await
+        .expect("fact must succeed")
+        .structured_content
+        .expect("fact must carry structured_content");
+    let claimed = create_claim(&client, ws, "read_me.rs defines exactly one function", "F1").await;
+
+    let prosed = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "text": "The file defines one function.",
+            "cites": "C1",
+        }))))
+        .await
+        .expect("prose must succeed");
+    let prosed = prosed.structured_content.expect("prose must carry structured_content");
+
+    for (verb, out) in [("fact", &minted), ("claim", &claimed), ("prose", &prosed)] {
+        let v = out.get("verify").unwrap_or_else(|| panic!("{verb} carries no verify object: {out}"));
+        assert_eq!(v["status"], "off", "{verb}: {v}");
+        assert!(v.get("findings").is_none(), "{verb} reported findings while off: {v}");
+        assert!(v.get("queued_for").is_none(), "{verb} queued a call while off: {v}");
+        // Every setting must be visible in the output it affects, which
+        // for three of these five is true only because of this echo.
+        assert_eq!(v["deterministic"], false, "{verb}: {v}");
+        for key in ["model", "approach", "timeout_ms", "verbs", "guidance"] {
+            assert!(v.get(key).is_some(), "{verb} omits `{key}`: {v}");
+        }
+    }
+
+    // The defaults: the configuration the retrodiction measured, and
+    // `claim` alone — `fact` being half covered by `scope` already and
+    // `prose` being the least-evidenced comparison of the three.
+    assert_eq!(claimed["verify"]["approach"], "split");
+    assert_eq!(claimed["verify"]["verbs"], serde_json::json!(["claim"]));
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// Nothing the verifier produces may reach a snapshot, and the mechanism
+/// is the enumeration rather than anyone's restraint.
+#[tokio::test]
+async fn a_render_never_ships_verifier_output_beside_the_memo() {
+    let sb = Sandbox::new("verify-log-never-snapshotted");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+
+    look(&client, ws, &path).await;
+    fact(&client, ws, "read_me.rs defines a()").await;
+    create_claim(&client, ws, "read_me.rs defines exactly one function", "F1").await;
+    client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "text": "The file defines one function.",
+            "cites": "C1",
+        }))))
+        .await
+        .expect("prose must succeed");
+
+    // Plant the files a completed verification would leave behind, so the
+    // test measures the snapshot's behaviour rather than their absence.
+    let state = sb.state_home().join("workspaces").join(ws);
+    if state.is_dir() {
+        std::fs::write(state.join("verify.log"), "{\"seq\":1}\n").expect("plant verify.log");
+        std::fs::write(state.join("verify.cursor"), "1").expect("plant verify.cursor");
+    }
+
+    let out = sb.dir.join("memo.md");
+    client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "out": out.to_str().unwrap(),
+        }))))
+        .await
+        .expect("render must succeed");
+
+    let snapshot = sb.dir.join("memo.md.tetel");
+    assert!(snapshot.is_dir(), "render must write a snapshot");
+    for entry in std::fs::read_dir(&snapshot).expect("snapshot readable") {
+        let name = entry.expect("entry").file_name().to_string_lossy().into_owned();
+        assert!(
+            !name.starts_with("verify"),
+            "`{name}` reached the snapshot — non-reproducible model output must not travel with a memo"
+        );
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The one test that actually reaches the provider, and the only one that
+/// can tell you the wiring works end to end.
+///
+/// `#[ignore]` on purpose. A suite that makes an outbound call on
+/// somebody's credential the moment they type `cargo test` is not one
+/// anybody should install, and the rest of this file is written so that
+/// the contract — the object, the statuses, the absent `findings` key,
+/// the snapshot exclusion — is testable without a network. Run it by
+/// hand, with a key in the environment:
+///
+/// ```text
+/// cargo test --test mcp_cli -- --ignored live_verification
+/// ```
+#[tokio::test]
+#[ignore = "makes a real provider call and spends real money"]
+async fn live_verification_delivers_a_finding_on_a_later_call() {
+    if std::env::var("OPENROUTER_API_KEY").is_err() && std::env::var("TETEL_API_KEY").is_err() {
+        eprintln!("no key in the environment; nothing to test");
+        return;
+    }
+    let sb = Sandbox::new("verify-live");
+    sb.write("counted.rs", "fn a() {}\nfn b() {}\nfn c() {}\n");
+
+    // Turn it on in the sandbox's own config home, which `Sandbox`
+    // points every command at.
+    let cfg = sb.config_home();
+    std::fs::create_dir_all(&cfg).expect("config home");
+    std::fs::write(
+        cfg.join("config.toml"),
+        "[verify]\nenabled = true\nmodel = \"openai/gpt-5.6-luna\"\nverbs = \"claim\"\ntimeout_ms = 120000\n",
+    )
+    .expect("write config");
+
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("counted.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    fact(&client, ws, "counted.rs, read whole").await;
+
+    // A claim the captured evidence plainly contradicts.
+    let first = create_claim(&client, ws, "counted.rs defines exactly two functions", "F1").await;
+    assert_eq!(first["verify"]["status"], "queued", "{first}");
+    assert_eq!(first["verify"]["queued_for"], "C1", "{first}");
+    assert!(first.get("findings").is_none());
+
+    // Poll the way an author would: by making further authoring calls.
+    let mut delivered = serde_json::Value::Null;
+    for i in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let next = create_claim(&client, ws, &format!("counted.rs is a file ({i})"), "F1").await;
+        if next["verify"]["status"] != "queued" {
+            delivered = next;
+            break;
+        }
+    }
+    assert!(!delivered.is_null(), "no verification was delivered within a minute");
+    let v = &delivered["verify"];
+    eprintln!("delivered: {v:#}");
+    assert_eq!(v["for_mint"], "C1", "the delivery must name the mint it concerns: {v}");
+    assert_eq!(v["status"], "ok", "the call did not complete cleanly: {v}");
+    let findings = v["findings"].as_array().expect("findings under ok");
+    assert!(!findings.is_empty(), "a plainly false count went unflagged: {v}");
+    for f in findings {
+        // Every span that ships has been through `Fact::quotes`.
+        if f["quoted"] == true {
+            let span = f["evidence"].as_str().expect("a quoted finding carries its span");
+            assert!(
+                std::fs::read_to_string(sb.dir.join("counted.rs")).unwrap().contains(span),
+                "a shipped quotation is not in the captured text: {f}"
+            );
+        } else {
+            assert!(f.get("evidence").is_none(), "a downgraded finding kept its span: {f}");
+        }
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// A verification is delivered exactly once, and a refused call cannot
+/// consume it.
+///
+/// The cursor counts delivered records rather than tracking the largest
+/// sequence number seen, because sequence numbers are chosen inside the
+/// spawned thread by reading the log — neither atomic nor ordered. This
+/// plants a log whose records arrive out of sequence and share a number,
+/// which is exactly what two verifications in flight can produce.
+#[tokio::test]
+async fn a_finding_survives_a_refused_call_and_is_delivered_once() {
+    let sb = Sandbox::new("verify-delivery-cursor");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    fact(&client, ws, "read_me.rs defines a()").await;
+
+    let state = sb.state_home().join("workspaces").join(ws);
+    let log = [
+        // Out of order, and colliding on `seq` — both states a lock-free
+        // read-max-then-increment produces under two threads.
+        r#"{"seq":2,"mint":"C9","verb":"claim","status":"ok","model":"m/x","approach":"split","at":2,"findings":[]}"#,
+        r#"{"seq":2,"mint":"C8","verb":"claim","status":"ok","model":"m/x","approach":"split","at":1,"findings":[]}"#,
+    ]
+    .join("\n");
+    std::fs::write(state.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
+
+    // A refusal: minting with an empty pending buffer. It must not eat
+    // the finding it was carrying.
+    let refused = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "note": "nothing was looked at",
+        }))))
+        .await
+        .expect("protocol-level success");
+    assert_eq!(refused.is_error, Some(true), "premise: this call must be refused");
+
+    // First real call gets the first record, second gets the second, and
+    // neither is skipped despite the sequence numbers.
+    let first = create_claim(&client, ws, "read_me.rs exists", "F1").await;
+    assert_eq!(first["verify"]["for_mint"], "C9", "{first}");
+    let second = create_claim(&client, ws, "read_me.rs is a file", "F1").await;
+    assert_eq!(second["verify"]["for_mint"], "C8", "{second}");
+    // Nothing left owed.
+    let third = create_claim(&client, ws, "read_me.rs is readable", "F1").await;
+    assert!(third["verify"].get("for_mint").is_none(), "{third}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// The grounding floor is the setting the whole `config` module was
+/// justified by, and grounding passes run through this server. A floor
+/// that applied only to the CLI would be a setting silently ignored on
+/// the surface it was written for.
+#[tokio::test]
+async fn the_mcp_brief_honours_the_configured_grounding_floor() {
+    let sb = Sandbox::new("mcp-brief-floor");
+    sb.write("alpha.rs", "fn a() {}\n");
+    std::fs::create_dir_all(sb.config_home()).expect("config home");
+    std::fs::write(sb.config_home().join("config.toml"), "[grounding]\nfloor = 4\n")
+        .expect("write config");
+
+    let client = sb.connect().await;
+    let ws = "author";
+    let alpha = sb.dir.join("alpha.rs").to_str().unwrap().to_string();
+    look(&client, ws, &alpha).await;
+    fact(&client, ws, "alpha.rs defines a()").await;
+    create_claim(&client, ws, "alpha.rs defines exactly one function", "F1").await;
+    client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "text": "One function.",
+            "cites": "C1",
+        }))))
+        .await
+        .expect("prose must succeed");
+    let memo = sb.dir.join("memo.md");
+    client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "out": memo.to_str().unwrap(),
+        }))))
+        .await
+        .expect("render must succeed");
+
+    let brief = client
+        .call_tool(CallToolRequestParams::new("brief").with_arguments(args(serde_json::json!({
+            "memo": memo.to_str().unwrap(),
+        }))))
+        .await
+        .expect("brief must succeed");
+    let text = brief
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect::<String>();
+    assert!(text.contains("floor 4"), "the configured floor was ignored:\n{text}");
 
     client.cancel().await.expect("clean shutdown");
 }

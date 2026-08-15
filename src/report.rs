@@ -609,7 +609,31 @@ reproduce it from the workspace, or re-render with `--out`\n"
 
 #[cfg(test)]
 mod tests {
-    use super::{format_interval, format_unix};
+    use super::{format_interval, format_unix, HUMAN_OWED_CATEGORIES, MACHINE_CHECKED_CATEGORIES};
+
+    /// The mint-time verifier belongs to neither partition, and this is
+    /// the assertion that keeps it out of both.
+    ///
+    /// These two arrays are not a taxonomy of findings in general — they
+    /// are a statement of what `check` covers, and the module's scope
+    /// strings and the `check` tool description are generated from them.
+    /// The verifier does not run inside `check`, does not enter the
+    /// record, the memo, the snapshot or the ledger, and does not repeat:
+    /// the same input can produce a different answer, so a reader holding
+    /// the document could not recompute it even in principle. Naming it
+    /// in either array would make a scope string promise coverage `check`
+    /// does not have, which is the exact failure the enumeration was
+    /// introduced to end.
+    #[test]
+    fn neither_partition_claims_to_cover_the_verifier() {
+        for category in MACHINE_CHECKED_CATEGORIES.iter().chain(HUMAN_OWED_CATEGORIES) {
+            let lower = category.to_ascii_lowercase();
+            assert!(
+                !lower.contains("verif") && !lower.contains("model"),
+                "`{category}` promises coverage `check` does not have"
+            );
+        }
+    }
 
     /// Round-2 code review (C): the two epochs the review's own bug
     /// report quoted (`"this wording ... dates from 1754683001 ... C1:

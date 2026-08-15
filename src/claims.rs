@@ -147,6 +147,17 @@ pub fn create(workspace_dir: &Path, prop: &str, from_csv: &str) -> Result<Create
 /// path where a designator names a file, so three different line-ranges
 /// of one file, and a plain read of it, all overlap each other now,
 /// where the prototype's literal-command-string key never caught this).
+/// [`overlap_report`] for a caller that has a cite list but is not
+/// creating a claim — the verifier, which needs the same union on a
+/// revision that `create` hands back on a first assertion. Same function,
+/// so the two cannot compute different unions for the same cite list.
+pub fn overlap_for(
+    workspace_dir: &Path,
+    cited_ids: &[String],
+) -> io::Result<Vec<(String, Vec<String>)>> {
+    overlap_report(workspace_dir, cited_ids)
+}
+
 fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<(String, Vec<String>)>> {
     let all = facts::load_all(workspace_dir)?;
     let cited: BTreeSet<&str> = cited_ids.iter().map(String::as_str).collect();

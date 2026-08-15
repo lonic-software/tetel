@@ -24,16 +24,46 @@
 //!   snapshot directory beside it.
 //! - **`record` appends** one line to `<memo>.evidence.jsonl`, never
 //!   rewriting an existing one.
+//! - **`config <key> <value>` writes one settings file**: either the
+//!   per-user one under `$TETEL_CONFIG_HOME`/`$XDG_CONFIG_HOME/tetel`/
+//!   `~/.config/tetel`, or the selected workspace's own — never inside a
+//!   repository, which is why [`config`] has no project scope. Reading
+//!   settings writes nothing.
 //! - **Any command may append to its workspace's `refusals.log`** when it
 //!   refuses, which is the point of that log.
 //!
-//! Two properties hold across all of them, and both are deliberate:
+//! One property holds across all of them and is the load-bearing one:
 //! **nothing here ever executes a command named by a document** — a memo
 //! arriving in a pull request must not be able to run code on whoever
-//! checks it — and **there are no network calls anywhere**, which the
-//! dependency set enforces rather than the prose. `run` executes the
-//! command the *author* types, in the author's own session, and is the
-//! only process this crate spawns besides `git` for a tree marker.
+//! checks it. `run` executes the command the *author* types, in the
+//! author's own session, and is the only process this crate spawns
+//! besides `git` for a tree marker.
+//!
+//! # What this crate reaches over the network
+//!
+//! There used to be a second such property — no network calls anywhere,
+//! enforced by the dependency set rather than by this comment. [`verify`]
+//! made it false, and a softened version of the same sentence would be
+//! prose impersonating an invariant: once an HTTP client is linked the
+//! dependency set enforces nothing. So it takes the form this file
+//! already prefers, per command, and covers all fifteen:
+//!
+//! - **`fact`, `claim` and `prose` may make one outbound call** to the
+//!   configured provider, and only when [`verify`] is enabled *and* a key
+//!   is present in the environment. Never in the reply path: the call
+//!   happens after the mint result has gone back, and cannot fail a mint,
+//!   delay a reply or move an exit code.
+//! - **`check`, `brief`, `query`, `review`, `workspaces`, `look`,
+//!   `target`, `transplant`, `render`, `record` and `config` make none.**
+//!   That `check` is on this list and not the one above is the point of
+//!   the property above: a document must not be able to make the tool that
+//!   checks it reach anywhere.
+//! - **`run` is neither.** The crate makes no call of its own for `run`;
+//!   `run` spawns the command the author typed, in the author's own
+//!   session, and that process can reach the network exactly as anything
+//!   else the author runs in a terminal can. The old categorical sentence
+//!   never had to say this, being about the crate's own calls. A
+//!   per-command row does.
 
 pub mod acks;
 pub mod brief;
@@ -42,6 +72,7 @@ pub mod checks;
 pub mod citations;
 pub mod claims;
 pub mod compose;
+pub mod config;
 pub mod evidence;
 pub mod facts;
 pub mod ledger;
@@ -58,6 +89,7 @@ pub mod scope;
 pub mod snapshot;
 pub mod targets;
 pub mod transplants;
+pub mod verify;
 pub mod workspace;
 pub mod worldstate;
 
