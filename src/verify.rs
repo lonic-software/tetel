@@ -413,6 +413,9 @@ pub struct Record {
     /// signal the `unevidenced` kind has, since no eval has scored it.
     #[serde(default)]
     pub literals_refuted: u32,
+    /// [`Telemetry::not_a_quantity`], persisted.
+    #[serde(default)]
+    pub not_a_quantity: u32,
 }
 
 // ---------------------------------------------------------------------
@@ -714,6 +717,7 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             attempts: tel.attempts,
             not_verbatim: tel.not_verbatim,
             literals_refuted: tel.literals_refuted,
+            not_a_quantity: tel.not_a_quantity,
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
@@ -742,6 +746,11 @@ pub struct Telemetry {
     /// checked; this counts how often it was wrong, which is the only
     /// accuracy signal that kind has.
     pub literals_refuted: u32,
+    /// Findings dropped because the literal named no quantity — the model
+    /// reaching for a symbol, a flag, a path or a quantifier. Counted
+    /// rather than silently discarded: this is the rate that says whether
+    /// [`is_checkable`] is carrying the check or fighting it.
+    pub not_a_quantity: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1013,7 +1022,68 @@ fn parse_assertions(body: &str, claim: &str, tel: &mut Telemetry) -> Result<Stri
     Ok(json!({"assertions": kept}).to_string())
 }
 
-/// The literal check: one call, then two machine filters over what it says.
+/// The cardinal number words a quantity may be spelled with. Small and
+/// closed on purpose: a memo writes "four" and "one unit test", and a
+/// filter that only accepted digits would drop a genuine count for being
+/// spelled out. Beyond twelve, prose uses digits.
+const NUMBER_WORDS: [&str; 13] = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve",
+];
+
+/// File extensions that make a literal a **path** — something a capture
+/// either carries or does not, checkable the same way a count is.
+const PATH_SUFFIXES: [&str; 10] =
+    [".rs", ".py", ".md", ".json", ".jsonl", ".toml", ".log", ".txt", ".sh", ".html"];
+
+/// Whether a literal is **checkable** — a quantity or a path — rather than
+/// a bare name.
+///
+/// Measured, and the two halves were measured separately because they are
+/// two different arguments.
+///
+/// The quantity half exists because the corpus's noise was designators:
+/// `look_grep`, `facts::mint`, `--why`, `2.6.0-FreeBSD`, `check 5`, TET-36.
+/// Instructing the model to skip them helped and did not hold — it stopped
+/// naming symbols and started naming *quantifiers* ("any depth", "a single
+/// event", "no exclusions at all"), which is where `overreaches` already
+/// works with numbers behind it. So the constraint is mechanical. The model
+/// may drift wherever it likes; a finding naming nothing checkable does not
+/// survive, and no prompt wording can make it.
+///
+/// The path half exists because the first version of this function did not
+/// have it, and that was an error of category rather than of evidence. Paths
+/// were swept in with "designators" on the strength of the word, not of a
+/// measurement. The measurement says the opposite: of 67 surviving findings
+/// over the corpus exactly two were path-shaped, both `acks.jsonl`, and
+/// **neither was a false positive** — one landed on a claim a later pass
+/// refuted and one on a claim that needed work. Nothing in the measured
+/// noise carries a `/` or one of these suffixes, so admitting paths buys
+/// those two back at no cost the corpus can show.
+///
+/// Word boundaries by hand, because "one" is inside "money", "none" and
+/// "someone", and a substring test would readmit exactly the prose this
+/// exists to exclude.
+fn is_checkable(literal: &str) -> bool {
+    if literal.chars().any(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    let lower = literal.to_ascii_lowercase();
+    if lower.contains('/') || PATH_SUFFIXES.iter().any(|s| lower.contains(s)) {
+        return true;
+    }
+    let bytes = lower.as_bytes();
+    NUMBER_WORDS.iter().any(|w| {
+        lower.match_indices(w).any(|(at, _)| {
+            let before = at == 0 || !bytes[at - 1].is_ascii_alphanumeric();
+            let end = at + w.len();
+            let after = end == bytes.len() || !bytes[end].is_ascii_alphanumeric();
+            before && after
+        })
+    })
+}
+
+/// The literal check: one call, then three machine filters over what it says.
 ///
 /// The model's job here is the judgement — is this number, path or name
 /// asserted as *current* fact, and could a capture have carried it. Every
@@ -1040,6 +1110,17 @@ fn literal_findings(
     budget: Duration,
     tel: &mut Telemetry,
 ) -> Result<Vec<Finding>, Status> {
+    // With nothing captured, every literal in the text is trivially
+    // unevidenced and `containing` has nothing to search, so the filter that
+    // makes this kind worth trusting cannot reject anything. Measured: 37
+    // such claims in the corpus raised 506 literals and the filter rejected
+    // none of them, flagging 78% of draws. That is a noise generator, and it
+    // is also a call worth not paying for. The two disagreement kinds are
+    // unaffected — they have a prompt telling them not to report on material
+    // they were not shown, and evidence they can still read labels from.
+    if subject.evidence.iter().all(|(_, _, obs)| obs.is_empty()) {
+        return Ok(Vec::new());
+    }
     let prompt = format!("TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
     let body = call(key, model, LITERALS_SYSTEM, &prompt, started, budget, tel)?;
     let Some(v) = json_object(&body) else {
@@ -1063,6 +1144,10 @@ fn literal_findings(
         }
         if !subject.containing(&literal).is_empty() {
             tel.literals_refuted += 1;
+            continue;
+        }
+        if !is_checkable(&literal) {
+            tel.not_a_quantity += 1;
             continue;
         }
         let clause = str_field(row, "clause");
@@ -1252,34 +1337,48 @@ An empty list is the common and correct answer."#;
 // own prompt: what the retrodiction measured stays byte-identical when this
 // is off, and when it is on the new kind's accuracy is separately unknown
 // rather than blended into a figure that was earned by something else.
-const LITERALS_SYSTEM: &str = r#"You are given text from a software design memo and the evidence a
-tool captured for it. Report literals the text states as CURRENT FACT that the captured evidence
-does not carry.
+const LITERALS_SYSTEM: &str = r#"You are given text from a software design memo and the evidence a tool captured for it. Report
+QUANTITIES the text states as current fact that the captured evidence does not carry.
 
-A literal is a value a reader could check: a number, a count, a size, a duration, a percentage, a
-version, a file path, a symbol or function name, a flag, a setting, a quoted string.
+A quantity is a value that could be wrong by counting or arithmetic: a count, a size, a byte or line
+count, a duration, a percentage or proportion, a threshold, an index range used as a measurement.
 
-Read for the VALUE, not the spelling. A literal the evidence carries in another form is carried:
+Read for the VALUE, not the spelling. A quantity the evidence carries in another form is carried:
 
   * `14_000` in the capture backs "14,000 bytes"
   * a capture of lines 1-40 backs "40 lines"
   * `MAX_ATTEMPTS: u32 = 3` backs "retries three times"
+  * two timestamps 910 apart back "910 seconds", and CONTRADICT "918 seconds"
   * 5 of 6 visible in the capture backs "83%", where the arithmetic is the author's to do
 
-Do not report:
+A FILE THE TEXT SAYS IT READ is also reportable. If the text asserts that a named file or path
+carries something, and no capture opened that path, say so — `acks.jsonl`, `src/verify.rs`.
 
-  * a literal in an assertion about what this design WILL build, add or change — the evidence was
-    captured before that exists, so its absence is expected and is never a finding
-  * a literal inside a reason, a decision, or an entailment
+A BARE NAME IS NEITHER, and naming one is the most common way to be wrong here. Never report:
+
+  * a symbol, function, type, module or field name — `look_grep`, `facts::mint`
+  * a flag, option or setting name — `--why`, `verify.enabled`
+  * a version string — `2.6.0-FreeBSD`
+  * an identifier for a ticket, section, check or numbered item — TET-36, "check 5"
+  * a line or byte range used to say WHERE something is rather than HOW MUCH — "lines 1-4"
+  * a quoted phrase the text is discussing rather than measuring
+  * a quantifier — "any", "every", "no", "only", "always". Overreach is someone else's job here.
+
+A name appearing in the text but not in the capture is the ordinary condition of prose that
+discusses a system. It is not a finding. Only a quantity or a path is.
+
+Also never report:
+
+  * a quantity in an assertion about what this design WILL build — the evidence predates it
+  * a quantity inside a reason, a decision or an entailment
   * a number that measures nothing: "two reasons", "the first of three", "one call"
-  * a name the text introduces for something it is proposing
   * your own uncertainty
 
-The captured output may have been truncated, and says so where it was. A literal that may lie in
+The captured output may have been truncated, and says so where it was. A quantity that may lie in
 material you were not shown is not a finding.
 
-Quote the literal VERBATIM from the text, and quote the whole clause containing it VERBATIM.
-Character for character, both. A literal that cannot be found in the text is worse than none.
+Quote the quantity VERBATIM from the text, and quote the whole clause containing it VERBATIM.
+Character for character, both. A value that cannot be found in the text is worse than none.
 
 Reply with one JSON object and nothing else:
 {"unevidenced": [{"literal": "", "clause": "", "why": ""}]}
@@ -1669,13 +1768,15 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
         ));
     }
-    let raised = unevidenced + refuted as usize;
+    let not_quantity: u32 = records.iter().map(|r| r.not_a_quantity).sum();
+    let raised = unevidenced + refuted as usize + not_quantity as usize;
     if raised > 0 {
         out.push_str(&format!(
             "\nLITERALS\n  unevidenced      {unevidenced}   <- stated as current fact, in no capture\n  \
              machine-refuted  {refuted}   <- the literal was in the capture after all\n  \
-             wrong about {:.0}% of what it raised, by a check anyone can rerun\n",
-            100.0 * refuted as f64 / raised as f64
+             not a quantity   {not_quantity}   <- a name, flag or quantifier, not a countable value\n  \
+             {:.0}% of what it raised was dropped by a check anyone can rerun\n",
+            100.0 * (refuted + not_quantity) as f64 / raised as f64
         ));
     }
     if show_spans {
@@ -1815,6 +1916,7 @@ mod tests {
             literals: false,
             not_verbatim: 0,
             literals_refuted: 0,
+            not_a_quantity: 0,
             findings: Vec::new(),
             at: 0,
             cost: 0.0,
@@ -2184,6 +2286,45 @@ mod tests {
         assert_eq!(expected_calls("split", true), 3);
         assert_eq!(expected_calls("direct", false), 1);
         assert_eq!(expected_calls("direct", true), 2);
+    }
+
+    #[test]
+    fn a_checkable_literal_is_a_quantity_or_a_path_and_a_bare_name_is_neither() {
+        // The measured noise, every one of which the corpus produced. Note
+        // what is *not* in this list: no path is here, because the corpus
+        // produced no path-shaped false positive.
+        for name in [
+            "look_grep", "facts::mint", "--why", "clean working tree",
+            "\"explicitly named\"", "any depth", "nowhere", "a single character",
+            "no exclusions at all", "every cited claim's digest",
+        ] {
+            assert!(!is_checkable(name), "`{name}` was let through");
+        }
+        // Quantities worth keeping.
+        for q in ["918 seconds", "28%", "four", "one unit test", "14,000 bytes", "1-4", "TET-36"] {
+            assert!(is_checkable(q), "`{q}` was dropped as a name");
+        }
+        // Paths, which an earlier version of this filter excluded by
+        // category rather than by measurement. Both corpus instances of a
+        // path-shaped finding landed on a claim that later needed work.
+        for p in ["acks.jsonl", "`acks.jsonl`", "src/verify.rs", "docs/design", "Cargo.toml"] {
+            assert!(is_checkable(p), "`{p}` was dropped, and the corpus does not justify that");
+        }
+    }
+
+    #[test]
+    fn a_number_word_inside_another_word_is_not_a_quantity() {
+        // The trap a substring test walks into: every one of these contains
+        // a number word and none of them counts anything. This is why the
+        // filter scans for word boundaries by hand rather than calling
+        // `contains`.
+        for s in ["money", "none", "someone", "atone", "tensor", "often", "shone", "sixty-fourth"] {
+            assert!(!is_checkable(s), "`{s}` matched a number word inside another word");
+        }
+        // Boundaries that are not whitespace still count.
+        for s in ["(four)", "one-shot", "up to twelve.", "TWO"] {
+            assert!(is_checkable(s), "`{s}` should be a quantity");
+        }
     }
 
     #[test]

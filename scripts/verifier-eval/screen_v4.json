@@ -1,0 +1,1265 @@
+{
+ "model": "openai/gpt-5.6-luna",
+ "repeat": 1,
+ "effort": "high",
+ "prompt_bytes": 2534,
+ "prompt_origin": "shipped, read from src/verify.rs",
+ "chosen_population": "screen_cases.json",
+ "records": [
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C6",
+   "status": "ok",
+   "prop": "The first-proof anchor makes the line unclearable by anything that did not look at the prose, and that is deliberate: a further grounding pass over unchanged wording appends records with later timestamps but cannot move the earliest one, so re-grounding never blesses a listed block. The only two things that clear it are reverting the text, and revising or adding a cited claim and having the new wording graded \u2014 which is exactly the remedy the finding calls for, since the defect is prose asserting something no claim carries. The cost, stated rather than hidden: a listing has no cheap discharge, so a flow-only edit made after a memo's claims have settled stays listed until the memo's next claim revision, and a memo shipped with such an edit ships the line. This is a smaller version of a cost this project has already paid badly once \u2014 `no scope declared` printed one undischargeable line per claim and buried the findings that were about the document under a constant \u2014 but it differs where it matters: this line is about *this* document, never fires on all blocks at once, and names two concrete acts that clear it.",
+   "verdicts": [
+    [
+     "refutes",
+     "The unclearable-by-re-grounding half is right: evidence is strictly appended with a fresh now_unix per record, so a later pass cannot move a claim's earliest in-proof timestamp (F7). The precedent half is right too: the `no scope declared` line did fire once per claim on every tetel-authored memo \u2014 \"eight identical lines on the first real memo\" \u2014 and was collapsed to one document-level line for the stated reason (F8). But the clause \"The only two things that clear it are reverting the text, and revising or adding a cited claim\" is false under this design's own rule. Prose history is append-only and clause (d) reads the timestamp of the event that set the block's current text; a revert is a new `Revise` with a new, later timestamp, so on tet29's real logs a block edited to 1786176064 and then reverted byte-for-byte at 1786176364 is still listed against the same anchor 1786174494 (F8). Reverting clears the line only under a different clause (d) \u2014 earliest event whose text equals the current text \u2014 which is not what C4/C5 state; C5 explicitly says the timestamp is the Create or the *last* Revise. So the enumeration of remedies has one member, not two, and the stated cost is correspondingly worse than the proposition admits."
+    ],
+    [
+     "refutes",
+     "\"Under the repaired definition of a block's text timestamp ... exactly two things clear a listing\" is false, and the repair is what makes the third one work. A citation-only prose revision \u2014 byte-identical text, a replacement cite list \u2014 leaves the block's text timestamp exactly where it was, because the repaired definition takes the earliest event whose text equals the current text, and changes the right-hand side of clause (d) instead. Executed against tet29's real logs: P11 rewritten at 1786174700 with no claim touched is LISTED (anchor 1786174494, cites C13); appending `C4` to its cite list \u2014 a claim already in proof since 1786175367 because a later pass genuinely regraded it \u2014 clears the listing outright. No text changed, nothing new was graded, nothing was revised for the purpose, and no machine check fires. In a fix round there is always such a claim: the one the round revised. The paragraph the residue exists to surface is laundered by pointing it at someone else's honest work. A fourth clearer follows from clause (c) rather than (d): appending a brand-new claim with no evidence at all also clears the listing, and per F2 a record-less claim is `ungrounded` \u2014 human-owed, never a machine failure \u2014 so that escape is red-free too. Note the pre-repair definition did not have this hole: a citation-only revision would have pushed the timestamp to now and the block would have stayed listed. The repair to C6 opened a second defect in C6."
+    ],
+    [
+     "refutes",
+     "The mechanism behind the refutation above, witnessed in source. `prose::revise` refuses exactly two things \u2014 an unknown block id and an empty `--why`. It does not compare the new text against the block's current text, so a revision supplying byte-identical text is accepted and appended; and `ProseEvent::Revise` carries `cite: Option<Vec<String>>`, which `load_all` applies as `b.cite = c`, a wholesale replacement. So a block's citation set is read off the LAST event that set it while its text timestamp is read off the EARLIEST event bearing the current text. C6 treats the citation set as fixed and reasons only about what can move the timestamp; it is the other side of clause (d) that is freely mutable at zero cost. This is also the documented remedial path: prose.rs's own doc on the `cite` parameter says it exists so that `tetel review`'s instruction \"mint the missing claim and cite it\" is reachable for existing prose."
+    ],
+    [
+     "qualifies",
+     "Everything about unclearability holds as executed: re-grounding on unchanged wording leaves P11 listed (the anchor is a minimum, and a later duplicate record cannot move it), a citation-only revision to an in-proof claim lists rather than clears, a record-less citation contributes no anchor, and only a byte-exact revert or moving the evidence clears. The clause that fails as written is \"never fires on all blocks at once\". tet29's shipped prose is 12 blocks, all non-heading and all cited; appending one post-proof flow-edit revision to each lists all 12 of 12. The rule does not structurally exclude a whole-document listing \u2014 what distinguishes it from `no scope declared` is that it is conditional on what the author did, not that a full sweep is impossible."
+    ],
+    [
+     "supports",
+     "The clearing/non-clearing behaviours C6 enumerates all reproduce: citation-only revision to an in-proof claim lists, record-less citation adds no anchor, byte-exact revert clears because the timestamp is looked up by content over an append-only log."
+    ],
+    [
+     "supports",
+     "The `no scope declared` history C6 cites is in report.rs: the collapsed one-per-document bullet carries the comment \"repeating it per row buried the findings that are about *this* document under a constant\"."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "Constructions 2-5 are exactly the four dispositions this claim asserts: a further pass over unchanged wording keeps the listing, a citation-only revision adding an in-proof claim lists rather than clears, a record-less citation does not silence, and a byte-exact revert clears."
+    ],
+    [
+     "supports",
+     "Flow-editing every one of tet29's twelve blocks lists all twelve, so nothing in the rule bounds the count."
+    ],
+    [
+     "supports",
+     "The `no scope declared` line was indeed collapsed from once-per-claim to one document-level line, which is the comparison this claim distinguishes itself from."
+    ],
+    [
+     "qualifies",
+     "Every positive behaviour C6 asserts reproduces: re-grounding unchanged wording does not clear a listing, a citation-only revision lists rather than clears, a record-less citation does not suppress, byte-exact revert clears, a revised-and-regraded claim clears, and flow-editing all of tet29 lists 12 of 12. The `no scope declared` collapse precedent it appeals to is in report.rs with the quoted reason. The clause I cannot support as written is the exhaustiveness: \"Two things clear a listing\", and the opening \"unclearable by anything that did not either restore the settled text or move the evidence\". A third act clears one \u2014 withdrawing every claim a listed block cites. Withdrawn claims are filtered out of the rendered ledger, so clause (b) finds nothing in proof and the block is skipped; simulated, dropping P11's sole cited claim takes the residue from ['P11'] to []. That neither restores the text nor moves any evidence. It does leave a \"cited but undefined\" line, but report.rs prints that in the human-owed partition, so nothing fails."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 2,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 2,
+   "not_a_quantity": 0,
+   "cost": 0.00372995,
+   "elapsed": 29.48
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C10",
+   "status": "ok",
+   "prop": "The residue is bullets in the existing flat human-owed list, not a new section, and it is identified by document line as well as by block id. The partition has no sub-headings \u2014 it is one list of `  - ` entries, some of which already run to several indented lines, as `mint_windows` and `tree_states` do \u2014 so a section would be the only one there and would say by its shape that it outranks the rest. One entry per listed block, plus a single preamble entry carrying what is constant across them: that the ordering rests on two clocks nothing here can prove are the same. Printing that constant once rather than in every bullet follows the precedent this crate set when `no scope declared` was collapsed to one document-level line, on the stated grounds that repeating a constant per row \"buried the findings that are about *this* document under a constant\". The entry names the block's workspace id and the line in this document where its text begins, because `compose::render` never writes a block's id into the output and an id alone names something a reader holding only the memo cannot find; the offsets come from one new function in `compose`, consumed by `render` so that the block-to-line mapping is described in exactly one place. It also names each cited claim, that claim's first-proof timestamp and the pass that wrote it, and the block's own timestamp \u2014 the inputs to the comparison, so a reader can disbelieve the conclusion.",
+   "verdicts": [
+    [
+     "supports",
+     "Every checkable clause holds: the human-owed partition is one flat list of `  - ` entries with no sub-heading anywhere in it; the mint_windows and tree_states entries already run to further six-space-indented lines; and the `no scope declared` constant is printed once at document level under the comment ending \"buried the findings that are about *this* document under a constant\", quoted byte-for-byte in the proposition. The reason the entry must name a document line \u2014 that `compose::render` never writes a block's id into the output \u2014 is separately witnessed (F4)."
+    ],
+    [
+     "supports",
+     "Second record: the prose loop in compose::render pushes only text, heading markers and the `*cites:*` line \u2014 never `b.id` \u2014 so a listing identified by block id alone would name something a reader holding only the memo cannot locate, which is the proposition's stated reason for adding a document line."
+    ],
+    [
+     "supports",
+     "The human-owed partition is one flat `  - ` list with no sub-headings; mint_windows and tree_states already emit multi-line indented entries; and the `no scope declared` collapse to one document-level line carries verbatim the stated grounds about burying findings under a constant."
+    ],
+    [
+     "supports",
+     "compose::render writes no block id into the output, so an id alone names something a reader holding only the memo cannot find \u2014 the stated reason for reporting a document line offset as well."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "The human-owed partition is a flat \"  - \" list with no sub-headings; mint_windows and tree_states entries already run to several indented lines; the collapse precedent and its quoted grounds (\"buried the findings that are about *this* document under a constant\") are present verbatim."
+    ],
+    [
+     "supports",
+     "compose::render never writes a block's id into the output, so an id alone names nothing a reader holding only the memo can locate; and compose has no existing offset function, so block_offsets would be new."
+    ],
+    [
+     "supports",
+     "Every factual premise checks out: the human-owed partition really is one flat list of `  - ` entries with no sub-headings, `mint_windows` and `tree_states` really do already run to several indented lines, the `no scope declared` collapse to a single document-level line exists with exactly the quoted justification, and `compose::render` really never writes a block id, which is what makes an id-only reference unlocatable from the memo alone. The remainder \u2014 that the residue will be bullets rather than a section, one entry per block plus a preamble entry, a `block_offsets`-style function in `compose` consumed by `render`, and which fields each entry names \u2014 are design decisions this memo is making rather than properties of the tree, and they are internally consistent with the premises above."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.00771093,
+   "elapsed": 81.97
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C2",
+   "status": "ok",
+   "prop": "The ticket's mechanical premise holds on this machine: the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep, it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes, `--exclude-dir='*.tetel'` prunes snapshot directories at any depth, and `--exclude='*.evidence.jsonl'` drops evidence ledgers. Nothing here was executed against GNU grep or on Linux, so the ticket's clause about \"the Linux greps CI runs\" is untested by this design and is asserted by no claim in it.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001019875,
+   "elapsed": 8.72
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C3",
+   "status": "ok",
+   "prop": "grep does not implement the ticket's first constraint \u2014 \"an explicitly named path must still be read; only traversal skips\" \u2014 and delegating that constraint to grep's flags would silently break it. Measured on BSD grep 2.6.0-FreeBSD: a file named explicitly on the command line is skipped when `--exclude` matches it (no output, exit 1, against output and exit 0 for the identical command without the flag), and a directory named explicitly as the recursion root is skipped when `--exclude-dir` matches it (same contrast). Only one of the three cases behaves the way the constraint describes: `--exclude-dir` does not suppress a file inside an excluded directory when that file is named explicitly and searched non-recursively.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.00070395,
+   "elapsed": 6.5
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C4",
+   "status": "ok",
+   "prop": "The rendered-memo exclusion the ticket sketches \u2014 \"one glob for `*.tetel` directories under the search root, with the suffix stripped, passed as `--exclude`\" \u2014 is unsound as written, in two independent ways measured on BSD grep 2.6.0-FreeBSD. First, a pattern must be spelled the way grep constructs the file's name from the root as given: with a relative root, an absolute-path `--exclude` excluded nothing at all and the search returned every file, while the same path spelled relative to the root excluded exactly the intended file. Second, a suffix-stripped bare basename over-excludes: `--exclude='memo.md'` removed both a genuine rendered memo and an unrelated other/memo.md that has no sibling other/memo.md.tetel and so is not a rendered memo under the ticket's own test. The exclusion must therefore be emitted path-prefixed in the root's own spelling, never as a basename.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "one glob",
+     "clause": "The rendered-memo exclusion the ticket sketches \u2014 \"one glob for `*.tetel` directories under the search root, with the suffix stripped, passed as `--exclude`\" \u2014 is unsound as written, in two independent ways measured on BSD grep 2.6.0-FreeBSD.",
+     "why": "The captured evidence runs three grep cases but does not establish that the ticket sketches exactly one glob.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001505975,
+   "elapsed": 18.07
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C5",
+   "status": "ok",
+   "prop": "The exclusion disclosure can be made durable with no schema change, by writing it into the whole-search record's `label`. Two existing mechanisms carry it from there: `compose::render_facts` builds the committed memo's \"Extent (captured)\" column by joining extent entries' `label` fields and renders nothing else from an entry \u2014 not the `key`, not the captured output \u2014 so a label reaches every reader of the committed document; and `facts::mint` hashes each pending entry's `label` (followed by `world_root`, `world_state` and `output`) into the pin, so two searches whose exclusion sets differ pin differently even when their matched output is byte-identical.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0011594,
+   "elapsed": 10.31
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C8",
+   "status": "ok",
+   "prop": "A change confined to `look_grep` cannot alter how an already-committed memo checks, for two independent reasons. The first is call-graph isolation: two exhaustive greps of the whole `src/` tree show `Command::new` matching in only `observe.rs` (the grep inside `look_grep`, and `run_command`'s child) and `worldstate.rs` (git), and `observe::` matching in only `main.rs` and `mcp.rs`, which build a `LookRequest` and dispatch it, and `facts.rs`, where the sole occurrence is inside a doc comment \u2014 so every other file in `src/`, including every file on the check and render paths, neither calls into `observe` by that path nor spawns a process by that constructor. The second is immutability: the `tetel fact` module doc states that a revision rewrites the note only, and that \"extent, output and pin are set once at mint time and never appear in a revision event at all, so there is no code path that could change them later either\". A fact minted under the old behaviour therefore keeps the extent and pin it was minted with, whatever a later `look` would now do.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001523775,
+   "elapsed": 10.7
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C13",
+   "status": "ok",
+   "prop": "`check`'s standing non-coverage list needs a second line rather than an amendment to the one it has. The existing entry reads \"whatever the platform's grep skipped \u2014 symlinked directories and binary files bound what a whole-worktree search physically visited\": both causes it names are platform accidents, and nothing in it contemplates something tetel itself declined to visit. The list's own census block explains its purpose as saying what a census \"cannot see\", \"because a refusal that fired is easily read as coverage it never claimed\" \u2014 which is exactly the reason a deliberate exclusion must appear, and exactly the reason it must not be folded into the accident line. Every entry is a static string and none is per-search, so the standing line can only say that the policy exists; what a given search actually excluded is not something this list can carry.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 1,
+   "cost": 0.001994525,
+   "elapsed": 18.97
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C14",
+   "status": "ok",
+   "prop": "TET-28's census predicate needs no change, and this is what makes the two disclosures divide cleanly. `ExtentEntry::censuses` reads exactly five things \u2014 that the kind is `Search` or `NoMatch`, that the pattern byte-equals the symbol, that `world_root` is non-empty and not `NO_GIT`, and that `key == world_root` \u2014 and never reads `label` or `output`. A worktree-rooted search therefore still censuses after this change, correctly, because the predicate was always about a search's existence and rooting rather than about what it found. What changes is not the predicate but what a passing census entitles a reader to conclude, and that is carried by text: a standing line in `check` saying the exclusion policy exists, and the search record's own `label` saying which patterns this particular search was given.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0017063,
+   "elapsed": 12.89
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C15",
+   "status": "ok",
+   "prop": "\"No `look` returns tetel's own content\" is not the honest name for what this design builds, and the honest name is better rather than merely narrower: a `look` returns tetel's own output only when the caller named it. `look_path` refuses a directory and reads exactly the one file it was given, with no traversal of any kind, so every file it can ever return is one the caller named explicitly and it is left unchanged by this design. `look_grep` is where the whole mechanism lands, and its rule is the same sentence applied to a search \u2014 the exclusions are passed only when the root is a directory that is not itself tetel content, so what they remove is only ever reached by traversal. Stating the guarantee over naming rather than over `look`'s two modes covers both with one sentence and does not promise a reader something `look_path` never did.",
+   "verdicts": [
+    [
+     "supports",
+     "look_path's half is exact: directory refusal, single fs::read_to_string, no traversal, therefore every file it can return was named by the caller and no exclusion applies to it."
+    ],
+    [
+     "supports",
+     "look_grep's half: `-r` is added only when the root is a directory, so traversal \u2014 the only way a file the caller did not name can be reached \u2014 happens exactly in the case where the design says exclusions are passed."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0025872,
+   "elapsed": 22.96
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C16",
+   "status": "ok",
+   "prop": "No opt-out flag should be added, because three escape hatches already exist and each is reached by naming something rather than by setting a flag. `look_path` opens any single named file, including one inside a snapshot, and is untouched by this design. `look --grep` rooted at a path that is itself tetel content passes no exclusions at all, which is not merely permitted but forced: grep's `--exclude-dir` suppresses a directory named as the recursion root, so the flags must be withheld there or naming a snapshot directory would return nothing. And `run` spawns `argv` directly with nothing between the empty-argv refusal and the spawn that inspects, parses or classifies the command or the paths it will touch, so it has no place a path exclusion could be applied even in principle. A flag would add a fourth route that, unlike all three of these, leaves no trace in what was named.",
+   "verdicts": [
+    [
+     "supports",
+     "Escape hatches 1 and 3: look_path opens any single named file with no traversal and nothing in this design touches it; run_command has only the empty-argv refusal between entry and `Command::new(&argv[0]).spawn()`, with no inspection of the command or its paths, so it offers no place to apply an exclusion."
+    ],
+    [
+     "supports",
+     "Escape hatch 2 and its \"not merely permitted but forced\": measured, `--exclude-dir='*.tetel'` applied to a recursion root that is itself a *.tetel directory returns nothing and exits 1, so the flags must be withheld there or naming a snapshot directory would yield no output."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.002076725,
+   "elapsed": 17.05
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C17",
+   "status": "ok",
+   "prop": "The pin's non-stationarity is relocated rather than removed, and the relocation is the improvement. Measured on a scratch tree: rendering a second memo into it, changing no source, left the matched output of a search for the same symbol byte-identical while changing the emitted exclusion list from one rendered-memo pattern to two. So the captured output is now stationary against tetel's own churn \u2014 which was the ticket's within-run complaint, since an evidence ledger growing during grading no longer reaches the search at all \u2014 but the exclusion set is not, and because the design writes that set into the search record's label and the label is inside the pin, two censuses of the same symbol against the same source will still pin differently across a render. The difference is that the cause is now written in plain text in the same record, instead of being an invisible change in what the search happened to read.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "The \"label is inside the pin\" step: facts::mint hashes each pending entry's label first in the pin input, so an exclusion set written into the search record's label makes two otherwise identical censuses pin differently."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "The pin half: facts::mint hashes each pending entry's label into the pin, so an exclusion set written into the search record's label changes the pin even when the matched output is byte-identical."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001144625,
+   "elapsed": 10.34
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C2",
+   "status": "ok",
+   "prop": "`brief::build` today performs no filtering \u2014 it maps each `Claim` to a `BriefItem` one-for-one \u2014 and its doc comment forbids dropping a claim from the brief on account of what its evidence ledger already holds, so any owed-scheduling surface that removed claims from `build`'s output would contradict an invariant already stated in the code.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`build`'s body is a bare `claims.iter().map(...).collect()` \u2014 one BriefItem per Claim, no filter or conditional. Its doc comment states \"nothing here may drop a claim from the brief on account of what its evidence ledger already holds. A claim leaves this list only by leaving the ledger itself \u2014 never by having been reported on.\""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "build is an unconditional one-for-one map with no filter, and its doc comment states \"nothing here may drop a claim from the brief on account of what its evidence ledger already holds.\""
+    ],
+    [
+     "supports",
+     "build's body is a bare iter().map().collect() with no filter, and its doc says nothing there \"may drop a claim from the brief on account of what its evidence ledger already holds\"."
+    ],
+    [
+     "supports",
+     "build is an unconditional one-for-one map with no filter; its doc comment states nothing may drop a claim on account of what its evidence ledger already holds."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0004205,
+   "elapsed": 4.64
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C3",
+   "status": "ok",
+   "prop": "`brief::build` takes `&[Claim]` and nothing else, so owed-ness \u2014 which depends on evidence records \u2014 cannot be computed inside `build` as it is currently shaped; the owed list must be computed by a caller that also holds the memo's evidence records.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`pub fn build(claims: &[Claim]) -> Vec<BriefItem>` has exactly one parameter and it is `&[Claim]`; no evidence records are in scope inside it."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "build's signature is `fn build(claims: &[Claim]) -> Vec<BriefItem>` \u2014 the slice of claims is its only input, so nothing evidence-derived is in scope inside it."
+    ],
+    [
+     "supports",
+     "`pub fn build(claims: &[Claim]) -> Vec<BriefItem>` has exactly one parameter; no evidence records are reachable from inside it."
+    ],
+    [
+     "supports",
+     "`build(claims: &[Claim]) -> Vec<BriefItem>` has that one parameter and no evidence access, so owed-ness cannot be computed inside it as shaped."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0003507,
+   "elapsed": 2.19
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C5",
+   "status": "ok",
+   "prop": "`analyze_ledger` already holds two different record sets for one claim \u2014 `fresh` (digest exactly equals the current proposition digest) and `grading_current` (digest empty OR equal), the latter grandfathering pre-digest records \u2014 so the confirmation floor must name which set it counts; counting `grading_current` would let a record that predates the digest field discharge the floor, which under-schedules, whereas counting `fresh` errs toward scheduling.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "Both locals exist in `analyze_ledger` with exactly the described membership: `fresh` from the partition over non-empty digests on `r.proposition_digest == current`, and `grading_current` from `filter(|r| r.proposition_digest.is_empty() || r.proposition_digest == current)`, whose comment states the grandfathering rationale for empty digests explicitly."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "Both sets exist in one loop body with exactly the described definitions: `fresh` from a partition on `proposition_digest == current` after non-empty filtering, and `grading_current` filtering `is_empty() || == current`, whose own comment says an empty-digest record \"predates the field\" and is grandfathered."
+    ],
+    [
+     "supports",
+     "`fresh` and `grading_current` are both built per claim with exactly the two membership rules stated, and the grandfathering comment names the pre-digest case."
+    ],
+    [
+     "supports",
+     "`fresh` (digest == current) and `grading_current` (digest empty || == current) both exist per claim; the in-code comment states the empty-digest records predate the field and are grandfathered."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.000976825,
+   "elapsed": 6.19
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C6",
+   "status": "ok",
+   "prop": "Every evidence record already stores a pin \u2014 on the witnessed path the pin of the grounder's own fact, i.e. the tree it stood in, written expressly so that \"was this claim graded against the same tree the memo was written against?\" becomes measurable \u2014 in a field no check reads today; so rule 3 is implementable as a comparison of that stored pin against the claim's currently stated pin, answerable on ledgers already written, whereas folding the pin into `sha256_hex` would change every pinned claim's current digest and drive every previously written record into `out_of_proof`.",
+   "verdicts": [
+    [
+     "refutes",
+     "Rule 3 is not implementable as the comparison this claim decides on. Ran the worktree's own binary as `brief --json` over every memo in docs/design: 87 claims across five ledgers (tet28/29/30/46/47), and ZERO carry a `pin` \u2014 `render_json` emits the field only when `Claim::pin` is `Some`, so `find_stated_pin` returns None for every document in this corpus, TET-47's own included. Meanwhile every witnessed record in tet30's ledger carries `Some(\"sha256:...\")`. The comparison therefore has no second operand anywhere it would run: either None short-circuits and rule 3 is dead code that never fires on any existing memo, or Some != None and every claim of every existing memo is permanently owed under rule 3 alone \u2014 which discharges the entire cost saving the design is for. The claim's own qualifier \"answerable on ledgers already written\" is the part that fails: the ledgers are written, the memos have no stated pin to answer against. The design states neither behaviour for the None case."
+    ],
+    [
+     "refutes",
+     "Second, independent refutation of the same clause: the two values compared are not the same kind of thing. src/facts.rs lines 405-452 constructs a fact's pin as `format!(\"sha256:{}\", sha256_hex(&hash_input))` over each pending entry's label, world_root, world_state and output \u2014 a content fingerprint of the observation, with no relation to any commit id. src/ledger.rs lines 150-205 takes the claim's pin as the last backticked token after the word \"pin\" in the prose window before the ledger table, under the documented corpus convention \"at pin `71c0fd1`\" \u2014 a git short hash typed by an author. So even on a memo that did state a pin, the comparison is `sha256:<64 hex>` against `71c0fd1`, which is unequal by construction. The claim's premise \u2014 that the stored pin is \"the tree it stood in\" \u2014 treats a content hash of one fact's captured bytes as a tree identifier; two facts taken in the same checkout at the same commit pin differently whenever their labels or output differ, which is nearly always."
+    ],
+    [
+     "refutes",
+     "The load-bearing identification is wrong on two counts. (1) A witnessed record's `pin` is `Some(fact.pin.clone())`, and a Fact's pin is `format!(\"sha256:{}\", sha256_hex(&hash_input))` over each pending extent entry's label + world_root + world_state + output (src/facts.rs:414-436) \u2014 a content fingerprint of the observation, not \"the tree it stood in\". The tree it stood in is carried by a different field, `world: Vec<worldstate::Marker>`, and it is that field, not `pin`, that carries the doc comment the proposition quotes (\"Nothing reads it yet. It is written now so the question it exists for \u2014 *was this claim graded against the same tree the memo was written against?* \u2014 becomes measurable at all\"). (2) A claim's currently stated pin is the backticked token parsed out of prose by `find_stated_pin` \u2014 a short git hash such as `abc1234`/`deadbee` in the crate's own tests. A `sha256:`-prefixed observation fingerprint can never equal one, so \"a comparison of that stored pin against the claim's currently stated pin, answerable on ledgers already written\" would fire on every witnessed-grounded claim unconditionally rather than detecting a re-pin. The comparison the design wants is against `world`. Two subsidiary clauses do hold: no check reads the record pin today (F5), and folding the pin into `sha256_hex(&claim.proposition)` would indeed drive every previously written record into `out_of_proof` (F3). \"Every evidence record already stores a pin\" is also too strong on the ingested path, where `RecordInput.pin` is `#[serde(default)] Option<String>` and a record written without one stores `None`."
+    ],
+    [
+     "qualifies",
+     "Everything structural holds \u2014 a fact's pin is `sha256:` over each observation entry's label, world_root, world_state and output (a content fingerprint, not a tree identifier); a claim's pin is a backticked prose token; every witnessed record's predicate carries the deduped world markers of the fact's extent; `check` reads the authoring tree states out of the shipped facts.jsonl; and `world` is present on `Predicate` but absent from `EvidenceRecord`, so it is dropped at read-back in `parse_line`. The clause that fails is the count. Replaying `brief --json` over the five rendered memos at this commit gives 15 + 14 + 13 + 19 + 27 = 88 claims, not 87, with zero `pin` keys among them. The \"missing from all\" property is exact; the population is 88."
+    ],
+    [
+     "qualifies",
+     "Re-graded against the current wording, which was revised during this pass. The structure holds: a fact's pin is `sha256:` over each observation entry's label, world_root, world_state and output (a content fingerprint, not a tree identifier), and a claim's pin is a backticked prose token parsed out of prose. The count does not. Replaying `brief --json` over the five rendered memos at this commit gives 15 + 14 + 13 + 19 + 27 = 88 claims with zero `pin` keys, not 87. \"Missing from all\" is exact; the population is 88."
+    ],
+    [
+     "supports",
+     "The fact-pin half is established here: `sha256:` over per-entry label, world_root, world_state and output, a content fingerprint by the code's own words."
+    ],
+    [
+     "supports",
+     "The claim-pin half: a claim's pin is a backticked prose token parsed from a document-level sentence, and it is `None` on every claim of all five memos \u2014 verified directly by `brief --json` for one, and by the parse rule plus window/candidate-line greps for the other three, with the fifth's absence visible in the grounding brief this pass was handed."
+    ],
+    [
+     "supports",
+     "A fact's pin is `sha256:` over each extent entry's label, world_root, world_state and output \u2014 a content fingerprint, explicitly contrasted in worldstate.rs's own doc with a tree identifier. On the absent second operand I confirmed the four memos other than the one under grading carry no `pin` in `brief --json` (0 of 61 items), and the grounding brief for the fifth prints no `pin:` line for any of its 32 claims, so the corpus figure holds for all five."
+    ],
+    [
+     "supports",
+     "Both halves check out as written. The fact pin is `format!(\"sha256:{}\", sha256_hex(&hash_input))` over each entry's label, world_root, world_state and output \u2014 a content fingerprint. And `brief --json` over all five rendered memos yields 89 claims with zero `pin` keys, so the claim-side operand is universally absent; the disjunction the proposition draws from that (never fires, or every claim permanently owed) follows."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "The measured half is right and the conclusion survives, but the universal the claim reaches for is false. \"The comparison has no second operand anywhere it would run\" is asserted from a survey of the five tetel-RENDERED memos. It does not hold on the other population the tool serves: `brief --json` over tests/fixtures/ledger_check.md, an imported hand-authored ledger, returns both claims carrying \"pin\": \"abc1234\", and tests/brief_cli.rs:53 asserts that the document-level pin is attached to each claim. On an imported ledger the operand is present, so the rule would run rather than short-circuit, and the two-case split the claim closes on (\"either the absent value short-circuits and the rule never fires, or it reads as a mismatch and every claim of every existing memo is permanently owed\") is missing that case. Rule 3 should still be dropped \u2014 a git short-hash lifted from prose and a sha256 content fingerprint over an observation's labels and output are different kinds of value and would mismatch wherever the comparison did run \u2014 but the ground is kind-mismatch, not universal absence, and this matters more now that the other stated ground for dropping rule 3 (C29's \"unsatisfiable forever after\") does not hold."
+    ],
+    [
+     "qualifies",
+     "Holds only for WITNESSED records, a restriction the proposition does not state. C6 asserts flatly that \"a record's pin is a fact's `sha256:` fingerprint\" and that the two pins \"can never be equal, so on the imported population the comparison fires on every claim always\". `record` has two write paths and only the witnessed one sets `pin: Some(fact.pin.clone())`. On the ingested path `build_statement` sets `pin: input.pin.clone()` from `RecordInput.pin`, caller-supplied free text copied verbatim with no shape check (F1). The imported population is precisely where claim pins exist \u2014 the crate's own fixture pins both claims `abc1234` \u2014 so a reporter filing an ingested record there may type `abc1234` and the two pins are equal. On that population the comparison therefore does not fire always; it is dischargeable by naming, which is the same defect C24 names for `pass` and which it fixes by counting witnessed records only. Rule 3's section never applies that restriction. The decision to drop rule 3 survives, but the reason as written is wrong for half the population it invokes: the correct statement is that the comparison is either vacuous (tetel-rendered, no claim pin) or discharge-by-typing (imported, ingested records), not that it always fires."
+    ],
+    [
+     "supports",
+     "`brief --json` on tests/fixtures/ledger_check.md returned exactly two claims, both `\"pin\": \"abc1234\"` \u2014 a git-short-hash-shaped token typed into prose \u2014 while a witnessed record's pin is `Some(fact.pin.clone())` and a fact's pin is `format!(\"sha256:{}\", sha256_hex(&hash_input))` over each entry's label, world_root, world_state and output. The two forms can never be byte-equal, so a kind-mismatch comparison fires on every pinned claim always."
+    ],
+    [
+     "supports",
+     "Second population confirmed: across the four other rendered memos' 61 briefed claims not one item carries a `pin` key, so on the tetel-rendered population the comparison fires on none."
+    ],
+    [
+     "supports",
+     "Witnessed pin is Some(fact.pin), and a fact's pin is \"sha256:\" + sha256 over each extent entry's label, world_root, world_state and output; ledger_check.md's two claims both take the prose pin abc1234; build_statement copies input.pin verbatim with no validation."
+    ],
+    [
+     "supports",
+     "Witnessed record pin = fact pin = \"sha256:\" + hash over labels/world markers/output; claim pin = a backticked token parsed from prose, `abc1234` on both claims of the ledger_check.md fixture; the two shapes cannot be equal. build_statement copies input.pin with no shape check, so the unrestricted reading is discharge-by-typing."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0009948,
+   "elapsed": 4.42
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C7",
+   "status": "ok",
+   "prop": "The ticket's premise for rule 3 \u2014 that a claim's pin can change only through a `claim --revise` that alters `--cites` \u2014 is false: a claim's pin is not derived from its cited facts at all, but parsed by `find_stated_pin` from a document-level \"at pin `<hash>`\" sentence in the prose between the nearest preceding heading and the ledger table, and the one parsed value is assigned to every claim in that table.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`import` computes the pin once per ledger table by `find_stated_pin` over `body[section_start..header_line]` \u2014 the prose between the nearest preceding markdown heading and the table header \u2014 and assigns `pin: pin.clone()` to every `Claim` built from that table. `find_stated_pin` extracts the backticked token following a whole-word \"pin\", per its doc's \"at pin `<hash>`\" convention. Neither function touches a claim's cited facts, so the ticket's premise that a pin changes only via `claim --revise --cites` is indeed false."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`import` computes the pin once per table from `body[section_start..header_line]` \u2014 the prose between the nearest preceding heading and the ledger header \u2014 via find_stated_pin, whose doc names the \"at pin `<hash>`\" convention, and assigns `pin: pin.clone()` to every Claim in that table. No cited-fact list is consulted anywhere in the pin's derivation, so the ticket's premise is indeed false."
+    ],
+    [
+     "supports",
+     "The pin is parsed once per table by find_stated_pin from prose between the nearest preceding heading and the header line, then cloned onto every Claim in that table; no path in import consults cited facts."
+    ],
+    [
+     "supports",
+     "find_stated_pin scans the window between the nearest preceding heading and the table header for an \"at pin `<hash>`\" form, and the single value is cloned onto every Claim from that table; nothing in the pin's derivation reads cited facts."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 1,
+   "not_a_quantity": 0,
+   "cost": 0.000594625,
+   "elapsed": 7.43
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C9",
+   "status": "ok",
+   "prop": "Rule 4's \"distinct non-author workspaces\" count already exists inside `grounding_provenance` as `by_others` \u2014 deduped `pass` values of the claim's witnessed records, minus the authoring workspace read from the snapshot's identity \u2014 so the floor needs no new notion of workspace identity; it needs that same count restricted to records whose `proposition_digest` matches the current wording, a restriction `grounding_provenance` does not currently apply.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`by_others = passes.len() - by_author` where `passes` is the sorted, deduped `pass` set of the claim's WITNESSED records and `by_author` counts those equal to the snapshot identity, and `grounding_provenance` applies no `proposition_digest` filter anywhere."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`by_others = passes.len() - by_author` over deduped `pass` values of the witnessed records, with `author` taken from the AuthoringIdentity::Known arm; and the function performs no digest comparison at all, so the described restriction is indeed absent today."
+    ],
+    [
+     "supports",
+     "by_others is passes.len() - by_author over deduped witnessed passes, with author from AuthoringIdentity::Known (resolved in check_file from the snapshot's identity.json, F7); no proposition_digest comparison occurs anywhere in grounding_provenance."
+    ],
+    [
+     "supports",
+     "by_others = deduped witnessed pass values minus the authoring identity; no digest restriction is applied anywhere in grounding_provenance."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001024575,
+   "elapsed": 5.38
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C13",
+   "status": "ok",
+   "prop": "Reusing `citation_ids_in` leaves one residual false negative \u2014 a proposition that names another claim in unbracketed prose, since `scan_line` begins an id scan only at a `[` byte \u2014 and this design states that as a bound rather than widening the matcher, because widening would create a second, disagreeing definition of the same citation edge for a check that already owns one.",
+   "verdicts": [
+    [
+     "qualifies",
+     "The false-negative class is real and correctly identified. The stated reason is one branch short: `scan_line` does not begin an id scan only at a `[` byte \u2014 it first calls `scan_cites_trailer`, which recognises a whole line of the form `*cites: C1, C4*` and returns unbracketed ids from it. That branch cannot rescue a proposition that merely names a claim in ordinary prose (the trailer must be the entire trimmed line), so the residual false negative stands as described; only the \"only at a `[` byte\" mechanism clause is inexact. Separately, `is_citation_shaped` also requires an id to contain a digit or a hyphen, so a bracketed id of a shape with neither would be a second, narrower residual miss."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "qualifies",
+     "The mechanism is exactly as described; \"one residual false negative\" understates it to the point of changing the decision. Measured over every memo this project has rendered \u2014 `brief --json` on all five, 90 claims \u2014 there are zero bracketed citation-shaped ids inside any proposition, and four bare unbracketed references (tet30 C3 -> C9/C13, tet30 C9 -> C99, tet47 C4 -> C5). The residual is not a corner: it is the whole observed population. Disjunct 4 of the decided predicate therefore contributes the empty edge set on every memo in this corpus, TET-47's own included, and the one real proposition-to-claim reference in TET-47's ledger is one of the four it does not see. That is the same shape of defect this memo used to kill rule 3 \u2014 a rule with no operand anywhere it would run \u2014 and it is stated here as a bound rather than recognised as one."
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "refutes",
+     "The proposition asserts that the residual false negative \"is narrow and stated rather than closed\", and states exactly one: a proposition referring to another claim by description rather than by id. There is a second, larger, unstated one that follows directly from the matcher's own tokenisation rule. Because the rule delimits tokens on punctuation and the hyphen is punctuation, a proposition that names a sibling *by its id* is still missed whenever that id contains a hyphen. src/citations.rs 38-55 gives the corpus-ledger id shape as uppercase-led with \"a digit or a hyphen\" (`S3-L17`, `E-4`, `X-6`, `R-ROOT`, `CYC-A`), and the captured rg sweep finds 21 hyphenated ledger row ids across nine fixture documents and two source modules with no unhyphenated one. src/ledger.rs 361-383 supplies the concrete case: claim `X-1`, proposition \"`foo` returns **4** always [X-2]\" \u2014 a by-id reference the matcher as worded does not see. So the missed-edge set is not narrow (it is every by-id reference on an entire class of ledgers this crate supports) and it is not stated. The error-direction half of the proposition \u2014 that a spurious edge only schedules an extra grading \u2014 is unaffected."
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "one residual false negative",
+     "clause": "Reusing `citation_ids_in` leaves one residual false negative \u2014 a proposition that names another claim in unbracketed prose, since `scan_line` begins an id scan only at a `[` byte \u2014 and this design states that as a bound rather than widening the matcher, because widening would create a second, disagreeing definition of the same citation edge for a check that already owns one.",
+     "why": "The capture shows that scanning begins at `[` but does not establish a count of one residual false negative; its comments instead state that the failure mode is never a missed citation.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.000570075,
+   "elapsed": 8.85
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C14",
+   "status": "ok",
+   "prop": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4, and it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades; but the graph must be built over ledger claims, which check 5's `row_citers` deliberately excludes, so the construction is reused while the index itself is new.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.000794625,
+   "elapsed": 2.25
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C20",
+   "status": "ok",
+   "prop": "The donor's self-citation exclusion is not needed at the destination: check 5 skips a self-edge so that a root is \"never reported as its own dependent\", whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "One provenance detail worth naming: the quoted phrase \"never reported as its own dependent\" is the comment on the `visited.insert(root.id)` seeding, while the self-edge skip carries its own comment \"self-citation is not a dependency\". Both sit in check 5 and both bear on the root/self relation, and the claim's operative conclusion is right either way \u2014 termination is supplied by the `visited` set alone, so dropping the self-edge exclusion changes neither the closure's set nor its termination."
+    ],
+    [
+     "supports",
+     "Both halves are in check 5 as described. One attribution nit that does not change the verdict: the quoted rationale \"never reported as its own dependent\" is the comment on the `visited`-set seeding of the BFS root, while the `if id == row.id { continue; }` skip carries the comment \"self-citation is not a dependency\". Both exclude the root from its own dependents, so the sentence is right about the purpose even though the quote sits on the neighbouring mechanism."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0009068,
+   "elapsed": 5.4
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C21",
+   "status": "ok",
+   "prop": "The donor's exclusion of ledger claims rests on two properties the owed closure does not share \u2014 a ledger claim \"cannot be a cascade root (no typed `Status`)\" and is not a `Row`, so cannot be a row\u2192row dependent \u2014 whereas the owed closure roots at owed-ness under rules 1-4, which is defined for a ledger claim and for nothing else, and its dependents are ledger claims by construction; so the exclusion does not carry across, and the index is built over precisely the population the donor omitted.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.00097895,
+   "elapsed": 5.7
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C26",
+   "status": "ok",
+   "prop": "The textual closure needs no author-side claim-to-claim dependency edge: its edges are read out of proposition text by `citation_ids_in` at schedule time, from artifacts the memo carries, so grounding scheduling is computable without the re-evaluation obligation the ticket puts out of scope.",
+   "verdicts": [
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     ""
+    ],
+    [
+     "supports",
+     "`citation_ids_in` reads edges out of arbitrary text at call time and is already the crate's row\u2192row edge definition, so no stored author-side claim-to-claim edge is required. The reference to what \"the ticket puts out of scope\" is not checkable from the pinned repository, but nothing in the claim's operative assertion depends on it."
+    ],
+    [
+     "refutes",
+     "The proposition states that the closure's \"edges are read out of proposition text by `citation_ids_in` at schedule time\". That is the mechanism this memo's own C12 rejects: C12 states that a closure built on `citation_ids_in` \"yields the empty edge set on every memo in the corpus\", and the decided matcher is instead membership in the document's own ledger. The memo's own F10 row records that `scan_line` \"only enters the id scan at a `[` byte\", so `citation_ids_in` does not see the unbracketed sibling references C12 says are the only real ones. C26 is therefore false as written about the design as decided, and it is not a harmless wording slip: it and the paragraph citing it (memo line 157, \"the same scanner the cascade already uses\") are the only place the memo tells an implementer *what* reads the edges, so a reader who builds C26 builds the closure C12 measured as firing on nothing. The proposition's other half \u2014 that no author-side claim-to-claim dependency graph is needed \u2014 survives under the ledger-membership matcher, so the fix is to restate the mechanism, not to drop the claim."
+    ],
+    [
+     "refutes",
+     "The named mechanism is wrong. `citation_ids_in` is `scan_line`, a pure shape test that recognises only inline `[ID]`/`[!ID]` passing `is_citation_shaped` and a whole-line `*cites: ...*` trailer; it consults no ledger and matches nothing unbracketed. Edges \"read out of proposition text by `citation_ids_in`\" are therefore the empty set on any proposition without bracketed citation syntax."
+    ],
+    [
+     "refutes",
+     "Empirically the same point: across the four other rendered memos, zero of 61 propositions contain a bracketed citation-shaped token, so a closure whose edges are read by `citation_ids_in` has no edges at all on this corpus. The conclusion C26 draws \u2014 that no author-side claim-to-claim edge is needed \u2014 may well survive under the ledger-id-membership matcher the design settles on elsewhere, but not by the mechanism this proposition names."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.0007326,
+   "elapsed": 2.21
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C7",
+   "status": "ok",
+   "prop": "Nothing in this crate's source truncates anything today \u2014 a whole-`src` grep for `truncat` finds only one doc comment, about acknowledgements being untruncatable \u2014 so f3 introduces a new behaviour rather than moving an existing one, and there is no in-crate convention for how a truncation should be spelled.",
+   "verdicts": [
+    [
+     "refutes",
+     "Counterexample on the axis the evidence never searched. `transplants::refuse_incomplete` (transplants.rs 428-440) truncates a premise's text to its first line before showing it to the author and marks the cut with a trailing ` \u2026`. That is a truncation in this crate's source today, released at a line boundary, in text the author reads \u2014 so both halves of C7 fail: it is not true that \"nothing in this crate's source truncates anything today\", and it is not true that \"there is no in-crate convention for how a truncation should be spelled\". F8's grep for the word `truncat` could not have found it, because the code never uses that word; the claim rests on a name search standing in for a behaviour search. The design consequence is small but real: an in-crate spelling exists and f3's label segment departs from it (it reports how much was withheld, which the transplant elision does not), and the memo asserts there was nothing to depart from, so the departure is never argued."
+    ],
+    [
+     "supports",
+     "The citation is exact \u2014 transplants.rs:432-435 is the loop that takes `text.lines().next()`, appends ` \u2026` only under `text.lines().count() > 1`, and pushes the result. Cut on a line boundary: yes. Marker only when lines were dropped: yes (a single-line premise gets `first.to_string()` with no marker). No count of what was dropped anywhere in `shown` or `msg`: confirmed. The whole-src grep for `truncat` returning only a doc comment is also confirmed at this HEAD."
+    ],
+    [
+     "supports",
+     "Confirms the second half: the single `truncat` hit in src is acks.rs:25, a `//!` doc comment about the ack log being monotone, not a truncation implementation."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.00124125,
+   "elapsed": 8.7
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C9",
+   "status": "ok",
+   "prop": "The plain `look <path>` and `look --lines A:B` paths must be left alone by this design, because in `look_path` the returned bytes and the captured `output` are the same value `shown`; bounding the return there would necessarily change what is captured, which the ticket puts out of scope. `look_grep` is bounded and `look_path` is not, and that asymmetry is a consequence of the code's shape, not an oversight.",
+   "verdicts": [
+    [
+     "refutes",
+     "The claim's premise is right and its inference is false. In `look_path` (observe.rs 268-336) `printed` is a separate String assembled by `printed.push_str(&shown)` at line 316 \u2014 a byte copy \u2014 and `shown` is moved into `PendingEntry.output` afterwards at line 325. Two independent Strings exist between those points, which is the same separation `look_grep` exploits. Bounding `printed` after line 316 would therefore NOT \"necessarily change what is captured\": the capture would be byte-identical, exactly as C2 says it is on the grep path. So the asymmetry is not \"a consequence of the code's shape\"; it is a choice the design is entitled to make but has not justified. This matters because C9 is an instruction to an implementer \u2014 it tells them the `look <path>` case is closed by construction, which suppresses the observation that after f3 ships, `look <path>` on a large file is still silently cut by the caller with no trace anywhere, the very defect the ticket names."
+    ],
+    [
+     "supports",
+     "The cited range is exact: observe.rs:314-330 is `let mut printed = String::new();` \u2026 `printed.push_str(&shown);` \u2026 then `PendingEntry { \u2026 output: shown, \u2026 }`. `shown` is copied into `printed` by borrow and only moved into the entry afterwards, so the two strings are independent and a bound on `printed` cannot reach the captured output, label or key."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001198875,
+   "elapsed": 5.97
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C18",
+   "status": "ok",
+   "prop": "There is no act that gets an author the rest of a bounded census, and this design does not add one. Narrowing the root or the pattern is not available as a remedy, because a census is \"one search of the whole worktree for the symbol itself\" and a narrowed search stops qualifying as one; `look --grep` takes no other parameter that could page or filter. What remains available is an additional search rooted at a subdirectory, recorded as its own observation alongside the census rather than in place of it \u2014 and, outside the return path entirely, the per-file `GrepMatch` entries, which hold every matched line and ship complete into the snapshot.",
+   "verdicts": [
+    [
+     "supports",
+     "The escape hatch the claim points at is real: mint stores every non-empty pending output in full into the fact, and that facts.jsonl ships in the snapshot beside the memo, so the per-file GrepMatch entries \u2014 which hold every matched line \u2014 are recoverable there even when the return was cut. The census-narrowing half is settled by the target refusal's own words (\"a census is one search of the whole worktree for the symbol itself\") together with `censuses` requiring key == world_root, so a subdirectory-rooted search cannot qualify; and `look --grep` takes no paging or filtering parameter \u2014 LookParams is workspace/path/grep/lines, and lines is refused outright when combined with grep. Re-reading a bounded plain `look <path>` with `--lines A:B` keys on resolve_key(p) regardless of range, so it overlaps the first read."
+    ],
+    [
+     "refutes",
+     "The `look_path` half of this claim \u2014 \"`--lines A:B` is already a first-class parameter of the same verb, so the author reads the rest of the file by asking for it\" \u2014 is broken by a state reachable on tracked files in this worktree.\n\nConstruction. Take `look /Volumes/SSD/Documents/lonic/tetel/docs/design/tet46-look-never-returns-tetel-content.md.tetel/facts.jsonl`. F1(7) measures it: 20 lines, of which two exceed 32768 bytes, the longest 905745. F1(4) confirms `look_path` applies no exclusion filtering of any kind, so a named snapshot path is read like any other file \u2014 nothing stops this call. Under the rule the design states (\"accumulate whole lines, and stop before the first line that would carry the total past the byte budget\", C5/C20), the return stops at whichever over-budget line comes first. The author then asks for the rest with `--lines k:20`. The selection now BEGINS with a 905745-byte line, no whole line fits under 32768, and the bound admits zero lines: the author gets the `==> path <==` header, an empty body, and a label reading \"showed 0 of N lines (32768-byte bound)\". Every range that includes that line behaves identically. There is no `--lines` argument that returns any byte of it, so the claim's remedy does not reach it, and \"needs nothing new either\" is false: this case needs something the design does not have (a floor of one line, a byte-level fallback for an over-budget line, or at minimum an explicit statement that an over-budget line is unreadable through `look`).\n\nWorse than the status quo on exactly the axis the ticket cares about. Today the caller truncates at ~59 KB, so the author reading that file sees its first ~59 KB. Under the design they see zero bytes of that line. The memo's answer to \"what does an author do\" is that the design \"does not give the author back what was withheld; it stops the withholding from being secret\" \u2014 but here the design withholds strictly more than the status quo did, and this claim asserts a remedy that does not exist.\n\nThe same construction reaches `look_grep`: a grep whose matching line is one of these long JSON lines emits a `<file>:<lineno>:<text>` line over the budget, and if it is the first matching line the bounded return is empty while the label still says \"N files matched\". The prose's consolation that \"even a heavily bounded return still tells the author truthfully how many files matched\" is then a file count attached to nothing."
+    ],
+    [
+     "supports",
+     "The CLI `Look` command has exactly `path`, `--lines A:B` and `--grep PATTERN` \u2014 no paging, offset, limit or filtering parameter \u2014 and the MCP handler takes the same three plus `workspace` (F5). The census definition \"a census is one search of the whole worktree for the symbol itself\" is verbatim at targets.rs:168 (F5). GrepMatch entries holding every matched line, and the `Path` entry's output being the complete selected text with the key resolved before any range handling, are F2; facts.jsonl shipping as the first SNAPSHOT_FILES entry is F4."
+    ],
+    [
+     "qualifies",
+     "C18's universal about the residue is false as written, and the true version is a worse residue than the one stated. The claim says: \"What `--lines` does not reach is a single line longer than the budget: on such a line every range containing it returns the same floor \u2014 its first bytes up to a character boundary at or below 32768 \u2014 and no argument to `look` returns the remainder.\"\n\nConstructed counterexample from the measured line lengths (F1). Take tet46 \u2026/facts.jsonl: 20 lines, with 905745 bytes at line 15 and lines 12/13/14 at 4585/4320/2945 bytes. Ask `--lines 12:20`. That range contains line 15. Under C5's release rule the selection accumulates lines 12, 13 and 14 (11853 bytes with newlines), then stops before line 15 because it would carry the total past 32768. A whole line fitted, so the floor does not fire. The return contains zero bytes of line 15 and is not \"the same floor\".\n\nThe condition C18 does not state: the floor is returned only by a range that BEGINS at the over-budget line. Every other range containing it returns none of it. So the author's recovery act is not \"ask for a range containing it\" but \"ask for a range starting exactly at it\" \u2014 and to know which k that is, they must already know where the long line sits, which the bounded return does not tell them (the label reports N of M, not which line overran). The residue is therefore larger than C18 states: not merely \"the remainder of that line is unreachable\", but \"the floored prefix itself is reachable only from one specific range start, discoverable only by bisection\".\n\nThe claim's headline \u2014 that no act gets the author the rest of a bounded return, and that the escape hatch is the fact's captured `output` in the snapshot \u2014 is unaffected."
+    ],
+    [
+     "qualifies",
+     "The measurements are exact. Simulating the release rule under 32768 bytes on the tet46 \u2026/facts.jsonl ledger: `--lines 12:20` releases lines 12-14 at 11852 bytes and no byte of line 15; `--lines 8:20` releases three whole lines (8-10) and no byte of line 11. The census remedies are closed as stated: src/targets.rs carries verbatim \"a census is one search of the whole worktree for the symbol itself\", and `look --grep` takes no paging or filtering parameter \u2014 `LookParams` (src/mcp.rs:211-227) has exactly workspace/path/lines/grep, and the CLI reaches look_grep through `LookRequest::Grep { pattern, root }` with nothing further. The per-file GrepMatch entries hold every matched line and facts.jsonl is the first entry of SNAPSHOT_FILES.\n\nThe qualification is the clause \"but never which line of the selection overran\". On a floored return C20 fixes the label as `<path> lines {a}-{end} \u2014 showed 0 of M lines; first line cut mid-line at B of L bytes (32768-byte bound)`. \"first line\" names which line of the selection overran, and combined with the `lines {a}-{end}` segment it names the file line too (it is a). So the \"never\" is over-strong for exactly the case the same sentence has just described. The claim's substance survives: on a bounded but unfloored return \u2014 the case the bisection argument is about \u2014 the label reports only how many whole lines were shown and does not say the next one was over budget rather than merely not fitting, so the position is not recoverable from it and bisection is the honest description."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001771325,
+   "elapsed": 13.32
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C4",
+   "status": "ok",
+   "prop": "A sibling `acks.jsonl`, added to `snapshot::SNAPSHOT_FILES`, degrades safely in the older build it will be shipped past: that constant is an explicit enumeration whose stated purpose is that a future workspace file be a deliberate decision to ship or withhold, so a build that predates the entry simply never opens the file, reads `prose.jsonl` unchanged, and reproduces TET-30's un-suppressed listing. The failure direction is therefore over-reporting a residue entry a newer build would suppress, never suppressing one an older build would show.",
+   "verdicts": [
+    [
+     "refutes",
+     "C4's dominance sentence \u2014 \"The failure direction is therefore over-reporting a residue entry a newer build would suppress, never suppressing one an older build would show\" \u2014 is refuted by construction. It reasons only about the READ side (an old build never opens acks.jsonl). The WRITE side breaks it. `snapshot::write` (src/snapshot.rs:135-146) copies `SNAPSHOT_FILES` and never removes anything already in `<memo>.tetel/`, and skips any entry absent from the workspace. `SNAPSHOT_FILES` is a per-build constant. Construction: (1) author acks block P in workspace W with a new build and runs `render --out` \u2014 the snapshot now holds acks.jsonl = [Ack(P, key k)]; (2) author reconsiders and appends `Unack(P)`, so W's log is [Ack, Unack] and P must list again; (3) the memo is re-rendered by a build predating the SNAPSHOT_FILES entry \u2014 exactly \"the older build it will be shipped past\" that C4 posits. That build refreshes prose.jsonl, claims.jsonl and the memo bytes, and leaves the stale acks.jsonl in place because it does not know the name. (4) A newer build's `check` reads `snapshot_dir/acks.jsonl` (src/lib.rs:150-211 shows every residue input comes from the snapshot dir), finds [Ack] with key k still matching the recomputed text/cites/digests, and suppresses P \u2014 an entry both the older build and the true workspace state say should be shown. Nothing reddens: `compose::render` (src/compose.rs:79-95) reads only prose/claims/targets/transplants/facts, so acks.jsonl is outside the provenance-drift comparison by design (C13). The same state is reachable with a single build and no mixed builds at all, via the documented \"A file absent from the workspace is skipped rather than erroring\" path: render once from a workspace holding an ack, then re-render after that workspace's acks.jsonl is gone (restored/rebuilt workspace), and the stale ack keeps suppressing."
+    ],
+    [
+     "supports",
+     "Nothing in snapshot.rs, compose.rs or lib.rs enumerates the snapshot directory (no fs::read_dir outside observe.rs/scope.rs/workspace.rs), and compose::render reads only the five named logs, so a build predating the entry never opens acks.jsonl and reads prose.jsonl unchanged. SNAPSHOT_FILES' doc comment states the enumerate-don't-copy-wholesale purpose in the words the claim gives it. The over-report-never-under-report direction follows."
+    ],
+    [
+     "supports",
+     "Both halves check out at source. `SNAPSHOT_FILES` is an explicit nine-entry enumeration whose doc states verbatim that it is \"Enumerated rather than copied wholesale so that a future workspace file is a deliberate decision to ship or withhold\" \u2014 a build predating an `acks.jsonl` entry never names the file and so never opens it, while still copying and reading `prose.jsonl`. And `snapshot::write`'s loop is `if src.exists() { fs::copy(...) }` with no removal pass, so a snapshot does retain a file the workspace no longer has."
+    ],
+    [
+     "qualifies",
+     "The second half \u2014 \"The writer must reconcile \u2014 deleting a snapshot file absent from the workspace \u2014 for the snapshot to mean 'the workspace at last render' rather than 'the most recent copy any build made of each file'\" \u2014 does not say what the reconciliation enumerates, and the two available answers differ exactly on the cross-build case the claim's first half is about. `snapshot::write` (src/snapshot.rs:135-146) has only one enumeration in it, `for name in SNAPSHOT_FILES`, over a per-build `const [&str; 9]`, and never reads the snapshot directory. Reconciling over that constant leaves a tenth file a newer build wrote entirely unvisited by an older build's render, so the snapshot means \"the workspace at last render, for the files the rendering build's manifest names, plus whatever any other build left behind\" \u2014 which is the equality the claim says the fix establishes, and it is not established for the file this design adds. Reconciling over the snapshot directory instead does establish it, at the price of an older build deleting snapshot content it does not understand \u2014 a cost this memo never weighs, and a direct tension with `SNAPSHOT_FILES`' stated purpose that shipping or withholding a file be a deliberate per-build decision. Note the same residual hazard is what C14 cites to kill the withdrawal verb, so the two claims are consistent only under the manifest reading \u2014 under which this sentence's stated purpose is not achieved."
+    ],
+    [
+     "supports",
+     "SNAPSHOT_FILES is an explicit nine-entry enumeration whose doc comment states the purpose the claim quotes (\"a future workspace file is a deliberate decision to ship or withhold, not an accident of `cp -r`\"); `write` iterates only that array, copies only `if src.exists()`, and contains no removal \u2014 so it accretes, and a build predating an `acks.jsonl` entry never visits the file. Reconciling over the manifest would indeed never visit an unnamed file, for the same reason."
+    ],
+    [
+     "supports",
+     "The check side reads the snapshot's `prose.jsonl` by explicit name and computes the residue from it plus ledger claims and evidence records; nothing else in the snapshot feeds the finding, so a build predating the entry reads prose.jsonl unchanged and reproduces TET-30's un-suppressed listing."
+    ],
+    [
+     "qualifies",
+     "\"this needs two things rather than one\" and \"The writer must reconcile\" hold only under a condition the claim does not state and that C14 removes: that the workspace's `acks.jsonl` can shrink. It cannot. `append_jsonl` opens with `.append(true)`, no production verb in src/ deletes a workspace log (all 21 `fs::remove*` matches are `#[cfg(test)]` scratch cleanup), and this design ships NO withdrawal verb (C14). So the workspace's ack log is monotone, and `snapshot::write`'s copy-only loop (src/snapshot.rs 135-146) can only leave the snapshot holding an EARLIER state of that log \u2014 a subset. A subset suppresses fewer blocks, i.e. over-reports, which is precisely the direction C4 declares acceptable. The under-reporting case the second leg exists to close \u2014 \"a snapshot retains a log the workspace no longer has\" \u2014 was reachable when an `Unack` event existed (it could invalidate an ack that the snapshot's stale copy still carried); once `Unack` is gone, reaching it requires an out-of-band act the memo does not name, such as deleting or restoring a workspace directory or re-rendering the memo from a different workspace, both of which also desynchronise `prose.jsonl` and `identity.json` and so surface through drift and grounding-provenance. This matters because C4 is an instruction to an implementer to change a shared, load-bearing writer, and C4 itself states the price: \"a build reconciling over the directory deletes a snapshot file it does not understand\". That price is general and permanent \u2014 every future snapshot file, including the TET-36 obligation ledger C19 plans to re-home these events into, becomes destroyable by any render from a build predating it, where today it would survive. The design pays a general, forward-facing destructive cost for a case its own no-withdrawal decision made unreachable through the tool. Either state the residual case reconciliation actually closes (and why it is worth that price), or narrow C4 to the manifest leg alone and drop `snapshot::write` from the modification targets."
+    ],
+    [
+     "qualifies",
+     "Both load-bearing properties hold, but one supporting clause is false as written. Holds: SNAPSHOT_FILES (src/snapshot.rs:71) is an explicit `[&str; 9]` enumeration whose doc gives exactly the stated purpose (\"a future workspace file is a deliberate decision to ship or withhold, not an accident of `cp -r`\"), and `write` (snapshot.rs:135-146) only iterates it, so a build predating a tenth entry never opens the file and `write`'s body needs no change; `append_jsonl` (workspace.rs:451-456) is `create(true).append(true)` + `writeln!`, never truncating; no production code path deletes or truncates a workspace log. False as written: \"none of it in the modules holding the authoring verbs\" \u2014 the `fs::remove` sites are in review.rs, evidence.rs, facts.rs (559/576/589/599/601), workspace.rs and observe.rs, and facts.rs, observe.rs and workspace.rs are precisely the modules holding `fact`, `look`/`run` and `append_jsonl`. The removes are inside those modules' `#[cfg(test)]` regions, not absent from them, so the clause should say \"in no production code path\" rather than \"in none of those modules\". Secondarily, facts.rs:599 `remove_file(dir.join(\"refusals.log\"))` is test *setup* (staging `a_snapshot_with_no_refusal_log_yields_no_windows`), not \"scratch-directory teardown\". Neither correction touches the monotonicity conclusion."
+    ],
+    [
+     "refutes",
+     "C4's conclusion \"a snapshot's ack log, however stale, is a prefix of the workspace's: it holds a subset of the acks, suppresses a subset of the blocks, and therefore over-reports rather than under-reports\" is refuted by construction on the workspace-identity axis, which neither of the claim's two premises addresses. The premises are about the ack log inside one workspace; the conclusion is about the snapshot's copy versus the workspace's, and the inference needs an unstated premise that a memo is only ever rendered from one workspace.\n\nF2 witnesses that it is not: `render --out` (src/main.rs:826-858) takes its workspace from the free `--workspace` flag with nothing binding a memo path to a prior renderer, and `snapshot::write` (src/snapshot.rs:135-146) copies `for name in SNAPSHOT_FILES` under `if src.exists()` with no removal pass and no refusal, while re-minting and overwriting identity.json from whatever workspace it is handed. So: ack P in W1, `render --out M` (snapshot holds acks.jsonl=[Ack(P,k)]); later `--workspace W2 render --out M` where W2 has no acks.jsonl \u2014 a rebuilt state directory, a second machine, or a workspace reconstructed from the committed snapshot. The absent file is skipped rather than removed, the stale ack survives beside W2's prose and claims, and if P's text, cites and claim digests still match, P is suppressed with no acknowledgement anywhere in the rendering workspace. The snapshot's log is then a superset, not a prefix, and the direction is silent under-reporting. Nothing reddens: acks.jsonl is outside compose::render's inputs by C13's own choice, so drift cannot see it, and the log is well-formed so C11's unreadable disjunct does not fire.\n\nThis is one build, no mixed builds, no clock skew and no code path removing anything, so the revised premises do not close it. The withdrawn reconciliation pass was the only mechanism in the design that would have. Either restore a reconciliation (or a binding between a snapshot and the workspace identity that wrote it), or narrow C4 to the single-workspace case and propagate that narrowing into C16's cost argument and the \"What changes, and what it costs\" paragraph, which spend the unnarrowed one-directional guarantee."
+    ],
+    [
+     "supports",
+     "Manifest, monotonicity and the identity gap all check out at the pin: SNAPSHOT_FILES is a nine-entry explicit enumeration whose doc comment states the ship-or-withhold purpose verbatim; snapshot::write copies present files and skips absent ones with no removal or reconciliation; --workspace is a free global clap flag with default_value \"default\" and the Render arm derives workspace_dir from it alone, never comparing against an existing <path>.tetel/. So a second workspace's render does leave a first workspace's acks.jsonl in place beside the second's prose/claims, while identity.json is overwritten \u2014 which is exactly the asymmetry the third (identity-equality) property closes."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [
+    {
+     "literal": "acks.jsonl",
+     "clause": "A sibling `acks.jsonl`, added to `snapshot::SNAPSHOT_FILES`, degrades safely in the older build it will be shipped past: that constant is an explicit enumeration whose stated purpose is that a future workspace file be a deliberate decision to ship or withhold, so a build that predates the entry simply never opens the file, reads `prose.jsonl` unchanged, and reproduces TET-30's un-suppressed listing.",
+     "why": "The evidence does not open or capture `acks.jsonl`.",
+     "clause_quoted": true
+    }
+   ],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.00199125,
+   "elapsed": 10.94
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C6",
+   "status": "ok",
+   "prop": "An acknowledged block must still print, not vanish. Deleting the entry would make \"no post-proof prose revision exists in this memo\" and \"one exists and a human has read it against its claims\" indistinguishable in the check report, whereas this crate treats distinguishable states as owed distinct output \u2014 its no-rows path says so in as many words, that being \"a distinct state from a clean run, not a weaker way of spelling it\". Printing also costs nothing the residue does not already pay: the entry format already carries an author's own `--why` verbatim under `revised because:`, with the source comment stating that it is never a paraphrase and is the most actionable thing the entry can hand a reader.",
+   "verdicts": [
+    [
+     "supports",
+     "The no-rows path says it in those words: \"This is a distinct state from a clean run, not a weaker way of spelling it\". The entry format prints the author's `--why` verbatim as `revised because: \"{why}\"`, and the source comment says \"Never a paraphrase: this is the author's own words, carried verbatim, and the single most actionable thing this entry can hand a reader without quoting the paragraph itself\" \u2014 the proposition drops \"without quoting the paragraph itself\", which slightly overstates the comment but does not change what it establishes."
+    ],
+    [
+     "supports",
+     "The no-rows path says it \"in as many words\": \"This is a distinct state from a clean run, not a weaker way of spelling it\". And the entry format already prints `      revised because: \"{why}\"` from `p.why`, with the source comment stating \"Never a paraphrase: this is the author's own words, carried verbatim, and the single most actionable thing this entry can hand a reader without quoting the paragraph itself.\""
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.001181825,
+   "elapsed": 4.88
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C15",
+   "status": "ok",
+   "prop": "The implementation surface is four declared modification targets plus a new `acks` module, and the censuses bound the blast radius. `prose_after_proof` gains an acks input and returns the listed and acknowledged partitions rather than one list; it has exactly one production call site, in `lib.rs`, the other 31 occurrences being its own definition, eighteen unit-test calls in `checks.rs` and doc-comment or test-name references. `prose_revised_since_proof` on `Findings` gains a sibling field for the acknowledged partition, touching five sites in three files. `SNAPSHOT_FILES` grows from nine entries to ten, touching one file. `NON_COVERAGE` gains entries, touching one file. No other symbol in the worktree needs to change.",
+   "verdicts": [
+    [
+     "refutes",
+     "C15's last sentence \u2014 \"No other symbol in the worktree needs to change\" \u2014 is false on this design's own terms, and the symbols it misses are uncensused. C12 specifies the verb as \"a variant of the single request shape both front ends already share\". That shape is `prose::ProseRequest` (src/prose.rs:211), a three-variant enum consumed by an exhaustive `match` in `prose::dispatch` (src/prose.rs:228-244). Adding a variant therefore forces edits to at least: `ProseRequest`; `prose::dispatch`; `ProseOutcome` (src/prose.rs:216, two variants \u2014 an ack is neither `Revised` nor `Created`) and the two exhaustive matches over it at src/main.rs:811-822 and src/mcp.rs:745-749; the clap variant `Command::Prose { text, heading, level, cites, before, revise, why }` and its mode-selection chain at src/main.rs:773-810; and `ProseParams` plus the mode-selection chain and `#[tool(description=...)]` string at src/mcp.rs:735-744. C14 compounds it: `Unack` is a second event needing a second mode through the same chain. None of these seven-plus symbols is among the four declared modification targets (`prose_after_proof`, `prose_revised_since_proof`, `SNAPSHOT_FILES`, `NON_COVERAGE`), none is inside the proposed new `acks` module, and none is censused by F11 \u2014 so the memo's own sentence \"the censuses bound the blast radius\" does not hold for the front-end half of the change. The census I ran (grep `ProseRequest`, whole worktree) names the sites; the memo's ledger names none of them."
+    ],
+    [
+     "qualifies",
+     "One census is wrong. `prose_after_proof` occurs 33 times across src/ and tests/ \u2014 one production call site plus **32** other occurrences, not 31 (src/checks.rs 24, src/lib.rs 3, src/report.rs 2, tests/authoring_cli.rs 3, tests/check_cli.rs 1); restricting to src/ gives 29, i.e. one plus 28. No scoping I could find yields 31. Everything else holds: the sole production call is lib.rs:201 (lib.rs:173 and :181 are comments), exactly 18 of the checks.rs occurrences are unit-test calls, `prose_revised_since_proof` occurs at exactly five sites in three files, `SNAPSHOT_FILES` is `[&str; 9]` and appears only in src/snapshot.rs, and `NON_COVERAGE` appears only in src/report.rs. \"No other symbol in the worktree needs to change\" is a statement about unwritten code and was not independently established."
+    ],
+    [
+     "qualifies",
+     "The enumeration \"seven declared modification targets plus a new `acks` module\" is short by at least two symbols the verb C12 specifies cannot be built without changing, and neither is reachable from any census in this memo. `ProseParams` (src/mcp.rs:349-378) has no `ack` field; adding the MCP half of `prose --ack <id> --why <text>` means adding one, with its JsonSchema description \u2014 a change to the published tool schema. `Command::Prose` (src/main.rs:242-282) has no `--ack` flag; adding the CLI half means adding one. Neither name contains `ProseRequest` or `ProseOutcome`, so the F14 greps that census those two types do not visit either declaration, and the memo's own uncensused-target check cannot fire for them because they were never declared. The claim's closing hedge covers \"no further symbol needs to change\" as unsettleable by a census; it does not cover two symbols that demonstrably must change and are nameable today."
+    ],
+    [
+     "qualifies",
+     "Five of the six censuses reproduce exactly at this pin: `prose_after_proof` has 33 matching lines in src+tests, of which exactly one (src/lib.rs:201) is a production call site, one is the definition (src/checks.rs:414), 18 are unit-test calls in checks.rs, and the remaining 13 are doc-comment or test-name references; `prose_revised_since_proof` matches 5 lines in 3 files; `SNAPSHOT_FILES` matches only in src/snapshot.rs and is declared `[&str; 9]` with nine entries; `NON_COVERAGE` matches only in src/report.rs; `snapshot::write` has exactly two call sites, src/main.rs:858 and src/mcp.rs:778, one per front end; `ProseOutcome` matches 9 lines. The one that does not: `ProseRequest` matches **13** lines, not 12 \u2014 `git grep -c ProseRequest` over the whole repo returns src/main.rs 3, src/mcp.rs 3, src/prose.rs 6, src/scope.rs 1. The \"four files\" half is right; the line count is one short (the likeliest omission is src/prose.rs:222, the doc-comment reference on `dispatch`, or src/scope.rs:793). Separately, \"seven declared modification targets\" is a property of the memo's own target rows, which I did not read and cannot grade from source."
+    ],
+    [
+     "qualifies",
+     "Every census number checks out exactly \u2014 ProseRequest 13 matching lines in four files (scope.rs 1, main.rs 3, prose.rs 6, mcp.rs 3), ProseOutcome 9, ProseParams 2, SNAPSHOT_FILES 3 lines in one file with exactly nine entries, snapshot::write with exactly two callers (main.rs:858, mcp.rs:778, one per front end), NON_COVERAGE in one file, prose_revised_since_proof at five sites in three files \u2014 except the last clause: \"`Command::Prose` must gain the flag and a refusal for conflicting modes across its 1 relevant matching line.\" The two lines matching `Command::Prose` are main.rs:773 (the handler arm) and main.rs:943 (`QueryCommand::Prose`, a different variant), so \"1 relevant\" is right as a count; but the `--ack` flag cannot be gained at main.rs:773. Clap declares the flag on the variant declaration, `Prose {` at main.rs:242, whose fields span 242-281 \u2014 a line the census's own search string does not match and which the claim therefore does not list. The change lands on at least two sites (declaration plus destructuring pattern), only one of which the census sees, and unlike the ProseRequest/ProseOutcome censuses (whose matching lines do include their `pub enum` definitions) this one omits the definition site."
+    ],
+    [
+     "refutes",
+     "The declared surface is incomplete by this memo's own design, not by a judgement about unwritten code. C11 requires that an unreadable snapshot `acks.jsonl` redden `machine_check_failed` \u2014 \"the one point at which this design touches `machine_check_failed`\". That reddening cannot be inherited. `Findings::machine_check_failed` (src/checks.rs:216-229) is an explicit disjunction over ten named fields plus `provenance_failed()`; `prose_revised_since_proof` is declared at checks.rs:212 immediately above it and is deliberately absent, which is exactly why TET-30 is human-owed. So C15's \"the findings field gains a sibling\" does not produce the reddening C11 demands \u2014 the disjunction itself must be edited. Nor can it route through `provenance_failed()` (checks.rs:238-245), which matches only `Drifted | Unreadable` on the re-render comparison, and C13/C21 forbid `compose::render` from reading acks.jsonl at all. Three further hand-maintained enumerations must change with it: `total_failures`, a written-out sum over the same ten field lengths at src/report.rs:183-194; the `scope` string literal naming the eleven categories in the \"machine-checked: N failing \u2014 ...\" headline at src/report.rs:195-198; and a print loop for the new kind. A whole-src grep for `machine_check_failed` returns three lines only (checks.rs:216, lib.rs:190 comment, report.rs:182). None of these sites is in the nine-row Modification targets table and none is censused by F11/F13/F14/F17/F19 \u2014 the only report.rs sites the table reaches are NON_COVERAGE (:16, :486) and prose_revised_since_proof (:315, :331). This is the class the tool cannot catch on its own (\"a modification target the author never declared\"), so it has to be caught here: the check-side surface is at least ten symbols, and `machine_check_failed` is a declared target this memo owes."
+    ],
+    [
+     "supports",
+     "Every census number checks out at this pin (git grep over tracked files, which excludes the untracked memo). `prose_after_proof`: 33 matching lines across src+tests (checks.rs 24, lib.rs 3, report.rs 2, authoring_cli.rs 3, check_cli.rs 1); exactly one production call site (lib.rs:201); the other 32 = definition (checks.rs:414) + 18 unit-test calls (all after checks.rs's `#[cfg(test)]` at 1481) + 13 doc-comment/test-name references. `prose_revised_since_proof`: 5 lines in 3 files. `SNAPSHOT_FILES`: declared `[&str; 9]`, 3 lines all in snapshot.rs, and `write`'s body iterates the constant so it needs no change. `NON_COVERAGE`: 2 lines, both report.rs. `ProseRequest`: 13 lines in 4 files, an enum consumed by an exhaustive match in `prose::dispatch`. `ProseOutcome`: 9 lines, an enum. `ProseParams`: 2 lines, both mcp.rs, with `text: String` carrying neither Option nor `#[serde(default)]`. `Command::Prose`: 2 matches of which one is `QueryCommand::Prose`, leaving one relevant line (main.rs:773), and the flag declaration is the `Prose {` variant of `enum Command` at main.rs:242, invisible to that pattern. One clause I did not settle: \"nine declared modification targets\" is a count of the memo's own target declarations, which are in material I am barred from opening; the nine symbols the proposition itself enumerates each verified."
+    ],
+    [
+     "qualifies",
+     "The count is wrong on the side that matters to an implementer. C15 says making an unreadable ack log redden \"reaches three further places that no compiler links to each other\" and names them: the `machine_check_failed` disjunction, the `total_failures` sum, and the `scope` string literal at src/report.rs:195-198. There is a fourth, and it is the same kind of object as the third: README.md line 135, the \"**machine-checked** \u2014\" bullet, which enumerates the same eleven categories in the same order and ends \"and provenance drift between a document and its own snapshot. These fail the run.\" It is currently accurate \u2014 it carries all eleven, including `uncensused modification targets` and `transplant premises`. The lockstep is not my inference: `git log -S \"claims out of proof\" --name-only` returns f805951, the commit that last added a category to that disjunction, and its file list is exactly README.md, src/mcp.rs, src/report.rs \u2014 three enumerations edited together. There is a fifth site, src/mcp.rs:853's `check` tool description, which enumerates the machine-checked partition for every agent that reads the tool schema; it is already two categories stale, so this design does not break it, but it is where the twelfth category would also be owed. Neither README.md nor src/mcp.rs appears in the modification-target table or in any claim, so an implementer working from this memo ships a twelfth exit-1 category that the project's own published description of exit 1 does not name. The same gap exists on the human-owed side: the headline literal at src/report.rs:267-278 is a hand-maintained enumeration of every human-owed category, and `git log -S \"prose revised after the claims it cites settled\"` shows TET-30 (c821b94) had to edit it to add its own entry \u2014 the acknowledged-block bullet C7 introduces is a human-owed category by the same standard and nothing in this memo says that literal changes. Narrow the sentence to the three sites inside src/checks.rs and src/report.rs, or declare the further enumerations."
+    ],
+    [
+     "qualifies",
+     "Every count in this claim re-derives exactly \u2014 prose_after_proof 33 matching lines with exactly one production call site (src/lib.rs:201); prose_revised_since_proof at 5 sites in 3 files; SNAPSHOT_FILES nine entries; machine_check_failed an explicit disjunction omitting prose_revised_since_proof; provenance_failed matching only Drifted|Unreadable; total_failures the matching sum; the scope literal enumerating eleven categories; ProseRequest 13 lines in 4 files; ProseOutcome 9; ProseParams 2; Command::Prose the CLI dispatch arm; the Prose variant at src/main.rs:242; and the MCP check description at src/mcp.rs:853 stale by exactly two categories (uncensused modification targets, unquoted transplant premises). Two clauses are wrong as written, both line citations, and both in the part of the claim whose whole point is telling an implementer where to look. (1) \"the `scope` literal at `src/report.rs:195-198`\" \u2014 the literal begins at line 194 (grep-confirmed) and ends at 197; the cited range omits the line that names the first four categories and adds `if failing {`. (2) \"README.md lines 133-138\" \u2014 the hand-maintained machine-checked enumeration is the bullet at lines 132-136 (grep-confirmed: README.md:132); 133-138 omits its first line and runs two lines into the human-owed bullet. A third is loose rather than wrong: \"the printed human-owed headline at `src/report.rs:265-280`\" \u2014 the push_str call spans 268-278; 265 is `out.push('\\n');` and 279-280 are the superseded_evidence loop. Separately, the opening count \"eleven declared modification targets\" is a statement about the memo's own declared-target section, which this pass cannot see and did not attempt to settle. The claim's substance \u2014 three unreferenced hand-maintained enumerations exist outside every declared target, and the list should be re-derived rather than trusted \u2014 is correct, and is itself evidence for its own closing warning."
+    ]
+   ],
+   "supports_only": false,
+   "refuted_later": true,
+   "has_evidence": true,
+   "raised": 0,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 0,
+   "cost": 0.009712755,
+   "elapsed": 99.21
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C18",
+   "status": "ok",
+   "prop": "Per-citation attribution is folded into the acknowledgement only as far as it honestly can be, which is not far. `NON_COVERAGE`'s last entry already states that whether a block's wording was ever examined against an earlier-settled co-citation is never answered by any listing, and the acknowledgement does not answer it either: the ack is per block, its key merely records every cited claim's digest, and the only place a per-citation judgement can appear is inside the author's verbatim `--why`, which the tool must not parse. The design's contribution is therefore to print the block's cited claim ids beside that verbatim reason in the acknowledged bullet, so a reader can pair the author's own words to the citations, and to leave the non-coverage entry standing.",
+   "verdicts": [
+    [
+     "supports",
+     "The last entry of NON_COVERAGE is the co-citation one, and it ends in the words the proposition attributes to it: \"whether the wording was ever actually examined against the earlier-settled claim is never answered by any listing here\". A per-block key carrying every cited claim's digest answers no per-citation question, so leaving that entry standing and printing the cited ids beside the verbatim reason is the whole of the contribution, as stated."
+    ],
+    [
+     "supports",
+     "`NON_COVERAGE`'s last entry is indeed the co-citation one, and it ends \"whether the wording was ever actually examined against the earlier-settled claim is never answered by any listing here\" \u2014 the exact content the proposition attributes to it. The entry format already prints one line per cited claim beneath the block (F6), so printing the cited ids beside the verbatim reason is a rearrangement of what is already emitted, and the ack key being per block with a digest per cited claim leaves the per-citation judgement unanswerable by the tool."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 1,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 1,
+   "cost": 0.0021642,
+   "elapsed": 18.74
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C19",
+   "status": "ok",
+   "prop": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event, because no field in it is specific to this residue. It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp; it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed. A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them, which is a re-homing rather than a rework.",
+   "verdicts": [
+    [
+     "supports",
+     "The quantities prose_after_proof derives are exactly the anchor, each claim's first-proof timestamp, the block's first-appearance timestamp and the listed/not-listed decision (checks.rs:414-557), and none of them appears in the event schema C8 specifies \u2014 that schema is block id, text, cite list, per-claim digest, reason, timestamp, all of which are inputs or authorial content. The re-homing conclusion is a statement about TET-36's unwritten ledger and was not independently checked, but nothing in the schema contradicts it."
+    ],
+    [
+     "supports",
+     "The quantities `prose_after_proof` derives are the per-claim first proof, the per-block anchor (`cited.iter().map(...).max()`), the block timestamp, and the listed/not-listed decision \u2014 none of which appears among the five fields C8 defines plus the timestamp. Every field the ack records (block id, text, cite list, digest per cited claim, reason, time) is a generic discharge record, so re-homing it needs a new consuming rule rather than an event rewrite."
+    ]
+   ],
+   "supports_only": true,
+   "refuted_later": false,
+   "has_evidence": true,
+   "raised": 2,
+   "kept": [],
+   "not_verbatim": 0,
+   "machine_refuted": 0,
+   "not_a_quantity": 2,
+   "cost": 0.003030375,
+   "elapsed": 24.63
+  }
+ ]
+}

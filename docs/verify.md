@@ -128,12 +128,29 @@ The design also names a third mode — a three-call pipeline whose findings are 
 model — and it is **not built**. `verify.approach extract` is refused by name rather than quietly
 served by one of the two above.
 
-### `literals`, and why it is off while the feature is on
+### `literals`, and why it is off
 
-The other four settings configure the comparison the retrodiction measured. This one adds a **third
-finding kind** that no evaluation has ever scored, so it defaults off — turning it on by default
-would fold an unmeasured check into the precision and recall quoted further down, which were earned
-by something else.
+> **Measured on 2026-08-15.** 80% precision against the shipped kinds' 83%, and it flags 5.3% of
+> already-sound claims where the kill threshold is 11% — better than the shipped kinds' own 6.5%.
+> But its recall is 16% against 30%, and across the nine claims a grading pass later refuted it
+> surfaced **none**. It is off by default because of that last line, not the others.
+
+This adds a **third finding kind** to the two the retrodiction measured, so it gets its own call and
+its own prompt: what the gate measured stays byte-identical with this off, and the numbers below
+keep describing what earned them.
+
+**What it looks for is narrower than "a literal".** A finding survives only if it names something
+mechanically checkable — a value carrying a digit, a cardinal word (`four`, `one unit test`), or a
+file path. A bare symbol, flag or version string is dropped in code, no matter what the model says
+about it. That filter is the difference between 41% precision and 80%: instructed to skip
+identifiers, the model stopped naming symbols and started naming *quantifiers* — `any depth`, `no
+exclusions at all` — which is `overreaches`' job, already done and better measured.
+
+**Know what it overlaps.** `contradicts` is defined as "a **different number**, name, type, line, or
+behaviour", so a wrong value is already its job, and on the sharpest example this check has,
+`contradicts` did it better — it named the right figure rather than only reporting an absence. The
+niche that remains is genuine but thin: a value appearing **nowhere** in the capture, as against a
+value the capture **disagrees with**.
 
 With it on, each verification makes **one extra call**, which asks a narrower question: does your
 text state a *literal* — a number, a count, a size, a version, a file path, a symbol name, a flag, a
@@ -386,10 +403,35 @@ Read that honestly:
 **These numbers describe the two disagreement kinds only.** They were produced by the `split`
 configuration with `verify.literals` off, and that prompt is untouched by the literal check — the
 third kind runs as a separate call with its own prompt precisely so these figures keep describing
-what produced them. The `unevidenced` kind has **no measured precision or recall at all**. What it
-does have is the machine filter: `verify-report` prints how often the model raised a literal that
-turned out to be in the capture after all, which is an accuracy signal you accumulate on your own
-memos rather than one inherited from an eval.
+what produced them.
+
+### The literal check, measured separately
+
+Same corpus, same method, three draws, majority vote, over the 88 claims whose facts carry usable
+captured output:
+
+```
+precision                      80%   (8/10)        against 83%
+recall                         16%   (8/50)        against 30%
+supports-only claims flagged   2/38 = 5.3%         against 6.5%, threshold 11%
+refuted claims it surfaced      0/9                against 2/9
+named in the grader's own note 70%   (7/10)
+cost                           $0.0013 per draw
+```
+
+**One kill condition passes, one fires.** It no longer disturbs sound work — 5.3% is below the
+threshold and below what the shipped kinds do. But across the nine claims a later pass refuted it
+surfaced none, and that is the condition to weigh: this does not save you a grounding round.
+
+Where it is good is narrow and worth naming. When it does flag a claim that needed work, **70% of
+the time the literal it named appears in what the grader went on to write** — it is pointing at the
+thing that turned out to matter, not near it.
+
+Two standing weaknesses. It is **unstable**: 6 of 29 distinct literals were raised in all three
+draws, so a finding you see once may not return. And **49% of what it raises is dropped by a filter
+before you see it** — 30 literals were in the capture after all, 16 named nothing checkable. That
+number is the machinery working, and it is also a measure of how often the model is simply wrong
+about the one question it is asked.
 
 The one bucket the corpus cannot settle: 60 claims carried a *qualifies* verdict and 18 were flagged.
 A qualification is often legitimate scope-narrowing rather than a defect, so nothing in that data
@@ -498,6 +540,6 @@ verifier. Run it yourself.
   with a key present.
 - **It has been measured on tetel's own memos and nowhere else.** Seven memos, one corpus, one
   authoring style. `verify-report` is how you find out whether any of it holds for yours.
-- **`verify.literals` has not been measured at all.** Every number on this page describes the two
-  disagreement kinds. The literal check is off by default for that reason, and its findings are
-  filtered by a substring search rather than vouched for by an eval.
+- **`verify.literals` reaches 80% precision but surfaces nothing that forces a revision.** Zero of
+  the nine claims a grading pass later refuted. It is off by default for that reason — turn it on
+  for the arithmetic and path errors it does catch, not as a safety net.

@@ -1,0 +1,58 @@
+[
+ {
+  "memo": "tet30-prose-revised-since-grounding.md",
+  "id": "C3",
+  "bucket": "true-positive",
+  "was": [
+   "918 seconds"
+  ]
+ },
+ {
+  "memo": "tet30-prose-revised-since-grounding.md",
+  "id": "C12",
+  "bucket": "true-positive",
+  "was": [
+   "TET-30"
+  ]
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C18",
+  "bucket": "true-positive",
+  "was": [
+   "\"explicitly named\""
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C19",
+  "bucket": "true-positive",
+  "was": [
+   "one unit test"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C23",
+  "bucket": "true-positive",
+  "was": [
+   "28%"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C25",
+  "bucket": "true-positive",
+  "was": [
+   "four"
+  ]
+ },
+ {
+  "memo": "tet56-bounded-grep-return.md",
+  "id": "C1",
+  "bucket": "true-positive",
+  "was": [
+   "clean working tree"
+  ]
+ }
+]

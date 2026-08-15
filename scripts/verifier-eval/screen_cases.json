@@ -1,0 +1,208 @@
+[
+ {
+  "memo": "tet30-prose-revised-since-grounding.md",
+  "id": "C6",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C2",
+  "bucket": "false-positive",
+  "was": [
+   "`look_grep`"
+  ]
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C3",
+  "bucket": "false-positive",
+  "was": [
+   "2.6.0-FreeBSD"
+  ]
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C4",
+  "bucket": "false-positive",
+  "was": [
+   "2.6.0-FreeBSD"
+  ]
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C5",
+  "bucket": "false-positive",
+  "was": [
+   "facts::mint"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C6",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C13",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C14",
+  "bucket": "false-positive",
+  "was": [
+   "1-4"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C20",
+  "bucket": "false-positive",
+  "was": [
+   "check 5"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C21",
+  "bucket": "false-positive",
+  "was": [
+   "1-4"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C26",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet56-bounded-grep-return.md",
+  "id": "C7",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet56-bounded-grep-return.md",
+  "id": "C9",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet56-bounded-grep-return.md",
+  "id": "C18",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C4",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C6",
+  "bucket": "false-positive",
+  "was": [
+   "`--why`"
+  ]
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C15",
+  "bucket": "refuted-missed",
+  "was": []
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C18",
+  "bucket": "false-positive",
+  "was": [
+   "`--why`"
+  ]
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C19",
+  "bucket": "false-positive",
+  "was": [
+   "TET-36"
+  ]
+ },
+ {
+  "memo": "tet30-prose-revised-since-grounding.md",
+  "id": "C10",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C13",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C14",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C15",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C16",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C17",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C8",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C2",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C3",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C5",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C7",
+  "bucket": "control-silent",
+  "was": []
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C9",
+  "bucket": "control-silent",
+  "was": []
+ }
+]

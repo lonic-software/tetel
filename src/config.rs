@@ -230,8 +230,10 @@ carries the claim alone while the one it keeps carries the evidence",
         name: KEY_VERIFY_LITERALS,
         summary: "whether the verifier also reports numbers, paths and names your text states \
 as current fact that appear nowhere in the evidence it cites (true or false; off unless set). \
-It costs one more call per mint, and unlike the two disagreement kinds its accuracy has never \
-been measured — a failure in that call fails the whole verification",
+Measured 2026-08-15 at 80% precision against the other two kinds' 83%, disturbing fewer sound \
+claims than they do — but surfacing none of the nine claims a later pass refuted, which is why \
+it stays off. Costs one more call per mint, and a failure in that call fails the whole \
+verification",
         accepts: Accepts::Bool,
     },
 ];
