@@ -94,6 +94,10 @@ pub const KEY_VERIFY_APPROACH: &str = "verify.approach";
 pub const KEY_VERIFY_TIMEOUT_MS: &str = "verify.timeout_ms";
 /// Which authoring verbs are verified, comma-separated.
 pub const KEY_VERIFY_VERBS: &str = "verify.verbs";
+/// Whether the verifier also reports literals the text asserts and the
+/// capture does not carry. Off unless set — see [`KEYS`] for why the
+/// default differs from the other four.
+pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
 
 /// The approaches [`KEY_VERIFY_APPROACH`] accepts, in one place so the
 /// validator, the error message and [`crate::verify`] cannot disagree.
@@ -221,6 +225,14 @@ carries the claim alone while the one it keeps carries the evidence",
         summary: "which authoring verbs are verified, comma-separated from fact, claim, prose \
 (default: claim alone — see the design memo for why the other two are off)",
         accepts: Accepts::SubsetOf(VERIFY_VERBS),
+    },
+    KeyDef {
+        name: KEY_VERIFY_LITERALS,
+        summary: "whether the verifier also reports numbers, paths and names your text states \
+as current fact that appear nowhere in the evidence it cites (true or false; off unless set). \
+It costs one more call per mint, and unlike the two disagreement kinds its accuracy has never \
+been measured — a failure in that call fails the whole verification",
+        accepts: Accepts::Bool,
     },
 ];
 
@@ -365,6 +377,20 @@ pub fn verify_enabled(workspace_dir: Option<&Path>) -> bool {
 /// [`resolve`] for [`KEY_VERIFY_MODEL`].
 pub fn verify_model(workspace_dir: Option<&Path>) -> Option<String> {
     resolve(KEY_VERIFY_MODEL, workspace_dir).0
+}
+
+/// [`resolve`] for [`KEY_VERIFY_LITERALS`], parsed. Absent means off.
+///
+/// The one verify key whose default is off *while the feature is on*, and
+/// it is deliberate: the other four configure a comparison the
+/// retrodiction measured, and this one adds a third finding kind that no
+/// eval has ever scored. Defaulting it on would fold an unmeasured check
+/// into the numbers `docs/verify.md` quotes for the measured one.
+pub fn verify_literals(workspace_dir: Option<&Path>) -> bool {
+    resolve(KEY_VERIFY_LITERALS, workspace_dir)
+        .0
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 /// [`resolve`] for [`KEY_VERIFY_APPROACH`]. Absent means the first entry
