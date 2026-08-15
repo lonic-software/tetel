@@ -328,15 +328,31 @@ pub struct Settings {
     pub literals: bool,
 }
 
+/// How long one provider call is allowed, when nothing configured a budget.
+///
+/// The default is per *leg* rather than per verification, because a
+/// verification is one, two or three calls in series and a flat number
+/// silently means three different things. Measured over the corpus, a
+/// single call's median is under 10 seconds and its p90 around 50 — so the
+/// flat 60 seconds this replaced gave a two-call `split` run no headroom at
+/// all, and a three-call run with `literals` on almost none. Nothing waits
+/// on this budget: it bounds a detached thread whose only job is to write a
+/// log line, so being generous costs a slow failure, while being tight
+/// costs findings.
+const DEFAULT_MS_PER_LEG: u64 = 60_000;
+
 pub fn settings(workspace_dir: &Path) -> Settings {
     let d = Some(workspace_dir);
+    let approach = config::verify_approach(d);
+    let literals = config::verify_literals(d);
     Settings {
         enabled: config::verify_enabled(d),
         model: config::verify_model(d),
-        approach: config::verify_approach(d),
-        timeout_ms: config::verify_timeout_ms(d),
+        timeout_ms: config::verify_timeout_ms(d)
+            .unwrap_or(DEFAULT_MS_PER_LEG * u64::from(expected_calls(&approach, literals))),
+        approach,
         verbs: config::verify_verbs(d),
-        literals: config::verify_literals(d),
+        literals,
     }
 }
 
@@ -416,6 +432,15 @@ pub struct Record {
     /// [`Telemetry::not_a_quantity`], persisted.
     #[serde(default)]
     pub not_a_quantity: u32,
+    /// The status of the literal leg when it ran and did **not** complete.
+    ///
+    /// `None` means either that the leg was off or that it finished, and
+    /// those two are told apart by [`literals`](Self::literals). Present
+    /// only on the failure, because that is the case where `findings` is
+    /// complete for the disagreement kinds and silent for this one — a
+    /// distinction the author cannot infer from an absence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literals_status: Option<String>,
 }
 
 // ---------------------------------------------------------------------
@@ -515,6 +540,14 @@ pub fn block(
             // author must not receive it.
             let shown: Vec<serde_json::Value> = r.findings.iter().map(Finding::payload).collect();
             map.insert("findings".into(), json!(shown));
+            // The one qualification an `ok` can carry. Without it, a
+            // verification whose literal leg timed out is indistinguishable
+            // from one that ran it and found nothing — which is the exact
+            // "found nothing versus did not look" confusion this object
+            // exists to prevent, reappearing one level down.
+            if let Some(s) = &r.literals_status {
+                map.insert("literals_incomplete".into(), json!(s));
+            }
         }
     }
     if let Trigger::Queued(m) = trigger {
@@ -700,8 +733,9 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
     std::thread::spawn(move || {
         let started = Instant::now();
         let mut tel = Telemetry::default();
-        let (status, findings) =
+        let (status, findings, literals_status) =
             run(&key, &model, &approach, literals, &subject, started, budget, &mut tel);
+        let record_literals_ok = literals_status.is_none();
         let record = Record {
             seq: next_seq(&dir),
             mint: subject.mint.clone(),
@@ -718,10 +752,18 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             not_verbatim: tel.not_verbatim,
             literals_refuted: tel.literals_refuted,
             not_a_quantity: tel.not_a_quantity,
+            literals_status: literals_status.map(|s| s.as_str().to_string()),
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
-            detail: if status == Status::Ok { None } else { tel.detail },
+            // An `ok` run with a failed literal leg is the one case where a
+            // clean status still has something to explain, so the guard
+            // asks about both rather than about the status alone.
+            detail: if status == Status::Ok && record_literals_ok {
+                None
+            } else {
+                tel.detail
+            },
         };
         let _ = workspace::append_jsonl(&log_path(&dir), &record);
     });
@@ -763,7 +805,7 @@ fn run(
     started: Instant,
     budget: Duration,
     tel: &mut Telemetry,
-) -> (Status, Vec<Finding>) {
+) -> (Status, Vec<Finding>, Option<Status>) {
     // `split` classifies the claim's assertions before checking them, so
     // the check can be told which ones the captured evidence is even
     // able to speak to. It costs a second call and it is the default,
@@ -778,7 +820,7 @@ fn run(
         let body = match call(key, model, CLASSIFY_SYSTEM, &classify_prompt(subject), started, budget, tel)
         {
             Ok(b) => b,
-            Err(s) => return (s, Vec::new()),
+            Err(s) => return (s, Vec::new(), None),
         };
         // Decoded, not forwarded. The classify reply used to be spliced
         // into the check prompt as whatever string came back, which meant
@@ -793,7 +835,7 @@ fn run(
             Ok(canonical) => Some(canonical),
             Err(why) => {
                 tel.detail = Some(why);
-                return (Status::Unparsable, Vec::new());
+                return (Status::Unparsable, Vec::new(), None);
             }
         }
     } else {
@@ -803,19 +845,26 @@ fn run(
     match call(key, model, CHECK_SYSTEM, &prompt, started, budget, tel) {
         Ok(body) => match parse_findings(&body, subject) {
             Some(mut f) => {
+                // A failing literal leg no longer takes the disagreement
+                // findings down with it. It used to, on the argument that
+                // `ok` must mean the configured comparison happened — right
+                // principle, wrong trade. Combined over the corpus, the two
+                // disagreement kinds carry 30% recall and this one 13%, so
+                // discarding the stronger half because the weaker half
+                // returned a 429 loses more than it protects. The principle
+                // survives by being *reported* instead of enforced: the
+                // status stays `ok` because the comparison it names did
+                // complete, and `literals_incomplete` says the other leg did
+                // not, so "found no literals" and "never asked" remain
+                // different payloads.
+                let mut lit_status = None;
                 if literals {
                     match literal_findings(key, model, subject, started, budget, tel) {
                         Ok(mut l) => f.append(&mut l),
-                        // The check leg succeeded and its findings are
-                        // discarded anyway. That is the cost of the setting
-                        // and it is the conservative direction: `ok` means
-                        // the configured comparison happened, and a partial
-                        // answer delivered under it is the clean-bill
-                        // confusion this module exists to prevent.
-                        Err(s) => return (s, Vec::new()),
+                        Err(s) => lit_status = Some(s),
                     }
                 }
-                (Status::Ok, f)
+                (Status::Ok, f, lit_status)
             }
             None => {
                 // Say what could not be read. "Unparsable" alone sends
@@ -825,10 +874,10 @@ fn run(
                     body.len(),
                     body.chars().take(200).collect::<String>()
                 ));
-                (Status::Unparsable, Vec::new())
+                (Status::Unparsable, Vec::new(), None)
             }
         },
-        Err(s) => (s, Vec::new()),
+        Err(s) => (s, Vec::new(), None),
     }
 }
 
@@ -1914,6 +1963,7 @@ mod tests {
             model: "openai/gpt-5.6-luna".into(),
             approach: "split".into(),
             literals: false,
+            literals_status: None,
             not_verbatim: 0,
             literals_refuted: 0,
             not_a_quantity: 0,
@@ -2278,6 +2328,48 @@ mod tests {
         let round = serde_json::to_string(&records[0]).unwrap();
         assert!(!round.contains(r#""fact":"#), "{round}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_literal_leg_keeps_the_disagreement_findings_and_says_so() {
+        // It used to discard them. Combined over the corpus the two
+        // disagreement kinds carry 30% recall against this one's 13%, so
+        // losing the stronger half to the weaker half's 429 is the wrong
+        // trade — but silently keeping them would be worse, because "found
+        // no literals" and "never asked" would become one payload.
+        let mut r = record_fixture();
+        r.literals = true;
+        r.findings = vec![finding_fixture()];
+        r.literals_status = Some(Status::Timeout.as_str().to_string());
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+
+        assert_eq!(b["status"], "ok", "a failed literal leg must not fail the verification");
+        assert_eq!(
+            b["findings"].as_array().map(Vec::len),
+            Some(1),
+            "the disagreement findings were discarded: {b}"
+        );
+        assert_eq!(b["literals_incomplete"], "timeout", "{b}");
+
+        // And a run whose literal leg finished says nothing, so the marker
+        // means what it says rather than appearing on every reply.
+        let mut ok = record_fixture();
+        ok.literals = true;
+        ok.findings = vec![finding_fixture()];
+        let b = block(&settings_fixture(), "claim", Some(&ok), Trigger::NotAttempted);
+        assert!(b.get("literals_incomplete").is_none(), "{b}");
+    }
+
+    #[test]
+    fn the_default_budget_grows_with_the_number_of_calls_it_has_to_cover() {
+        // A flat budget silently means three different things. One call's
+        // p90 over the corpus is around 50 seconds, so the flat 60,000 this
+        // replaced left a two-call run no headroom and a three-call run
+        // none at all.
+        let per_leg = DEFAULT_MS_PER_LEG;
+        assert_eq!(per_leg * u64::from(expected_calls("direct", false)), per_leg);
+        assert_eq!(per_leg * u64::from(expected_calls("split", false)), per_leg * 2);
+        assert_eq!(per_leg * u64::from(expected_calls("split", true)), per_leg * 3);
     }
 
     #[test]

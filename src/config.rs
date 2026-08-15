@@ -217,7 +217,9 @@ carries the claim alone while the one it keeps carries the evidence",
     KeyDef {
         name: KEY_VERIFY_TIMEOUT_MS,
         summary: "how long one mint's verification may take end to end, across every retry \
-(milliseconds, at least 1000). It does not sit in front of a reply, so it can be generous",
+(milliseconds, at least 1000). Unset, the default is 60000 per provider call the configured \
+approach makes — 60s for `direct`, 120s for `split`, 180s with `verify.literals` on. It does not \
+sit in front of a reply, so it can be generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
@@ -406,9 +408,18 @@ pub fn verify_approach(workspace_dir: Option<&Path>) -> String {
         .unwrap_or_else(|| VERIFY_APPROACHES[0].to_string())
 }
 
-/// [`resolve`] for [`KEY_VERIFY_TIMEOUT_MS`], parsed.
-pub fn verify_timeout_ms(workspace_dir: Option<&Path>) -> u64 {
-    const DEFAULT_TIMEOUT_MS: u32 = 60_000;
+/// [`resolve`] for [`KEY_VERIFY_TIMEOUT_MS`], parsed — **or `None`** when
+/// nothing configured one.
+///
+/// The default deliberately does not live here. A verification is one, two
+/// or three provider calls in series depending on `verify.approach` and
+/// `verify.literals`, and a single constant cannot be right for all three:
+/// measured over the corpus, one call's p90 is around 50 seconds, so the
+/// flat 60,000 this used to return was already tight for the two-call
+/// default and hopeless for three. What a sensible budget is depends on how
+/// many legs there are, and only [`crate::verify`] knows that. This
+/// function answers the question it can answer — what the file says.
+pub fn verify_timeout_ms(workspace_dir: Option<&Path>) -> Option<u64> {
     // Parsed as `u32` and widened, not parsed as `u64`. The validator
     // works in `u32`, and a consumer that parses wider than the validator
     // is the same silent hole in the other direction: it would accept, at
@@ -416,7 +427,7 @@ pub fn verify_timeout_ms(workspace_dir: Option<&Path>) -> u64 {
     resolve(KEY_VERIFY_TIMEOUT_MS, workspace_dir)
         .0
         .and_then(|v| v.trim().parse::<u32>().ok())
-        .unwrap_or(DEFAULT_TIMEOUT_MS) as u64
+        .map(u64::from)
 }
 
 /// [`resolve`] for [`KEY_VERIFY_VERBS`], parsed.

@@ -106,7 +106,7 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | `60000` | how long one verification may take, **end to end across retries** |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 60s `direct`, 120s `split`, 180s with `literals` |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim` | which verbs are verified |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
@@ -130,10 +130,11 @@ served by one of the two above.
 
 ### `literals`, and why it is off
 
-> **Measured on 2026-08-15.** 80% precision against the shipped kinds' 83%, and it flags 5.3% of
-> already-sound claims where the kill threshold is 11% — better than the shipped kinds' own 6.5%.
-> But its recall is 16% against 30%, and across the nine claims a grading pass later refuted it
-> surfaced **none**. It is off by default because of that last line, not the others.
+> **Measured on 2026-08-15.** Judge it by what it adds, not by what it scores alone. Turning it on
+> takes the verifier's recall from **30% to 38%** at a cost of three points of precision (83% → 80%)
+> — it finds seven claims the other two kinds miss entirely, five of which needed work. It still
+> surfaces none of the nine claims a grading pass later refuted, which is why it is off by default:
+> it widens the net, it does not save you a grounding round.
 
 This adds a **third finding kind** to the two the retrodiction measured, so it gets its own call and
 its own prompt: what the gate measured stays byte-identical with this off, and the numbers below
@@ -174,16 +175,29 @@ biases hard toward silence, and deliberately. A literal occurring *anywhere* in 
 dropped, so a `40` inside a line range will suppress a real finding about a different `40`.
 Under-reporting is the right direction for an advisory that costs you attention.
 
-Two costs to know before turning it on:
+One cost to know before turning it on: **one more call per mint** — roughly +50% on `split`, +100%
+on `direct`. See [what it costs](#what-it-costs).
 
-- **One more call per mint** — roughly +50% on `split`, +100% on `direct`. See [what it costs](#what-it-costs).
-- **A failure in that call fails the whole verification.** If the literal leg times out or comes back
-  unreadable, the status is that failure and the disagreement findings are discarded with it. `ok`
-  means the configured comparison happened; a partial answer delivered under it would be exactly the
-  clean-bill confusion the status vocabulary exists to prevent.
+**A failure in the literal leg no longer fails the verification.** If it times out or comes back
+unreadable, the status stays `ok`, the disagreement findings arrive intact, and the reply carries
+`literals_incomplete` naming what went wrong:
 
-`verify.timeout_ms` bounds the whole verification, not each call, so three legs share the budget one
-or two used to have. Nothing sits in front of your reply, so raise it rather than let it clip:
+```json
+{ "status": "ok", "findings": [], "literals_incomplete": "timeout" }
+```
+
+This used to discard everything, on the argument that `ok` should mean the whole configured
+comparison happened. That principle is right and the trade was wrong: the disagreement kinds carry
+30% recall against this one's 13%, so losing the stronger half because the weaker half returned a
+429 costs more than it protects. The principle is kept by *reporting* rather than by failing — with
+`literals_incomplete` present, "found no literals" and "never asked" stay different payloads, which
+is the whole reason `verify` is an object.
+
+`verify.timeout_ms` bounds the whole verification end to end, not each call, so its **default scales
+with the number of calls**: 60s per leg, meaning 60s for `direct`, 120s for `split`, and 180s for
+`split` with literals on. Measured over the corpus a single call's median is under 10 seconds and
+its p90 around 50, so a flat budget would have left `split` no headroom and three legs none at all.
+Set it explicitly and your number is used as-is:
 
 ```sh
 tetel config verify.timeout_ms 120000
@@ -422,6 +436,25 @@ cost                           $0.0013 per draw
 **One kill condition passes, one fires.** It no longer disturbs sound work — 5.3% is below the
 threshold and below what the shipped kinds do. But across the nine claims a later pass refuted it
 surfaced none, and that is the condition to weigh: this does not save you a grounding round.
+
+### What it adds, which is the number that should decide it
+
+The two checks are separate calls with separate prompts and no shared state, so their results
+combine exactly. Over all 125 claims — with the literal leg making no call at all on the 37 whose
+facts carry no captured output, as it does in practice:
+
+| | flagged | precision | recall | sound flagged | refuted |
+|---|---|---|---|---|---|
+| `contradicts` + `overreaches` | 23 | 83% | 30% | 6.5% | 3/9 |
+| `unevidenced` alone | 10 | 80% | 13% | 3.2% | 0/9 |
+| **all three together** | **30** | **80%** | **38%** | **9.7%** | 3/9 |
+
+**Recall 30% → 38% for three points of precision.** The seven claims it adds are ones the other two
+kinds missed entirely, and five of them needed work — 71% precision on the addition itself. Combined
+sound-flagging stays at 9.7%, under the 11.3% threshold.
+
+It adds nothing on the refuted claims. That is the real limit, and it is why this is off by default:
+it widens the net, it does not catch what forces a revision round.
 
 Where it is good is narrow and worth naming. When it does flag a claim that needed work, **70% of
 the time the literal it named appears in what the grader went on to write** — it is pointing at the
