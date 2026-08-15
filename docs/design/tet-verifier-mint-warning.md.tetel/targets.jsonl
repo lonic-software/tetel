@@ -1,0 +1,6 @@
+{"event":"Declare","id":"T1","symbol":"fact_result","from":"F11","timestamp":1786395641}
+{"event":"Declare","id":"T2","symbol":"Accepts","from":"F12","timestamp":1786395669}
+{"event":"Declare","id":"T3","symbol":"known_keys","from":"F12","timestamp":1786395670}
+{"event":"Declare","id":"T4","symbol":"ClaimOutcome","from":"F15","timestamp":1786396875}
+{"event":"Declare","id":"T5","symbol":"ProseOutcome","from":"F15","timestamp":1786396879}
+{"event":"Declare","id":"T6","symbol":"verify_block","from":"F15","timestamp":1786396883}

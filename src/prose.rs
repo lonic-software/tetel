@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::acks;
 use crate::workspace::{self, AuthoringError, Kind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,11 +213,30 @@ pub enum ProseRequest {
     Revise { id: String, text: String, why: Option<String>, cite: Option<String> },
     Heading { text: String, level: Option<u8>, before: Option<String> },
     Paragraph { text: String, cite: Option<String>, before: Option<String> },
+    /// Acknowledge `id`'s current text and citations against the claims
+    /// they cite — see [`crate::acks`]. `why` is the only field this
+    /// mode actually uses; the other six exist solely so [`dispatch`]
+    /// can refuse each explicitly when given alongside `--ack`, the same
+    /// way every other mode's inputs are refused rather than silently
+    /// dropped by the shared request shape (see this module's own
+    /// doc comment on why that shape is necessary but not sufficient).
+    /// None of the six is ever read for its value here.
+    Ack {
+        id: String,
+        why: Option<String>,
+        text: Option<String>,
+        revise: Option<String>,
+        heading: Option<String>,
+        level: Option<u8>,
+        cites: Option<String>,
+        before: Option<String>,
+    },
 }
 
 pub enum ProseOutcome {
     Revised { id: String },
     Created(Block),
+    Acked { id: String },
 }
 
 /// Dispatches a [`ProseRequest`] to [`create`] or [`revise`], refusing
@@ -240,6 +260,37 @@ pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome,
         ProseRequest::Paragraph { text, cite, before } => {
             create(workspace_dir, &text, cite.as_deref(), None, before.as_deref())
                 .map(ProseOutcome::Created)
+        }
+        ProseRequest::Ack { id, why, text, revise, heading, level, cites, before } => {
+            // All six refused outright, before anything else: an
+            // acknowledgement carries none of them, and the shared
+            // mode-selection chain each front end runs would otherwise
+            // discard whichever was also set, silently — the same shape
+            // as the defect already fixed once for `--cites` alongside
+            // `--revise`. `level` belongs in this list even though it
+            // has no CLI-visible relationship to `--heading` beyond
+            // being consumed by the same arm: a caller can set `--level`
+            // without `--heading` at all.
+            if text.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --text"));
+            }
+            if revise.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --revise"));
+            }
+            if heading.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --heading"));
+            }
+            if level.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --level"));
+            }
+            if cites.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --cites"));
+            }
+            if before.is_some() {
+                return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --before"));
+            }
+            let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --ack requires --why"))?;
+            acks::create(workspace_dir, &id, &why).map(|_| ProseOutcome::Acked { id })
         }
     }
 }

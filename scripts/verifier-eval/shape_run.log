@@ -1,0 +1,48 @@
+[1/14 r1] supports-plain  ok    0 finding(s)  13s
+[1/14 r2] supports-plain  ok    0 finding(s)  20s
+[1/14 r3] supports-plain  MISS  1 finding(s)  12s
+[2/14 r1] supports-narrower-than-evidence  ok    0 finding(s)  12s
+[2/14 r2] supports-narrower-than-evidence  ok    0 finding(s)  15s
+[2/14 r3] supports-narrower-than-evidence  ok    0 finding(s)  18s
+[3/14 r1] qualifies-enumeration-short  MISS  0 finding(s)  24s
+[3/14 r2] qualifies-enumeration-short  MISS  0 finding(s)  28s
+[3/14 r3] qualifies-enumeration-short  MISS  0 finding(s)  32s
+[4/14 r1] qualifies-count-off-by-one  MISS  0 finding(s)  14s
+[4/14 r2] qualifies-count-off-by-one  MISS  0 finding(s)  16s
+[4/14 r3] qualifies-count-off-by-one  MISS  0 finding(s)  15s
+[5/14 r1] refutes-name-search-for-behaviour  ok    2 finding(s)  16s
+[5/14 r2] refutes-name-search-for-behaviour  ok    2 finding(s)  23s
+[5/14 r3] refutes-name-search-for-behaviour  MISS  0 finding(s)  29s
+[6/14 r1] qualifies-sweep-underscoped  ok    2 finding(s)  20s
+[6/14 r2] qualifies-sweep-underscoped  ok    2 finding(s)  19s
+[6/14 r3] qualifies-sweep-underscoped  ok    2 finding(s)  21s
+[7/14 r1] refutes-direct  ok    1 finding(s)  17s
+[7/14 r2] refutes-direct  ok    3 finding(s)  15s
+[7/14 r3] refutes-direct  ok    1 finding(s)  19s
+[8/14 r1] refutes-wrong-citation  ok    1 finding(s)  16s
+[8/14 r2] refutes-wrong-citation  ok    1 finding(s)  20s
+[8/14 r3] refutes-wrong-citation  ok    1 finding(s)  15s
+[9/14 r1] refutes-arithmetic  ok    2 finding(s)  11s
+[9/14 r2] refutes-arithmetic  ok    2 finding(s)  14s
+[9/14 r3] refutes-arithmetic  ok    2 finding(s)  9s
+[10/14 r1] qualifies-unstated-condition  MISS  0 finding(s)  27s
+[10/14 r2] qualifies-unstated-condition  MISS  0 finding(s)  35s
+[10/14 r3] qualifies-unstated-condition  MISS  0 finding(s)  27s
+[11/14 r1] supports-multi-fact  ok    0 finding(s)  36s
+[11/14 r2] supports-multi-fact  ok    0 finding(s)  23s
+[11/14 r3] supports-multi-fact  ok    0 finding(s)  31s
+[12/14 r1] note-names-a-file-the-extent-never-opened  ok    1 finding(s)  17s
+[12/14 r2] note-names-a-file-the-extent-never-opened  ok    1 finding(s)  24s
+[12/14 r3] note-names-a-file-the-extent-never-opened  ok    1 finding(s)  20s
+[13/14 r1] note-stays-inside-its-extent  ok    0 finding(s)  20s
+[13/14 r2] note-stays-inside-its-extent  ok    0 finding(s)  26s
+[13/14 r3] note-stays-inside-its-extent  ok    0 finding(s)  13s
+[14/14 r1] note-names-a-second-file-only-one-was-opened  MISS  0 finding(s)  14s
+[14/14 r2] note-names-a-second-file-only-one-was-opened  MISS  0 finding(s)  14s
+[14/14 r3] note-names-a-second-file-only-one-was-opened  MISS  0 finding(s)  11s
+
+model                  openai/gpt-5.6-luna   (reasoning=high, repeat=3)
+flawed cases flagged   17 of 30
+clean cases left alone 11 of 12
+extraction failed on   5 of 42
+cost                   $0.0414

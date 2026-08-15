@@ -1,0 +1,8 @@
+1786395332	claim	cited fact(s) do not exist: C3, C4; try `tetel query facts` to see what exists
+1786395702	transplant	that text is not in F5's captured output, so it is not the donor's words.
+A premise is selected from what was captured, never typed from memory: copy it byte for byte — comment markers, indentation and line breaks included — from one observation in F5.
+If the donor states it somewhere F5 never opened, look there and mint a fact that covers it. The refusal is about provenance, never about whether the premise is true.
+1786788845	claim	cited fact(s) do not exist: ["F29"]; try `tetel query facts` to see what exists
+1786788863	claim	cited fact(s) do not exist: ["F29"]; try `tetel query facts` to see what exists
+1786788908	claim	cited fact(s) do not exist: ["F28"]; try `tetel query facts` to see what exists
+1786802514	fact	pending observation buffer is empty; run `tetel look` or `tetel run` first, then `tetel fact`

@@ -1,0 +1,12 @@
+{"event":"Declare","id":"X1","from":"F5","into":"T1","timestamp":1786395691}
+{"event":"Premise","id":"X1.1","transplant":"X1","text":"now their own column and enter no denominator.","timestamp":1786395696}
+{"event":"Premise","id":"X1.2","transplant":"X1","text":"that reach the cap the response returns `finish_reason=length` with content of","timestamp":1786395698}
+{"event":"Premise","id":"X1.3","transplant":"X1","text":"captured evidence; none was taken from a real memo.","timestamp":1786395709}
+{"event":"Discharge","premise":"X1.1","cites":"C3","timestamp":1786395732}
+{"event":"Discharge","premise":"X1.2","cites":"C15","timestamp":1786395734}
+{"event":"Discharge","premise":"X1.3","cites":"C17","timestamp":1786395808}
+{"event":"Declare","id":"X2","from":"F18","into":"T6","timestamp":1786397170}
+{"event":"Premise","id":"X2.1","transplant":"X2","text":"    /// Single, not the joined whole: text straddling the seam between two\n    /// observations was never contiguous in anything anyone looked at, and","timestamp":1786397175}
+{"event":"Premise","id":"X2.2","transplant":"X2","text":"    /// Nothing here normalises. Whitespace, comment prefixes and line\n    /// endings are compared exactly as captured, because every relation","timestamp":1786397179}
+{"event":"Discharge","premise":"X2.1","cites":"C20","timestamp":1786397190}
+{"event":"Discharge","premise":"X2.2","cites":"C20","timestamp":1786397198}

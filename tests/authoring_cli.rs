@@ -29,6 +29,18 @@ impl Sandbox {
         self.dir.join("state-home")
     }
 
+    /// A config home inside the sandbox, so a developer's own
+    /// `~/.config/tetel` cannot decide what these tests measure.
+    ///
+    /// Not a nicety: `verify.enabled` in a real global file would have the
+    /// suite making provider calls on someone's key, and `grounding.floor`
+    /// would silently move what `brief` reports as owed. Both settings
+    /// apply to every workspace by design, which is exactly why the tests
+    /// have to opt out of them.
+    fn config_home(&self) -> PathBuf {
+        self.dir.join("config-home")
+    }
+
     fn write(&self, name: &str, content: &str) -> PathBuf {
         let path = self.dir.join(name);
         if let Some(parent) = path.parent() {
@@ -42,7 +54,7 @@ impl Sandbox {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&self.dir);
-        cmd.env("TETEL_STATE_HOME", self.state_home());
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
         cmd
     }
 
@@ -84,6 +96,10 @@ impl Sandbox {
 
     fn prose_jsonl(&self) -> String {
         std::fs::read_to_string(self.state_home().join("workspaces/default/prose.jsonl")).unwrap_or_default()
+    }
+
+    fn acks_jsonl(&self) -> String {
+        std::fs::read_to_string(self.state_home().join("workspaces/default/acks.jsonl")).unwrap_or_default()
     }
 }
 
@@ -1639,6 +1655,424 @@ fn a_log_without_anchors_still_replays_in_append_order() {
     assert!(a < b && b < c, "append order must be preserved:\n{out}");
 }
 
+// --- TET-30: prose revised after the claims it cites settled -----------
+
+/// The construction the TET-30 design memo names as the positive case a
+/// real fix-round rewrite takes: a paragraph rewritten after its cited
+/// claim's first proof, touching no claim at all. Built as a fixture
+/// rather than by editing a committed memo — the design memo explicitly
+/// records that both memos already in this tree list nothing, including
+/// their own real post-pass prose revisions, because each also cites a
+/// claim revised in the same round. This constructs the case with
+/// nothing else moving, so the rule fires on exactly the shape it exists
+/// to catch.
+///
+/// Real seconds are used to separate "claim settles" from "prose is
+/// rewritten" rather than synthetic timestamps, since this exercises the
+/// actual end-to-end wiring (`check_file` reading `prose.jsonl` directly,
+/// `compose::block_offsets`, and `report::render`'s new bullets) rather
+/// than the pure rule `checks::prose_after_proof` alone, which is
+/// covered by fast, second-independent unit tests in `checks.rs`.
+#[test]
+fn check_lists_a_paragraph_rewritten_after_its_claim_settled() {
+    let sb = Sandbox::new("prose-after-proof");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha(), written before grounding.");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    // Ground C1 — a witnessed record, timestamped now. `record` reads
+    // the memo's own rendered ledger, so it needs the rendered file.
+    let (code, _out, err) = sb.run(&["record", memo.to_str().unwrap(), "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    assert_eq!(code, 0, "grounding C1 must succeed: {err}");
+
+    // Force the rewrite into the next wall-clock second: timestamps are
+    // whole seconds, and the rule requires the rewrite to be *strictly*
+    // later than the claim's first proof.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    // The fix-round rewrite: text changes, citations do not.
+    sb.run(&["prose", "--revise", "P1", "--why", "fix-round rewrite, no claim touched", "--text", "Defines alpha(), rewritten after grounding."]);
+
+    // Re-render so the shipped snapshot reflects the rewrite.
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "human-owed, never a machine failure:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled"),
+        "the preamble must name the category it prints:\n{combined}"
+    );
+    assert!(
+        // The exact number, not just that some digits follow "(line " —
+        // P1 is the memo's only prose block, so it must begin on line 1.
+        // The precise block-to-line arithmetic itself is pinned at the
+        // unit level in `compose::tests::
+        // render_prose_pins_the_exact_starting_line_of_each_block`; this
+        // confirms the real end-to-end wiring (check_file → block_offsets
+        // → report::render) reports the same number that produces.
+        combined.contains("P1 (line 1)"),
+        "the entry must name the block id and the exact line its text begins on:\n{combined}"
+    );
+    assert!(
+        combined.contains("C1: first entered proof at"),
+        "the entry must print the claim it anchors against and when that claim first proved:\n{combined}"
+    );
+}
+
+/// The vacuous case, end to end: `one_claim_memo` never grounds C1 at
+/// all, so nothing is in proof, there is no first proof to compare
+/// against, and nothing is listed — regardless of when the prose was
+/// written. Same reason `checks::tests::nothing_listed_with_no_evidence`
+/// holds at the unit level; this confirms the real snapshot-reading path
+/// agrees.
+#[test]
+fn check_says_nothing_about_prose_after_proof_with_no_evidence_at_all() {
+    let sb = Sandbox::new("prose-after-proof-clean");
+    let memo = one_claim_memo(&sb);
+    let (_c, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert!(
+        !combined.contains("this wording (text and citations) dates from"),
+        "C1 was never grounded, so nothing should be listed:\n{combined}"
+    );
+}
+
+/// `check_file` reads the snapshot's `prose.jsonl` twice: once inside
+/// `snapshot::check` (via `compose::render` → `prose::load_all`, to
+/// compare the snapshot's re-render against the committed document —
+/// existing behaviour, unrelated to this ticket), and once directly, for
+/// `checks::prose_after_proof`. A corrupted `prose.jsonl` fails both
+/// reads identically (same path, same `workspace::read_jsonl::<ProseEvent>`
+/// call underneath), and the first one — which runs earlier in
+/// `check_file` — already reddens the machine partition under
+/// `[provenance-drift]`. This pins that the second read's `if let Ok`
+/// silently skipping is never a *lone* silent failure: whenever it
+/// triggers, the reader has already been told, loudly, in the machine
+/// partition, that this memo's snapshot could not be read at all.
+#[test]
+fn check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently() {
+    let sb = Sandbox::new("corrupted-prose-jsonl");
+    let memo = one_claim_memo(&sb);
+    let prose_log = sb.dir.join("memo.md.tetel").join("prose.jsonl");
+    let mut existing = std::fs::read_to_string(&prose_log).unwrap();
+    existing.push_str("THIS IS NOT VALID JSON\n");
+    std::fs::write(&prose_log, existing).unwrap();
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "a corrupted snapshot file must redden the machine partition:\n{combined}");
+    assert!(
+        combined.contains("[provenance-drift]"),
+        "the corruption must surface as provenance drift, not go unremarked:\n{combined}"
+    );
+    assert!(
+        combined.contains("could not be rendered from"),
+        "the specific reason (unreadable) must be named:\n{combined}"
+    );
+}
+
+// --- TET-61: a residue-scoped acknowledgement for prose-revised-since-proof
+
+/// Same construction as `check_lists_a_paragraph_rewritten_after_its_claim_settled`:
+/// ground a claim, then rewrite the paragraph that cites it in a way
+/// that touches no claim (a fix-round rewrite) — the shape
+/// `prose-revised-since-proof` lists, and `--ack` exists to discharge.
+/// Returns the rendered memo's path with `P1` listed and its snapshot
+/// on disk.
+fn a_listed_paragraph_memo(sb: &Sandbox) -> PathBuf {
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha(), written before grounding.");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, _out, err) = sb.run(&["record", memo.to_str().unwrap(), "--from-fact", "F1", "--claim", "C1", "--verdict", "supports"]);
+    assert_eq!(code, 0, "grounding C1 must succeed: {err}");
+
+    // Whole seconds separate "claim settles" from "prose is rewritten",
+    // same reason `check_lists_a_paragraph_rewritten_after_its_claim_settled`
+    // sleeps here.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    sb.run(&[
+        "prose",
+        "--revise",
+        "P1",
+        "--why",
+        "fix-round rewrite, no claim touched",
+        "--text",
+        "Defines alpha(), rewritten after grounding.",
+    ]);
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+    memo
+}
+
+/// The end-to-end discharge: acknowledging the listed block moves it out
+/// of `prose-revised-since-proof` and into its own collapsed bullet,
+/// with the block's line, the acknowledgement's own timestamp, its
+/// verbatim reason and the block's cited claim ids — see C7/C18 in the
+/// design memo.
+#[test]
+fn check_ack_moves_a_listed_block_to_the_acknowledged_bullet() {
+    let sb = Sandbox::new("ack-discharges");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "human-owed before the ack, not a machine failure:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled (entries below)"),
+        "must be listed before the ack:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1)"), "the listed entry must name P1:\n{combined}");
+
+    let (code, out, err) = sb.run(&["prose", "--ack", "P1", "--why", "re-read against C1, still accurate"]);
+    assert_eq!(code, 0, "the ack itself must succeed:\n{out}{err}");
+    assert!(out.contains("P1 acknowledged."), "got: {out}");
+
+    // Invisible until the next render — the ack is minted after the
+    // memo's last snapshot, exactly the NON_COVERAGE entry says.
+    let (code, report, _err) = sb.run(&["check", m]);
+    assert_eq!(code, 0);
+    assert!(
+        report.contains("prose revised after the claims it cites settled (entries below)")
+            && report.contains("P1 (line 1)")
+            && !report.contains("prose acknowledged after the claims it cites settled"),
+        "the ack must not suppress anything until the memo is re-rendered:\n{report}"
+    );
+
+    sb.run(&["render", "--out", m]);
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "acknowledging must not touch the machine partition:\n{combined}");
+    assert!(
+        !combined.contains("prose revised after the claims it cites settled (entries below)"),
+        "P1 was the only listed block, so the whole section must clear once acknowledged:\n{combined}"
+    );
+    assert!(
+        combined.contains("prose acknowledged after the claims it cites settled"),
+        "the discharge must be printed under its own collapsed bullet:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1): acknowledged"), "got:\n{combined}");
+    assert!(
+        combined.contains("acknowledged because: \"re-read against C1, still accurate\""),
+        "the author's own reason must be printed verbatim:\n{combined}"
+    );
+    assert!(combined.contains("cites [C1]"), "the block's cited ids must be printed beside the reason:\n{combined}");
+}
+
+/// C13/C21: an acknowledgement must never change the rendered document's
+/// bytes — only the snapshot beside it. Re-rendering after an ack and
+/// nothing else is a change to the record with no change to the
+/// argument.
+#[test]
+fn render_output_is_byte_identical_before_and_after_an_ack() {
+    let sb = Sandbox::new("ack-render-identical");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+    let before = std::fs::read_to_string(m).unwrap();
+
+    sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    sb.run(&["render", "--out", m]);
+    let after = std::fs::read_to_string(m).unwrap();
+
+    assert_eq!(before, after, "an ack must never change the rendered document's bytes");
+    assert!(
+        sb.dir.join("memo.md.tetel").join("acks.jsonl").is_file(),
+        "the snapshot itself must change: acks.jsonl now ships beside the memo"
+    );
+}
+
+#[test]
+fn ack_refuses_a_nonexistent_block() {
+    let sb = Sandbox::new("ack-no-block");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P99", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("no such prose block: P99"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty(), "a refused ack must not be logged");
+}
+
+#[test]
+fn ack_refuses_a_heading() {
+    let sb = Sandbox::new("ack-heading");
+    sb.run(&["prose", "--heading", "Intro", "--level", "1"]);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("it is a heading"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_refuses_an_uncited_block() {
+    let sb = Sandbox::new("ack-uncited");
+    sb.run_stdin(&["prose"], "Cites nothing at all.");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("it cites nothing"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+/// Prose creation is deliberately ungated (see prose.rs's module doc
+/// comment), so a paragraph can cite a claim id that was never minted.
+/// The ack's key needs a digest per cited claim, and an unresolvable id
+/// has none — so minting the ack itself must refuse, unlike creating the
+/// paragraph.
+#[test]
+fn ack_refuses_a_citation_that_does_not_resolve_to_a_claim() {
+    let sb = Sandbox::new("ack-bad-citation");
+    sb.run_stdin(&["prose", "--cites", "C99"], "Cites a claim that was never minted.");
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "whatever"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("C99") && err.contains("not a claim in this workspace"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_requires_why_to_be_present() {
+    let sb = Sandbox::new("ack-no-why");
+    let _memo = one_claim_memo(&sb);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("prose --ack requires --why"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+#[test]
+fn ack_refuses_an_empty_why() {
+    let sb = Sandbox::new("ack-empty-why");
+    let _memo = one_claim_memo(&sb);
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "   "]);
+    assert_ne!(code, 0);
+    assert!(err.contains("acknowledgements must explain themselves"), "stderr: {err}");
+    assert!(sb.acks_jsonl().is_empty());
+}
+
+/// C12: the ack mode must refuse all six other mode-bearing flags rather
+/// than silently discard whichever was also given — the same shape as
+/// the defect this crate already had to fix once for `--cites` alongside
+/// `--revise`. `--level` is tested standalone (no `--heading`), which is
+/// the case an enumeration written against the MCP shape (a single
+/// `heading_level` field folding selector and value) would miss — see
+/// `mcp_combined_flag` tests for the MCP-side half of this.
+#[test]
+fn ack_refuses_being_combined_with_each_of_the_six_other_mode_flags() {
+    let sb = Sandbox::new("ack-combined-flags");
+    let _memo = one_claim_memo(&sb);
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--text", "something"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --text"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--revise", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --revise"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--heading", "Intro"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --heading"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--level", "2"]);
+    assert_ne!(code, 0, "a standalone --level with no --heading must still be refused");
+    assert!(err.contains("cannot be combined with --level"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--cites", "C1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --cites"), "stderr: {err}");
+
+    let (code, _out, err) = sb.run(&["prose", "--ack", "P1", "--why", "x", "--before", "P1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be combined with --before"), "stderr: {err}");
+
+    assert!(sb.acks_jsonl().is_empty(), "none of the six refusals may have minted an ack");
+}
+
+/// An ack with no `--text` must never block on stdin: the CLI's
+/// `--ack` branch must be checked ahead of `--revise`/the paragraph
+/// fallback, both of which fall back to reading stdin when `text` is
+/// absent (see the design memo's C12). `sb.run` supplies no stdin, so a
+/// misordered chain that fell through to the paragraph arm would either
+/// hang or (since this test harness closes/empties the child's stdin)
+/// silently mint a garbage empty paragraph and print "P2 appended."
+/// instead of acknowledging anything — this test's assertion on the
+/// exact printed line catches that regardless of which happens.
+#[test]
+fn ack_with_no_text_never_reads_stdin() {
+    let sb = Sandbox::new("ack-no-text-no-stdin");
+    let _memo = one_claim_memo(&sb);
+    let (code, out, err) = sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    assert_eq!(code, 0, "stderr: {err}");
+    assert_eq!(out.trim(), "P1 acknowledged.", "got: {out}");
+    assert_eq!(sb.prose_jsonl().lines().count(), 1, "no stray paragraph must have been created");
+}
+
+/// C10(iii): a memo whose snapshot carries no `acks.jsonl` — every memo
+/// rendered before this design, and every memo whose author never
+/// acknowledged anything — reports exactly what it reported before this
+/// design existed. Paired with `an_unreadable_acks_jsonl_reddens_the_machine_partition`
+/// below: together they show a missing file is an empty log and a
+/// present-but-corrupt one is a machine failure, never the same thing.
+#[test]
+fn a_memo_with_no_acks_jsonl_at_all_checks_exactly_as_before_this_design() {
+    let sb = Sandbox::new("no-acks-file");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    assert!(
+        !sb.dir.join("memo.md.tetel").join("acks.jsonl").exists(),
+        "this design must never write acks.jsonl on its own"
+    );
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 0, "a missing acks.jsonl must never be a machine failure:\n{combined}");
+    assert!(!combined.contains("[ack-log-unreadable]"), "got:\n{combined}");
+    assert!(
+        combined.contains("prose revised after the claims it cites settled"),
+        "the pre-existing residue must still print, unaffected by this design:\n{combined}"
+    );
+    assert!(combined.contains("P1 (line 1)"), "got:\n{combined}");
+}
+
+/// C11: unlike a corrupt `prose.jsonl` (already caught, loudly, by
+/// provenance drift before `prose_after_proof` ever runs — see
+/// `check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently`
+/// above), `compose::render` never reads `acks.jsonl`, so nothing else
+/// here has already reddened the report on its behalf. An unreadable
+/// acknowledgement log must therefore fail the machine partition on its
+/// own.
+#[test]
+fn an_unreadable_acks_jsonl_reddens_the_machine_partition_on_its_own() {
+    let sb = Sandbox::new("corrupted-acks-jsonl");
+    let memo = a_listed_paragraph_memo(&sb);
+    let m = memo.to_str().unwrap();
+
+    sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
+    sb.run(&["render", "--out", m]);
+
+    let acks_log = sb.dir.join("memo.md.tetel").join("acks.jsonl");
+    assert!(acks_log.is_file(), "the snapshot must ship the ack log once rendered");
+    let mut existing = std::fs::read_to_string(&acks_log).unwrap();
+    existing.push_str("THIS IS NOT VALID JSON\n");
+    std::fs::write(&acks_log, existing).unwrap();
+
+    let (code, report, err) = sb.run(&["check", m]);
+    let combined = format!("{report}{err}");
+    assert_eq!(code, 1, "a corrupt acks.jsonl must redden the machine partition on its own:\n{combined}");
+    assert!(combined.contains("[ack-log-unreadable]"), "got:\n{combined}");
+    assert!(
+        !combined.contains("[provenance-drift]"),
+        "acks.jsonl is never read by render, so this must not surface as drift:\n{combined}"
+    );
+}
+
 // --- TET-5: the marker must describe the tree that was read ------------
 
 /// Make `dir` a git repository with one commit, so `worldstate` has
@@ -1700,7 +2134,7 @@ fn a_marker_tracks_the_tree_that_was_read_not_the_one_the_process_stood_in() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&a);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     };
@@ -1747,7 +2181,7 @@ fn a_run_marker_names_the_tree_the_command_ran_in() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
     cmd.args(["run", "--", "echo", "hello"]);
     cmd.current_dir(&a);
-    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
     let out = cmd.output().expect("failed to run tetel");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
@@ -1766,7 +2200,7 @@ fn check_reports_which_facts_saw_which_tree_state() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&a);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         assert!(
             out.status.code() == Some(0) || out.status.code() == Some(1),
@@ -1822,7 +2256,7 @@ fn a_witnessed_record_carries_the_tree_it_graded_and_an_ingested_one_cannot() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
         cmd.args(args);
         cmd.current_dir(&repo);
-        cmd.env("TETEL_STATE_HOME", sb.state_home());
+        cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let out = cmd.output().expect("failed to run tetel");
         (
             out.status.code().unwrap(),
@@ -1903,7 +2337,7 @@ fn a_grep_of_a_single_file_is_keyed_by_that_file_not_by_a_line_number() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tetel"));
     cmd.args(["look", target.to_str().unwrap(), "--grep", "beta"]);
     cmd.current_dir(&elsewhere);
-    cmd.env("TETEL_STATE_HOME", sb.state_home());
+    cmd.env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
     let out = cmd.output().expect("failed to run tetel");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
@@ -1969,6 +2403,105 @@ fn a_single_file_grep_overlaps_a_plain_read_of_the_same_file() {
     assert!(!out.contains("F3"), "an unrelated file's fact must never overlap:\n{out}");
 }
 
+// --- TET-51: the overlap report names keys, not notes -------------------
+
+#[test]
+fn overlap_report_names_only_the_key_actually_shared_not_every_key_the_fact_touches() {
+    // F2 touches BOTH a.rs and b.rs (two `look`s folded into one mint).
+    // F1 only cites a.rs. The report on F2 must therefore name a.rs and
+    // must NOT name b.rs: reporting the whole extent instead of the
+    // intersection with the cited union is exactly the bug a report that
+    // ships every key from a multi-key fact would reintroduce.
+    let sb = Sandbox::new("overlap-key-precision");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "reads of both a.rs and b.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a second, separate read of a.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "a.rs defines a()", "--cites", "F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let f1_line = out.lines().find(|l| l.trim_start().starts_with("F1:")).unwrap_or_else(|| panic!("F1 missing from overlap report:\n{out}"));
+    assert!(f1_line.contains("a.rs"), "F1's shared key must name a.rs: {f1_line}");
+    assert!(!f1_line.contains("b.rs"), "F1's report must not name b.rs — that key was never in the cited union: {f1_line}");
+}
+
+#[test]
+fn overlap_report_names_every_key_a_fact_shares_when_it_shares_several() {
+    // F3 touches both a.rs and b.rs, and BOTH are in the cited union
+    // (F1 cites a.rs, F2 cites b.rs). The report on F3 must name both
+    // keys, not just the first one found.
+    let sb = Sandbox::new("overlap-multi-key");
+    sb.write("a.rs", "fn a() {}\n");
+    sb.write("b.rs", "fn b() {}\n");
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "b.rs alone"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    assert_eq!(sb.run(&["look", "a.rs"]).0, 0);
+    assert_eq!(sb.run(&["look", "b.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "both a.rs and b.rs together"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F3
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "both files define their function", "--cites", "F1,F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let f3_line = out.lines().find(|l| l.trim_start().starts_with("F3:")).unwrap_or_else(|| panic!("F3 missing from overlap report:\n{out}"));
+    assert!(f3_line.contains("a.rs"), "F3 shares a.rs, the report must name it: {f3_line}");
+    assert!(f3_line.contains("b.rs"), "F3 shares b.rs, the report must name it too: {f3_line}");
+}
+
+#[test]
+fn no_overlap_reports_nothing_and_the_create_still_succeeds() {
+    let sb = Sandbox::new("overlap-none");
+    sb.write("only.rs", "fn only() {}\n");
+
+    assert_eq!(sb.run(&["look", "only.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "the only fact in this workspace"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "only.rs defines only()", "--cites", "F1"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("(none)"), "no other fact exists, so the report must say so:\n{out}");
+    assert!(out.contains("C1 created"), "the create must still succeed even with nothing to report:\n{out}");
+    assert!(sb.claims_jsonl().contains("\"id\":\"C1\""), "the claim must actually be logged");
+}
+
+#[test]
+fn overlap_report_never_prints_the_overlapping_facts_note() {
+    // The whole point of TET-51: the report used to ship the overlapping
+    // fact's full note, unbounded and re-sent on every later create that
+    // touched it. It must now carry only the id and the shared key(s).
+    let sb = Sandbox::new("overlap-no-note-leak");
+    sb.write("shared.rs", "fn shared() {}\n");
+
+    assert_eq!(sb.run(&["look", "shared.rs"]).0, 0);
+    let distinctive_note = "a wholly distinctive sentinel note nobody else would type by accident";
+    let (code, _, err) = sb.run(&["fact", "--note", distinctive_note]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F1
+
+    assert_eq!(sb.run(&["look", "shared.rs"]).0, 0);
+    let (code, _, err) = sb.run(&["fact", "--note", "a second read of the same file"]);
+    assert_eq!(code, 0, "stderr:\n{err}"); // F2
+
+    let (code, out, err) = sb.run(&["claim", "--proposition", "shared.rs defines shared()", "--cites", "F2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("F1"), "F1 must still be reported as overlapping:\n{out}");
+    assert!(!out.contains(distinctive_note), "the overlapping fact's note must never be printed:\n{out}");
+}
+
 // --- the pin: nothing asserted anything about it until this sweep -------
 
 /// Every `pin` in this workspace's log, in mint order.
@@ -1994,7 +2527,7 @@ fn two_facts_from_identical_observations_pin_identically() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2028,7 +2561,7 @@ fn a_fact_taken_against_a_changed_tree_pins_differently() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2100,7 +2633,7 @@ fn a_grep_that_matched_records_where_it_was_rooted() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2145,7 +2678,7 @@ fn a_search_entry_survives_the_fold_into_a_fact() {
 
     let run_in = |args: &[&str]| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     };
@@ -2201,7 +2734,7 @@ fn a_target_is_refused_when_its_census_swept_less_than_the_worktree() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2235,7 +2768,7 @@ fn a_census_pattern_must_be_the_symbol_itself() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2255,7 +2788,7 @@ fn a_fact_that_was_read_rather_than_searched_censuses_nothing() {
 
     let run = |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         let o = c.output().unwrap();
         (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
     };
@@ -2280,7 +2813,7 @@ fn a_target_row_the_snapshot_never_declared_fails_the_machine_partition() {
 
     let run = |args: &[&str]| -> bool {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         c.output().unwrap().status.success()
     };
 
@@ -2322,7 +2855,7 @@ fn the_targets_section_renders_when_it_is_empty() {
 
     let run = |args: &[&str]| -> bool {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home());
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
         c.output().unwrap().status.success()
     };
 
@@ -2366,10 +2899,14 @@ fn repo_with_a_commented_donor(sb: &Sandbox) -> std::path::PathBuf {
 /// target (T1) and a transplant (X1) declared between them.
 fn transplant_fixture(sb: &Sandbox, repo: &std::path::Path) -> impl Fn(&[&str]) -> (bool, String) {
     let state = sb.state_home();
+    let config = sb.config_home();
     let repo = repo.to_path_buf();
     move |args: &[&str]| -> (bool, String) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
-        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", &state);
+        c.args(args)
+            .current_dir(&repo)
+            .env("TETEL_STATE_HOME", &state)
+            .env("TETEL_CONFIG_HOME", &config);
         let o = c.output().unwrap();
         (
             o.status.success(),
@@ -2655,4 +3192,206 @@ fn a_premise_answered_by_a_withdrawn_claim_is_unanswered_again() {
     let (ok, out) = run(&["render", "--out", "memo2.md"]);
     assert!(!ok, "withdrawing the answering claim leaves the premise unanswered: {out}");
     assert!(out.contains("X1.1"), "{out}");
+}
+
+/// `verify-report` is the measurement the design ends by asking for: the
+/// verifier's flags beside the verdicts a grading pass later reached.
+///
+/// The fixture plants a verification log rather than making a provider
+/// call, which is the point — the join is between two files on disk, and
+/// it has to be right whether or not anyone can reach a model today.
+#[test]
+fn verify_report_joins_flags_to_the_verdicts_graders_later_reached() {
+    let sb = Sandbox::new("verify-report-join");
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    let memo = sb.dir.join("memo.md");
+
+    sb.run(&["--workspace", "author", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines a()"]);
+    for (n, prop) in [
+        (1, "alpha.rs defines exactly one function"),
+        (2, "alpha.rs is a Rust source file"),
+        (3, "alpha.rs defines no macros"),
+    ] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "author", "claim", "--proposition", prop, "--cites", "F1",
+        ]);
+        assert_eq!(code, 0, "claim {n} failed:\n{err}");
+        sb.run(&[
+            "--workspace", "author", "prose",
+            "--text", &format!("Something about claim {n}."),
+            "--cites", &format!("C{n}"),
+        ]);
+    }
+    let (code, _o, err) = sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "render failed:\n{err}");
+
+    // What the graders concluded later. C1 was refuted, C2 only ever
+    // supported, C3 qualified.
+    sb.run(&["--workspace", "g", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "g", "fact", "--note", "read for grading"]);
+    for (claim, verdict, note) in [
+        ("C1", "refutes", "there are two, counting the test"),
+        ("C2", "supports", "it is"),
+        ("C3", "qualifies", "true of this file only"),
+    ] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "g", "record", memo.to_str().unwrap(),
+            "--from-fact", "F1", "--claim", claim, "--verdict", verdict, "--note", note,
+        ]);
+        assert_eq!(code, 0, "record {claim} failed:\n{err}");
+    }
+
+    // What the verifier said at mint time: it flagged C1 (which later
+    // needed work — a hit) and C2 (which was already sound — a false
+    // positive), and stayed silent on C3.
+    let ws = sb.state_home().join("workspaces").join("author");
+    let log = [
+        r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","at":1,"cost":0.0004,"elapsed_ms":900,"attempts":2,"findings":[{"kind":"contradicts","clause":"exactly one function","fact":"F1","evidence":"fn a() {}","why":"two","quoted":true}]}"#,
+        r#"{"seq":2,"mint":"C2","verb":"claim","status":"ok","model":"m/x","approach":"split","at":2,"cost":0.0004,"elapsed_ms":1100,"attempts":2,"findings":[{"kind":"overreaches","clause":"a Rust source file","fact":"F1","why":"invented","quoted":false,"rejected_span":"a span that was never captured"}]}"#,
+        r#"{"seq":3,"mint":"C3","verb":"claim","status":"ok","model":"m/x","approach":"split","at":3,"cost":0.0004,"elapsed_ms":1000,"attempts":2,"findings":[]}"#,
+        r#"{"seq":4,"mint":"C3","verb":"claim","status":"unavailable","model":"m/x","approach":"split","at":4,"cost":0.0,"elapsed_ms":50,"attempts":1,"findings":[],"detail":"provider replied 429"}"#,
+    ]
+    .join("\n");
+    std::fs::write(ws.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
+
+    let (code, out, err) = sb.run(&["verify-report", memo.to_str().unwrap(), "--spans"]);
+    assert_eq!(code, 0, "verify-report failed:\n{err}");
+
+    // The memo found its authoring workspace through the snapshot's
+    // identity — nothing records what a workspace rendered to.
+    assert!(out.contains("workspace    author"), "got:\n{out}");
+
+    // The join: two flags, one on a claim that later needed work and one
+    // on a claim that was already sound; one refuted claim it did catch.
+    assert!(out.contains("claims verified  3"), "got:\n{out}");
+    assert!(out.contains("flagged          2"), "got:\n{out}");
+    assert!(out.contains("later needed work  1"), "got:\n{out}");
+    assert!(out.contains("later only supported  1"), "got:\n{out}");
+    assert!(out.contains("precision        50%"), "got:\n{out}");
+
+    // The operational half, and a failure that says which failure.
+    assert!(out.contains("provider replied 429"), "got:\n{out}");
+    assert!(out.contains("unavailable"), "got:\n{out}");
+
+    // And the span that failed verification is readable here, having been
+    // withheld from the author at mint time.
+    assert!(out.contains("a span that was never captured"), "got:\n{out}");
+}
+
+/// `--unset` names one setting to remove. The two shapes that name none
+/// used to be ignored, and one of them did the opposite of what was asked.
+#[test]
+fn unset_is_refused_rather_than_ignored_when_it_names_nothing() {
+    let sb = Sandbox::new("config-unset-misuse");
+
+    // With a value: this asked to write and to remove the same key. It
+    // used to write the value and exit 0.
+    let (code, _o, err) = sb.run(&["config", "verify.enabled", "true", "--unset"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("cannot be given a value"), "got:\n{err}");
+    let (_c, out, _e) = sb.run(&["config", "verify.enabled"]);
+    assert!(out.contains("(unset)"), "the refused call still wrote:\n{out}");
+
+    // With no key at all: it used to print the whole listing and exit 0.
+    let (code, _o, err) = sb.run(&["config", "--unset"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("needs the setting to remove"), "got:\n{err}");
+}
+
+/// A value the key's own consumer cannot parse must be *rejected*, so the
+/// "ignoring …" warning fires, rather than resolving cleanly and being
+/// dropped in silence further down.
+#[test]
+fn a_floor_too_large_to_use_is_reported_rather_than_silently_ignored() {
+    let sb = Sandbox::new("config-floor-overflow");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+    std::fs::write(
+        sb.config_home().join("config.toml"),
+        "[grounding]\nfloor = 5000000000\n",
+    )
+    .unwrap();
+
+    let (code, _out, err) = sb.run(&["config", "grounding.floor"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("is not a value"), "got:\n{err}");
+}
+
+/// The read path must not echo a value that might be a credential — the
+/// rule `set` and `list` already enforce, on the path likeliest to end up
+/// in a terminal capture.
+#[test]
+fn reading_a_rejected_model_does_not_print_it_back() {
+    let sb = Sandbox::new("config-model-no-echo");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+    let secret = "sk-or-v1-must-not-appear-in-any-output";
+    std::fs::write(
+        sb.config_home().join("config.toml"),
+        format!("[verify]\nmodel = \"{secret}\"\n"),
+    )
+    .unwrap();
+
+    let (code, out, err) = sb.run(&["config", "verify.model"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(!format!("{out}{err}").contains(secret), "the credential was echoed:\n{out}{err}");
+    assert!(err.contains("not echoed here"), "got:\n{err}");
+
+    // And the listing, which was already correct, stays correct.
+    let (_c, out, _e) = sb.run(&["config"]);
+    assert!(!out.contains(secret), "the listing echoed it:\n{out}");
+}
+
+/// A setting the registry does not know cannot be "removed" successfully,
+/// and a rejected value stays discoverable even when a lower scope
+/// supplies a working one.
+#[test]
+fn unset_and_shadowed_rejections_do_not_mislead() {
+    let sb = Sandbox::new("config-unset-and-shadow");
+    std::fs::create_dir_all(sb.config_home()).unwrap();
+
+    // A typo used to print "removed …" and exit 0 while the real setting
+    // stayed in force.
+    let (code, _o, err) = sb.run(&["config", "--unset", "grounding.flooor"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("unknown setting"), "got:\n{err}");
+
+    // Writing workspace-scoped settings into a workspace that does not
+    // exist would leave a hollow one behind in `tetel workspaces`.
+    let (code, _o, err) = sb.run(&["--workspace", "w", "config", "--workspace-scope", "grounding.floor", "2"]);
+    assert_eq!(code, 1, "stderr:\n{err}");
+    assert!(err.contains("no workspace at"), "got:\n{err}");
+    assert!(
+        !sb.state_home().join("workspaces").join("w").exists(),
+        "a phantom workspace directory was created anyway"
+    );
+
+    // A broken workspace value masked by a good global one: the value in
+    // force is the global, and the broken file must still be named.
+    std::fs::write(sb.config_home().join("config.toml"), "[grounding]\nfloor = 3\n").unwrap();
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    sb.run(&["--workspace", "w", "look", alpha.to_str().unwrap()]);
+    let (code, _o, err) = sb.run(&["--workspace", "w", "config", "--workspace-scope", "grounding.floor", "2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let ws_config = sb.state_home().join("workspaces").join("w").join("config.toml");
+    std::fs::write(&ws_config, "[grounding]\nfloor = 0\n").unwrap();
+
+    let (_c, out, _e) = sb.run(&["--workspace", "w", "config"]);
+    assert!(out.contains("3  (from global)"), "the global value should be in force:\n{out}");
+    assert!(
+        out.contains("`0` in the workspace file is not a value this key accepts"),
+        "the shadowed rejection was not reported:\n{out}"
+    );
+}
+
+/// Reading a setting the registry does not know is a typo, not an unset
+/// key — the same class of mistake `set` and `unset` already refuse.
+#[test]
+fn reading_an_unknown_setting_is_refused_not_reported_as_unset() {
+    let sb = Sandbox::new("config-read-unknown");
+    let (code, out, err) = sb.run(&["config", "grounding.flooor"]);
+    assert_eq!(code, 1, "stdout:\n{out}\nstderr:\n{err}");
+    assert!(err.contains("unknown setting"), "got:\n{err}");
+    assert!(!out.contains("(unset)"), "a typo read as a real, unset key:\n{out}");
 }

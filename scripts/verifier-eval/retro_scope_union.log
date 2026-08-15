@@ -1,0 +1,191 @@
+corpus            7 memos
+graded claims with a first-render wording   125
+  supports-only   62   (design says 62)
+  ever refuted    9   (design says 9)
+  ever qualified  60  (design says 60)
+
+question: scope   arm: union — 125 claims, 6 at a time
+
+[1/125] tet28-modification-tar   C1         0 dis.
+[6/125] tet28-modification-tar   C6         0 dis.
+[4/125] tet28-modification-tar   C4         0 dis.
+[3/125] tet28-modification-tar   C3         0 dis.
+[9/125] tet28-modification-tar   C9         0 dis.
+[7/125] tet28-modification-tar   C7    FLAG 1 dis.
+[8/125] tet28-modification-tar   C8    FLAG 1 dis.
+[13/125] tet28-modification-tar   C13        0 dis.
+[10/125] tet28-modification-tar   C10        0 dis.
+[12/125] tet28-modification-tar   C12        0 dis.
+[15/125] tet29-imported-mechani   C1    FLAG 1 dis.
+[2/125] tet28-modification-tar   C2    FLAG 1 dis.
+[18/125] tet29-imported-mechani   C4         0 dis.
+[19/125] tet29-imported-mechani   C5         0 dis.
+[16/125] tet29-imported-mechani   C2         0 dis.
+[20/125] tet29-imported-mechani   C6         0 dis.
+[5/125] tet28-modification-tar   C5    FLAG 1 dis.
+[14/125] tet28-modification-tar   C14   FLAG 2 dis.
+[23/125] tet29-imported-mechani   C9    FLAG 1 dis.
+[11/125] tet28-modification-tar   C11        0 dis.
+[24/125] tet29-imported-mechani   C10        0 dis.
+[27/125] tet29-imported-mechani   C13        0 dis.
+[28/125] tet29-imported-mechani   C14   FLAG 1 dis.
+[29/125] tet30-prose-revised-si   C1         0 dis.
+[21/125] tet29-imported-mechani   C7         0 dis.
+[22/125] tet29-imported-mechani   C8    FLAG 3 dis.
+[17/125] tet29-imported-mechani   C3    FLAG 2 dis.
+[31/125] tet30-prose-revised-si   C3    FLAG 1 dis.
+[30/125] tet30-prose-revised-si   C2         0 dis.
+[25/125] tet29-imported-mechani   C11   FLAG 1 dis.
+[36/125] tet30-prose-revised-si   C8         0 dis.
+[26/125] tet29-imported-mechani   C12   FLAG 1 dis.
+[35/125] tet30-prose-revised-si   C7    FLAG 1 dis.
+[39/125] tet30-prose-revised-si   C11        0 dis.
+[32/125] tet30-prose-revised-si   C4         0 dis.
+[41/125] tet30-prose-revised-si   C13        0 dis.
+[42/125] tet46-look-never-retur   C1         0 dis.
+[33/125] tet30-prose-revised-si   C5    FLAG 2 dis.
+[44/125] tet46-look-never-retur   C3         0 dis.
+[37/125] tet30-prose-revised-si   C9    FLAG 1 dis.
+[45/125] tet46-look-never-retur   C4         0 dis.
+[47/125] tet46-look-never-retur   C6         0 dis.
+[48/125] tet46-look-never-retur   C7         0 dis.
+[40/125] tet30-prose-revised-si   C12   FLAG 2 dis.
+[50/125] tet46-look-never-retur   C9         0 dis.
+[49/125] tet46-look-never-retur   C8         0 dis.
+[52/125] tet46-look-never-retur   C11        0 dis.
+[53/125] tet46-look-never-retur   C12        0 dis.
+[51/125] tet46-look-never-retur   C10        0 dis.
+[54/125] tet46-look-never-retur   C13        0 dis.
+[46/125] tet46-look-never-retur   C5         0 dis.
+[38/125] tet30-prose-revised-si   C10   FLAG 1 dis.
+[55/125] tet46-look-never-retur   C14        0 dis.
+[59/125] tet46-look-never-retur   C18   FLAG 1 dis.
+[58/125] tet46-look-never-retur   C17        0 dis.
+[61/125] tet47-ground-what-is-o   C1    FLAG 1 dis.
+[62/125] tet47-ground-what-is-o   C2         0 dis.
+[57/125] tet46-look-never-retur   C16        0 dis.
+[63/125] tet47-ground-what-is-o   C3         0 dis.
+[60/125] tet46-look-never-retur   C19        0 dis.
+[65/125] tet47-ground-what-is-o   C5         0 dis.
+[34/125] tet30-prose-revised-si   C6    FLAG 3 dis.
+[67/125] tet47-ground-what-is-o   C7         0 dis.
+[56/125] tet46-look-never-retur   C15   FLAG 1 dis.
+[70/125] tet47-ground-what-is-o   C10        0 dis.
+[71/125] tet47-ground-what-is-o   C11        0 dis.
+[69/125] tet47-ground-what-is-o   C9         0 dis.
+[68/125] tet47-ground-what-is-o   C8         0 dis.
+[73/125] tet47-ground-what-is-o   C13        0 dis.
+[75/125] tet47-ground-what-is-o   C15        0 dis.
+[43/125] tet46-look-never-retur   C2    FLAG 3 dis.
+[76/125] tet47-ground-what-is-o   C16        0 dis.
+[72/125] tet47-ground-what-is-o   C12   FLAG 1 dis.
+[78/125] tet47-ground-what-is-o   C18   FLAG 1 dis.
+[66/125] tet47-ground-what-is-o   C6    FLAG 1 dis.
+[77/125] tet47-ground-what-is-o   C17   FLAG 1 dis.
+[80/125] tet47-ground-what-is-o   C20   FLAG 1 dis.
+[79/125] tet47-ground-what-is-o   C19   FLAG 1 dis.
+[82/125] tet47-ground-what-is-o   C22        0 dis.
+[83/125] tet47-ground-what-is-o   C23        0 dis.
+[74/125] tet47-ground-what-is-o   C14   FLAG 1 dis.
+[87/125] tet56-bounded-grep-ret   C1    FLAG 1 dis.
+[88/125] tet56-bounded-grep-ret   C2         0 dis.
+[64/125] tet47-ground-what-is-o   C4    FLAG 1 dis.
+[86/125] tet47-ground-what-is-o   C26        0 dis.
+[91/125] tet56-bounded-grep-ret   C5         0 dis.
+[85/125] tet47-ground-what-is-o   C25        0 dis.
+[90/125] tet56-bounded-grep-ret   C4    FLAG 1 dis.
+[92/125] tet56-bounded-grep-ret   C6         0 dis.
+[81/125] tet47-ground-what-is-o   C21        0 dis.
+[95/125] tet56-bounded-grep-ret   C9    FLAG 2 dis.
+[96/125] tet56-bounded-grep-ret   C10        0 dis.
+[97/125] tet56-bounded-grep-ret   C11   FLAG 1 dis.
+[94/125] tet56-bounded-grep-ret   C8    FLAG 1 dis.
+[93/125] tet56-bounded-grep-ret   C7    FLAG 3 dis.
+[100/125] tet56-bounded-grep-ret   C14        0 dis.
+[84/125] tet47-ground-what-is-o   C24   FLAG 1 dis.
+[103/125] tet56-bounded-grep-ret   C17        0 dis.
+[102/125] tet56-bounded-grep-ret   C16        0 dis.
+[99/125] tet56-bounded-grep-ret   C13   FLAG 2 dis.
+[104/125] tet56-bounded-grep-ret   C18        0 dis.
+[98/125] tet56-bounded-grep-ret   C12        0 dis.
+[105/125] tet56-bounded-grep-ret   C19   FLAG 1 dis.
+[106/125] tet61-residue-scoped-a   C1    FLAG 1 dis.
+[108/125] tet61-residue-scoped-a   C3    FLAG 1 dis.
+[107/125] tet61-residue-scoped-a   C2         0 dis.
+[101/125] tet56-bounded-grep-ret   C15        0 dis.
+[111/125] tet61-residue-scoped-a   C6         0 dis.
+[113/125] tet61-residue-scoped-a   C8         0 dis.
+[112/125] tet61-residue-scoped-a   C7         0 dis.
+[116/125] tet61-residue-scoped-a   C11        0 dis.
+[89/125] tet56-bounded-grep-ret   C3    FLAG 1 dis.
+[110/125] tet61-residue-scoped-a   C5    FLAG 1 dis.
+[118/125] tet61-residue-scoped-a   C13        0 dis.
+[109/125] tet61-residue-scoped-a   C4    FLAG 2 dis.
+[115/125] tet61-residue-scoped-a   C10   FLAG 2 dis.
+[122/125] tet61-residue-scoped-a   C17        0 dis.
+[119/125] tet61-residue-scoped-a   C14   FLAG 2 dis.
+[121/125] tet61-residue-scoped-a   C16   FLAG 1 dis.
+[114/125] tet61-residue-scoped-a   C9         0 dis.
+[125/125] tet61-residue-scoped-a   C20        0 dis.
+[123/125] tet61-residue-scoped-a   C18        0 dis.
+[124/125] tet61-residue-scoped-a   C19   FLAG 1 dis.
+[117/125] tet61-residue-scoped-a   C12   FLAG 1 dis.
+[120/125] tet61-residue-scoped-a   C15   FLAG 2 dis.
+
+==================================================================
+RETRODICTION — question `scope`, arm `union`, openai/gpt-5.6-luna
+errors (excluded from every denominator)  1 of 125
+
+FALSE-POSITIVE SIDE — kill at 7 or more of 62
+  supports-only claims flagged            19 of 62   -> KILL
+
+RECALL SIDE — kill at 2 or fewer of 9 (defect-match judged by hand)
+  refuted claims flagged at all           6 of 8   -> flagging alone clears the line
+
+QUOTATIONS — the check C20 specifies (Fact::quotes over captured output)
+  findings carrying a verbatim span     41 of 69   (59%)  -> 28 would be stripped
+
+cost  $0.4532   written to retrodict_scope_union.json
+
+The recall kill needs each flag to NAME THE DEFECT a later pass named.
+That is a judgement over 8 items and is not scored here — read them:
+
+  --- tet30-prose-revised-since-grou C6  flagged=True (None)
+      verifier: overreaches: The captured checks cover only two named memo snapshots and selected counterfactuals; they do not cover every possible way a listed line could be cleared, so the exhaustive "only two" cla
+      refuted : The unclearable-by-re-grounding half is right: evidence is strictly appended with a fresh now_unix per record, so a later pass cannot move a claim's earliest in-proof timestamp (F7). The precedent hal
+      refuted : "Under the repaired definition of a block's text timestamp ... exactly two things clear a listing" is false, and the repair is what makes the third one work. A citation-only prose revision — byte-iden
+      refuted : The mechanism behind the refutation above, witnessed in source. `prose::revise` refuses exactly two things — an unknown block id and an empty `--why`. It does not compare the new text against the bloc
+
+  --- tet47-ground-what-is-owed.md C6  flagged=True (None)
+      verifier: contradicts: The captured evidence models the pin as optional, so it does not guarantee that every evidence record contains a pin value.
+      refuted : Rule 3 is not implementable as the comparison this claim decides on. Ran the worktree's own binary as `brief --json` over every memo in docs/design: 87 claims across five ledgers (tet28/29/30/46/47), 
+      refuted : Second, independent refutation of the same clause: the two values compared are not the same kind of thing. src/facts.rs lines 405-452 constructs a fact's pin as `format!("sha256:{}", sha256_hex(&hash_
+      refuted : The load-bearing identification is wrong on two counts. (1) A witnessed record's `pin` is `Some(fact.pin.clone())`, and a Fact's pin is `format!("sha256:{}", sha256_hex(&hash_input))` over each pendin
+
+  --- tet47-ground-what-is-owed.md C13  flagged=False (None)
+      verifier: (none)
+      refuted : The proposition asserts that the residual false negative "is narrow and stated rather than closed", and states exactly one: a proposition referring to another claim by description rather than by id. T
+
+  --- tet47-ground-what-is-owed.md C26  flagged=False (None)
+      verifier: (none)
+      refuted : The proposition states that the closure's "edges are read out of proposition text by `citation_ids_in` at schedule time". That is the mechanism this memo's own C12 rejects: C12 states that a closure b
+      refuted : The named mechanism is wrong. `citation_ids_in` is `scan_line`, a pure shape test that recognises only inline `[ID]`/`[!ID]` passing `is_citation_shaped` and a whole-line `*cites: ...*` trailer; it co
+      refuted : Empirically the same point: across the four other rendered memos, zero of 61 propositions contain a bracketed citation-shaped token, so a closure whose edges are read by `citation_ids_in` has no edges
+
+  --- tet56-bounded-grep-return.md C7  flagged=True (None)
+      verifier: overreaches: The captured search establishes only the occurrence of the literal pattern `truncat`; it does not cover whether source behaviour truncates anything without using that spelling.; overreach
+      refuted : Counterexample on the axis the evidence never searched. `transplants::refuse_incomplete` (transplants.rs 428-440) truncates a premise's text to its first line before showing it to the author and marks
+
+  --- tet56-bounded-grep-return.md C9  flagged=True (None)
+      verifier: contradicts: The captured `output` is `shown`, but the returned value is `printed`, which includes a header and may include an added newline.; contradicts: The code stores the captured output separate
+      refuted : The claim's premise is right and its inference is false. In `look_path` (observe.rs 268-336) `printed` is a separate String assembled by `printed.push_str(&shown)` at line 316 — a byte copy — and `sho
+
+  --- tet61-residue-scoped-acknowled C4  flagged=True (None)
+      verifier: overreaches: The captured run only tested an `Ack` embedded in `prose.jsonl`, not a sibling `acks.jsonl` or the claimed TET-30 listing, so it does not cover the asserted compatibility behaviour.; over
+      refuted : C4's dominance sentence — "The failure direction is therefore over-reporting a residue entry a newer build would suppress, never suppressing one an older build would show" — is refuted by construction
+      refuted : C4's conclusion "a snapshot's ack log, however stale, is a prefix of the workspace's: it holds a subset of the acks, suppresses a subset of the blocks, and therefore over-reports rather than under-rep
+
+  --- tet61-residue-scoped-acknowled C15  flagged=True (None)
+      verifier: contradicts: The captured output shows 33 occurrences, not the claimed 32 total (one production call plus 31 others).; overreaches: The captured census explicitly excludes dynamic, aliased, macro-asse
+      refuted : C15's last sentence — "No other symbol in the worktree needs to change" — is false on this design's own terms, and the symbols it misses are uncensused. C12 specifies the verb as "a variant of the sin
+      refuted : The declared surface is incomplete by this memo's own design, not by a judgement about unwritten code. C11 requires that an unreadable snapshot `acks.jsonl` redden `machine_check_failed` — "the one po

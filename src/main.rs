@@ -51,8 +51,16 @@ enum Command {
         /// owed list. Must be at least 1: a floor of 0 leaves nothing
         /// ever owed, which is the empty schedule a switched-off flag
         /// would produce, and there is deliberately no such flag.
-        #[arg(long, default_value_t = tetel::brief::DEFAULT_FLOOR)]
-        confirm: u32,
+        ///
+        /// Left out, the value comes from `grounding.floor` in the
+        /// settings file, and failing that from the built-in default.
+        /// The flag is deliberately an `Option` rather than a defaulted
+        /// value: with a default, a caller passing the default
+        /// explicitly is indistinguishable from one passing nothing, and
+        /// configuration could never be honoured without silently
+        /// overriding someone who asked for that number on purpose.
+        #[arg(long)]
+        confirm: Option<u32>,
     },
     /// Ingest one grounding result and append it to
     /// `<memo>.evidence.jsonl`.
@@ -274,9 +282,16 @@ enum Command {
         /// Revise this block's text instead of creating a new one.
         #[arg(long, value_name = "ID")]
         revise: Option<String>,
-        /// Required with `--revise`: why. Literal text, `-` for stdin,
-        /// or `@file`. Backticks in the text must come via `-` or
-        /// `@file`, never inline — the shell eats them first.
+        /// Acknowledge this block's *current* text and citations against
+        /// the claims they cite, discharging a `prose-revised-since-proof`
+        /// listing for it — see the design memo for what "discharging"
+        /// means and does not mean. Requires `--why`; refuses `--text`,
+        /// `--revise`, `--heading`, `--level`, `--cites` and `--before`.
+        #[arg(long, value_name = "ID")]
+        ack: Option<String>,
+        /// Required with `--revise` or `--ack`: why. Literal text, `-`
+        /// for stdin, or `@file`. Backticks in the text must come via
+        /// `-` or `@file`, never inline — the shell eats them first.
         #[arg(long, value_name = "TEXT|-|@FILE")]
         why: Option<String>,
     },
@@ -314,6 +329,52 @@ enum Command {
     /// by `--workspace`: asking which workspaces exist is the one
     /// question that cannot be answered from inside one of them.
     Workspaces,
+    /// Read or write a setting.
+    ///
+    /// With no key, lists every setting with its effective value and the
+    /// file that supplied it. With a key alone, prints that one. With a
+    /// key and a value, writes it — to the per-user file by default, or
+    /// to the selected workspace's own with `--workspace-scope`.
+    ///
+    /// See `tetel::config` for where the files live and why there is no
+    /// project scope.
+    Config {
+        /// The setting to read or write. Omit to list every setting.
+        key: Option<String>,
+        /// The value to write. Omit to read.
+        value: Option<String>,
+        /// Write to the selected workspace's file instead of the
+        /// per-user one. The workspace comes from `--workspace`.
+        #[arg(long)]
+        workspace_scope: bool,
+        /// Remove the setting from the chosen file, so the next scope
+        /// down applies again.
+        #[arg(long)]
+        unset: bool,
+    },
+    /// Join a memo's verifier findings to the verdicts its graders later
+    /// reached, and report what the two say about each other.
+    ///
+    /// The design that introduced the verifier ends by naming the
+    /// measurement its own corpus could not make — whether a flag at mint
+    /// time lands on a claim that later needed work — and saying that only
+    /// memos written afterwards can settle it. This is that measurement.
+    /// It reads the workspace's verification log and the memo's evidence
+    /// ledger and joins them by claim id; it writes nothing and calls
+    /// nowhere.
+    ///
+    /// See `tetel::verify` for why the log stays out of the snapshot, and
+    /// so why this only works on a machine that has the authoring
+    /// workspace.
+    VerifyReport {
+        /// The rendered memo. Its snapshot names the workspace whose log
+        /// is read.
+        file: PathBuf,
+        /// Print the quoted spans that failed verification, rather than
+        /// only counting them.
+        #[arg(long)]
+        spans: bool,
+    },
     /// Run an MCP server over stdio, exposing `look`/`run`/`fact`/
     /// `claim`/`prose`/`render`/`review`/`query`/`workspaces`/`check`/`brief`/
     /// `record` as tools. See `tetel::mcp` for why this exists and how
@@ -358,13 +419,52 @@ fn main() -> ExitCode {
             // Bounded below here rather than left to clap's parser: this
             // is the clause that keeps the floor from becoming the flag
             // the design rejected, not a range check.
-            if confirm == 0 {
+            if confirm == Some(0) {
                 eprintln!(
                     "tetel: `--confirm 0` would leave nothing ever owed, which is the empty \
 schedule a switched-off flag produces. The floor is at least 1."
                 );
                 return ExitCode::from(1);
             }
+            // Precedence: the flag, then the settings file, then the
+            // built-in default. A rejected file value is reported rather
+            // than swallowed — the settings file is meant to be
+            // auditable, so a value it failed to apply must not be
+            // discoverable only by noticing the schedule looks wrong.
+            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
+            let confirm = match confirm {
+                Some(n) => n,
+                None => {
+                    let (from_file, source) =
+                        tetel::config::grounding_floor(Some(&workspace_dir));
+                    if let tetel::config::Source::Rejected(scope, raw) = &source {
+                        eprintln!(
+                            "tetel: ignoring `{}` in the {scope} settings file — `{raw}` is not \
+a value that key accepts. Using {}.",
+                            tetel::config::KEY_GROUNDING_FLOOR,
+                            tetel::brief::DEFAULT_FLOOR
+                        );
+                    }
+                    // A rejection the resolution stepped over because a
+                    // lower scope had a usable value. `Source` can only
+                    // carry the one that cost the caller a value, and a
+                    // broken file masked by a working one is precisely
+                    // the case this comment's rule would otherwise miss.
+                    if matches!(source, tetel::config::Source::File(_)) {
+                        for (scope, raw) in tetel::config::rejections(
+                            tetel::config::KEY_GROUNDING_FLOOR,
+                            Some(&workspace_dir),
+                        ) {
+                            eprintln!(
+                                "tetel: also ignoring `{raw}` in the {scope} settings file — not \
+a value `{}` accepts.",
+                                tetel::config::KEY_GROUNDING_FLOOR
+                            );
+                        }
+                    }
+                    from_file.unwrap_or(tetel::brief::DEFAULT_FLOOR)
+                }
+            };
             match tetel::brief_file(&memo, json, confirm) {
                 Ok((code, out)) => {
                     print!("{out}");
@@ -662,8 +762,8 @@ schedule a switched-off flag produces. The floor is at least 1."
                     if outcome.overlap.is_empty() {
                         println!("  (none)");
                     } else {
-                        for (id, note) in &outcome.overlap {
-                            println!("  {id}: {note}");
+                        for (id, keys) in &outcome.overlap {
+                            println!("  {id}: {}", keys.join(", "));
                         }
                     }
                     println!("{} created (overlap report showed {} fact(s)).", outcome.claim.id, outcome.overlap.len());
@@ -770,7 +870,7 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
             }
         }
-        Command::Prose { text, heading, level, cites: cite, before, revise, why } => {
+        Command::Prose { text, heading, level, cites: cite, before, revise, why, ack } => {
             let workspace_dir = match tetel::workspace::open(&cli.workspace) {
                 Ok(d) => d,
                 Err(e) => {
@@ -779,7 +879,34 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
             };
 
-            let req = if let Some(id) = revise {
+            // Checked *first*, ahead of `revise`/`heading`/the paragraph
+            // fallback: none of those three read `text` without falling
+            // back to stdin on `None`, and an `--ack` invocation never
+            // supplies `--text`. Putting this branch anywhere else would
+            // let an ack with no `--text` reach `resolve_text_or_stdin`
+            // and block waiting on stdin that was never coming. The other
+            // five flags are forwarded raw (cloned, so the later branches
+            // still see them if this one isn't taken) purely so
+            // `dispatch` can refuse each by name if combined with `--ack`.
+            let req = if let Some(id) = ack {
+                let why = match &why {
+                    Some(raw) => match resolve_text(&workspace_dir, "prose", "--why", raw) {
+                        Ok(s) => Some(s),
+                        Err(code) => return code,
+                    },
+                    None => None,
+                };
+                tetel::prose::ProseRequest::Ack {
+                    id,
+                    why,
+                    text: text.clone(),
+                    revise: revise.clone(),
+                    heading: heading.clone(),
+                    level,
+                    cites: cite.clone(),
+                    before: before.clone(),
+                }
+            } else if let Some(id) = revise {
                 let why = match &why {
                     Some(raw) => match resolve_text(&workspace_dir, "prose", "--why", raw) {
                         Ok(s) => Some(s),
@@ -815,6 +942,10 @@ schedule a switched-off flag produces. The floor is at least 1."
                 }
                 Ok(tetel::prose::ProseOutcome::Created(block)) => {
                     println!("{} appended.", block.id);
+                    ExitCode::from(0)
+                }
+                Ok(tetel::prose::ProseOutcome::Acked { id }) => {
+                    println!("{id} acknowledged.");
                     ExitCode::from(0)
                 }
                 Err(e) => {
@@ -933,6 +1064,117 @@ fact — they are in the snapshot but nothing in the document rests on them"
                     eprintln!("tetel: mcp server error: {e}");
                     ExitCode::from(1)
                 }
+            }
+        }
+        Command::VerifyReport { file, spans } => {
+            match tetel::verify::report_text(&file, spans) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::from(0)
+                }
+                Err(e) => {
+                    eprintln!("verify-report: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Command::Config { key, value, workspace_scope, unset } => {
+            let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
+            let scope = if workspace_scope {
+                tetel::config::Scope::Workspace
+            } else {
+                tetel::config::Scope::Global
+            };
+            let ws = Some(workspace_dir.as_path());
+            // `--unset` names one setting to remove. Combined with a
+            // value it would be asking to write and remove the same key,
+            // and with no key at all it names nothing — both were
+            // previously ignored, so `config verify.enabled true --unset`
+            // wrote the value and exited 0 while the author had asked for
+            // the opposite.
+            if unset && key.is_none() {
+                eprintln!("tetel: --unset needs the setting to remove, e.g. `tetel config --unset {}`", tetel::config::KEY_GROUNDING_FLOOR);
+                return ExitCode::from(1);
+            }
+            if unset && value.is_some() {
+                eprintln!("tetel: --unset removes a setting; it cannot be given a value to write");
+                return ExitCode::from(1);
+            }
+            match (key, value) {
+                (None, _) => {
+                    print!("{}", tetel::config::list_text(ws));
+                    ExitCode::from(0)
+                }
+                (Some(key), None) if unset => match tetel::config::unset(scope, ws, &key) {
+                    Ok(path) => {
+                        println!("tetel: removed {key} from {}", path.display());
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                },
+                (Some(key), None) => {
+                    // Through the registry, as `set` and `unset` are.
+                    // Without it a typo reads as `(unset)` and exits 0,
+                    // so an author checking whether their setting took
+                    // concludes the key exists and is merely unset.
+                    if !tetel::config::known_keys().contains(&key.as_str()) {
+                        eprintln!(
+                            "tetel: unknown setting `{key}`. Known settings: {}",
+                            tetel::config::known_keys().join(", ")
+                        );
+                        return ExitCode::from(1);
+                    }
+                    // Reading prints the value *and* where it came from.
+                    // Same reasoning as the floor being printed beside
+                    // the owed list: a setting whose source is invisible
+                    // is a setting nobody can audit.
+                    let (v, source) = tetel::config::resolve(&key, ws);
+                    match (v, source) {
+                        (Some(v), tetel::config::Source::File(scope)) => {
+                            println!("{v}\t(from {scope})");
+                            ExitCode::from(0)
+                        }
+                        // The read path is the likeliest of the three to
+                        // reach a terminal capture or a bug report, so it
+                        // withholds a rejected value for the same keys
+                        // `set` and `list` do — a credential pasted into
+                        // `verify.model` by hand meets its refusal here,
+                        // not on write.
+                        (_, tetel::config::Source::Rejected(scope, _))
+                            if tetel::config::hides_rejected_value(&key) =>
+                        {
+                            eprintln!(
+                                "tetel: the value in the {scope} settings file is not one \
+`{key}` accepts, and is not echoed here in case it is a credential; it is being ignored."
+                            );
+                            ExitCode::from(1)
+                        }
+                        (_, tetel::config::Source::Rejected(scope, raw)) => {
+                            eprintln!(
+                                "tetel: `{raw}` in the {scope} settings file is not a value \
+`{key}` accepts; it is being ignored."
+                            );
+                            ExitCode::from(1)
+                        }
+                        _ => {
+                            println!("(unset)");
+                            ExitCode::from(0)
+                        }
+                    }
+                }
+                (Some(key), Some(value)) => match tetel::config::set(scope, ws, &key, &value) {
+                    Ok(path) => {
+                        println!("tetel: {key} = {value} in {}", path.display());
+                        ExitCode::from(0)
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {e}");
+                        ExitCode::from(1)
+                    }
+                },
             }
         }
         Command::Query { what } => {

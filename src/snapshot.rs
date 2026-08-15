@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 /// `pending.json` is included even though `render` never reads it: a
 /// non-empty buffer at snapshot time is a fact about how the document was
 /// finished, and silently dropping it would hide it.
-const SNAPSHOT_FILES: [&str; 9] = [
+const SNAPSHOT_FILES: [&str; 10] = [
     "facts.jsonl",
     "claims.jsonl",
     "prose.jsonl",
@@ -94,6 +94,13 @@ const SNAPSHOT_FILES: [&str; 9] = [
     // mechanism exists for — 78% scope-equal self-grounded against 33%
     // independent — and it was invisible until this file shipped.
     "identity.json",
+    // TET-61: `tetel prose --ack` discharges a `prose-revised-since-proof`
+    // listing, and the discharge is a record rather than a rewrite —
+    // see `acks.rs`'s module doc comment. Enumerated here, like every
+    // other entry, so a build predating this line never opens the file
+    // and reproduces the un-suppressed listing rather than silently
+    // reading nothing.
+    "acks.jsonl",
 ];
 
 /// A memo's snapshot directory: `<memo>.tetel`, sitting next to it —
@@ -218,6 +225,23 @@ mod tests {
             snapshot_path(Path::new("/x/memo.md")),
             PathBuf::from("/x/memo.md.tetel")
         );
+    }
+
+    #[test]
+    fn no_verifier_output_can_reach_a_snapshot() {
+        // A snapshot is the thing a reader is entitled to recompute, and
+        // the verifier's findings are the one class of text in a workspace
+        // that does not recompute: the same input can produce a different
+        // answer. They stay out by construction rather than by manners —
+        // `write` walks exactly this array and copies exactly these names,
+        // so a file whose name is absent cannot be shipped at all.
+        // Shipping one later would take a deliberate line here.
+        for name in SNAPSHOT_FILES {
+            assert!(
+                !name.starts_with("verify"),
+                "`{name}` would ship non-reproducible model output into a snapshot"
+            );
+        }
     }
 
     #[test]

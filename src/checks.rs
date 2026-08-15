@@ -12,13 +12,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use crate::acks::AckEvent;
 use crate::citations::{
     abutting_context, citation_ids_in, normalize_literal, scan_citations, AbuttingContext, Citation,
 };
+use crate::claims::Claim as AckClaim;
 use crate::evidence::{EvidenceRecord, Source, Verdict};
 use crate::ledger::Claim;
 use crate::model::{Designator, Kind, Row, Status};
 use crate::parse::Document;
+use crate::prose::ProseEvent;
 
 /// Everything the report needs, already computed. Kept as plain owned
 /// data (not references into `Document`) so it's simple to assert on in
@@ -200,6 +203,32 @@ pub struct Findings {
     /// back in proof, and these are the marks from before it was. See
     /// [`analyze_ledger`] on why the distinction matters.
     pub superseded_evidence: Vec<String>,
+    /// Prose blocks whose text (or citations) postdate the settling of
+    /// what they cite — see [`prose_after_proof`] for the rule and why
+    /// its anchor is first proof rather than last grading pass.
+    /// Human-owed, never a failure: this says a paragraph's wording is
+    /// younger than the evidence it rests on, not that the paragraph is
+    /// wrong. Only populated when a snapshot shipped beside the memo,
+    /// same as [`Findings::mint_windows`] — the prose history this reads
+    /// lives only in the workspace's `prose.jsonl`.
+    pub prose_revised_since_proof: Vec<ProseRevisedSinceProof>,
+    /// Blocks [`prose_revised_since_proof`] would otherwise have listed,
+    /// but for which some `tetel prose --ack` matches the check's own
+    /// recomputation — see [`prose_after_proof`] for exactly what
+    /// "matches" requires. Human-owed, never a failure: the residue's
+    /// own act, discharged by a human's own words rather than settled by
+    /// this tool. A filter over `prose_revised_since_proof`'s trigger,
+    /// never an input to it, so this can only ever shrink the other
+    /// list, never grow it.
+    pub prose_acknowledged: Vec<AcknowledgedBlock>,
+    /// `Some(message)` when the snapshot ships an `acks.jsonl` that
+    /// could not be parsed. A **machine failure** — unlike a corrupt
+    /// `prose.jsonl`, `compose::render` never reads this file, so
+    /// nothing else has already reddened provenance on its behalf; see
+    /// [`Findings::machine_check_failed`]. `None` covers both "no
+    /// `acks.jsonl` shipped" (an empty log, never an error — see
+    /// [`crate::workspace::read_jsonl`]) and "it parsed cleanly".
+    pub acks_unreadable: Option<String>,
 }
 
 impl Findings {
@@ -214,6 +243,7 @@ impl Findings {
             || !self.out_of_proof.is_empty()
             || !self.uncensused_targets.is_empty()
             || !self.unquoted_premises.is_empty()
+            || self.acks_unreadable.is_some()
             || self.provenance_failed()
     }
 
@@ -232,6 +262,418 @@ impl Findings {
                 | crate::snapshot::Provenance::Unreadable(_)
         )
     }
+}
+
+/// One prose block whose text — or citation list — postdates the
+/// settling of every in-proof claim it cites. See [`prose_after_proof`]
+/// for the full rule this is the output of.
+pub struct ProseRevisedSinceProof {
+    pub block_id: String,
+    /// 1-based line in the rendered document where this block's text
+    /// begins. `compose::render` never writes a block's id into the
+    /// document, so this is filled in by the caller from
+    /// [`crate::compose::block_offsets`] — `prose_after_proof` itself
+    /// takes no dependency on `compose`, since its own two inputs are
+    /// exactly the snapshot's prose log and the claims/evidence
+    /// `check_file` already holds (see that function's doc comment).
+    /// `None` if the block's id is absent from the offset map (should
+    /// not happen when both are read from the same snapshot, but this is
+    /// display metadata, never fabricated — a crate whose whole thesis
+    /// is not overstating provenance must not print a line number that
+    /// does not exist as if it did).
+    pub line: Option<usize>,
+    /// Every in-proof claim this block cites, each with that claim's own
+    /// first-proof timestamp and the pass whose record achieved it —
+    /// the inputs the anchor comparison takes, printed so a reader can
+    /// disagree with the conclusion rather than trust it. A cited claim
+    /// that is ungrounded or out of proof is omitted here (it already
+    /// prints under `ungrounded`/`out-of-proof`) and contributed nothing
+    /// to the anchor either — see the existential-gate note below.
+    pub cited: Vec<(String, u64, String)>,
+    /// The block's own text timestamp: the earliest event in this
+    /// block's history whose text *and* citation list both equal the
+    /// current ones.
+    pub block_timestamp: u64,
+    /// The `why` the author gave for the event that produced
+    /// `block_timestamp`, when that event was a [`ProseEvent::Revise`] —
+    /// the author's own stated reason for the edit, carried verbatim
+    /// rather than paraphrased (the never-paraphrase rule permits this:
+    /// it is the author's own words, not a rendering of their prose).
+    /// `None` when that event was a [`ProseEvent::Create`], which has no
+    /// `why` to carry — a block can enter the list on its first version,
+    /// never revised at all, and printing an empty string in that case
+    /// would fabricate a reason nobody gave.
+    pub why: Option<String>,
+}
+
+/// One prose block whose [`ProseRevisedSinceProof`] listing was
+/// discharged by a matching `tetel prose --ack`. See
+/// [`prose_after_proof`] for exactly what "matching" requires: the
+/// block's current text, citation list and every cited claim's current
+/// digest all equal to what the check recomputes, and the ack's own
+/// minting identity equal to the snapshot's own — no timestamp compared
+/// anywhere.
+pub struct AcknowledgedBlock {
+    pub block_id: String,
+    /// Same fill-in-by-caller convention as
+    /// [`ProseRevisedSinceProof::line`] — `None` rather than a
+    /// fabricated line number when the offset lookup misses.
+    pub line: Option<usize>,
+    /// The block's current citation list, printed beside the author's
+    /// reason so a reader can pair the two without re-opening the
+    /// document — see the non-coverage entry on why this is as far as
+    /// per-citation attribution goes.
+    pub cited: Vec<String>,
+    /// The *earliest* matching ack's timestamp. More than one ack can
+    /// match one block's current key at once (a repeat ack, or a second
+    /// ack after the first was itself superseded by an edit and then the
+    /// edit reverted); this is the moment the discharge was first made,
+    /// not the latest restatement of it, mirroring
+    /// `prose_after_proof`'s own use of the *earliest* event bearing a
+    /// block's current wording.
+    pub timestamp: u64,
+    /// The earliest matching ack's own verbatim reason. Never a
+    /// paraphrase, same rule as [`ProseRevisedSinceProof::why`].
+    pub why: String,
+}
+
+/// A prose block is listed when it is a paragraph (not a heading), it
+/// cites at least one id, at least one cited id resolves to a claim in
+/// `claims` that is **in proof**, and the block's text timestamp is
+/// strictly later than the latest **first proof** among those in-proof
+/// citations.
+///
+/// # The anchor is first proof, not last pass
+///
+/// Every grounding pass is briefed on every claim, whether or not it has
+/// changed, so a pass that finds nothing to change still appends a fresh
+/// record against the unchanged digest. Anchoring at the *latest*
+/// grading would walk forward every round — fix-round prose written in
+/// round three would stop being "since the last pass" the moment round
+/// four ran, even though no pass had read a word of it. Anchoring at the
+/// *earliest* record grading a claim's *current* wording fixes that: a
+/// later pass over unchanged text cannot move it, only a revision of the
+/// claim followed by a grading of the new wording does. Per claim this
+/// takes the earliest in-proof record (that is when the wording
+/// settled); per block it takes the *latest* of those (a block is not
+/// anchored until every claim it leans on has settled — taking the
+/// earliest instead would list nearly every paragraph in a memo, since
+/// almost all prose postdates *some* first-graded citation).
+///
+/// # The pair gate: text *and* citations, not the last event
+///
+/// A block's text timestamp is looked up by content, not by its last
+/// event, and by *both* the text and the citation list together. Both
+/// halves close a specific attack:
+///
+/// - Keyed on the last event instead of on content: `prose.jsonl` is
+///   append-only, so reverting a paragraph to the wording its claims
+///   settled under still appends a strictly later timestamp, and a
+///   listing could never clear.
+/// - Keyed on text alone instead of the pair: `prose::revise` never
+///   compares text and its `cite` parameter exists precisely so an
+///   author can add a citation to unchanged prose. An author could leave
+///   the text untouched and repoint the citation list at a claim the fix
+///   round had legitimately settled — the anchor moves forward, but a
+///   text-only key would still find the *original* (pre-citation-change)
+///   timestamp as the earliest matching version, silencing the listing
+///   even though this exact paragraph now rests on a claim it never
+///   named when it was last actually read against its evidence.
+///
+/// Keying on the pair means changing either moves the timestamp with it,
+/// so only two acts ever clear a listing: restoring the exact text and
+/// citations the claims settled under, or revising/adding a cited claim
+/// and having the new wording graded.
+///
+/// # Existential, not universal
+///
+/// Only one cited id needs to resolve to an in-proof claim. Requiring
+/// *every* citation to be in proof was tried first and rejected: it let
+/// a single record-less citation suppress a block with nothing red to
+/// show for it, since a claim with no records is human-owed
+/// (`ungrounded`) rather than a machine failure. A record-less or
+/// out-of-proof citation contributes nothing to the anchor either way —
+/// it simply is not in `evidence`'s in-proof set for its claim — so the
+/// existential gate costs nothing and closes that hole.
+///
+/// # Two inputs, and the one that fails silently if swapped
+///
+/// `prose_events` must be read directly from the snapshot's
+/// `prose.jsonl` — [`crate::prose::load_all`] replays the log into
+/// [`crate::prose::Block`], which keeps only a revision count and
+/// discards every timestamp, so this function cannot be built on top of
+/// it.
+///
+/// `claims` must be the ones `check_file` already imports from the
+/// *rendered document* (`ledger::import`), **never** the snapshot's
+/// `claims.jsonl`. Every `proposition_digest` on record was computed
+/// over a ledger-derived proposition, and the two are not the same
+/// string: rendering a claim into the ledger table
+/// (`compose::ledger_cell`) replaces embedded newlines with spaces, and
+/// importing (`ledger::split_row_cells`) trims every cell. Handed
+/// `claims.jsonl`'s propositions instead, a claim whose text has an
+/// embedded newline or edge whitespace would digest to something no
+/// record ever matches, this function would call it never in proof, and
+/// every block citing it would silently drop out of the list — with
+/// nothing red anywhere to say so.
+///
+/// # First proof, not first grading — and not `analyze_ledger`'s digest test
+///
+/// This function's in-proof test **deliberately diverges** from
+/// [`analyze_ledger`]'s in two ways, both load-bearing, both explained here
+/// rather than left to be rediscovered as a mismatch.
+///
+/// **A refuting record is not proof.** `analyze_ledger` answers "does any
+/// record on file grade the wording this claim carries today" — verdict-
+/// blind, because that question is only about whether the claim was ever
+/// re-examined against its current text, and *that* a claim was refuted is
+/// reported through a wholly separate channel (`verdict_disagreements`), not
+/// through `out_of_proof`. This function answers a different question: "when
+/// did this wording enter *proof*" — a word this crate then prints to a
+/// reader as `first entered proof at …`. A record whose verdict is
+/// [`Verdict::Refutes`] examined the wording and rejected it; counting it
+/// as the moment the wording "entered proof" would print a false statement
+/// about a refuted claim, and would let a later refutation raise a block's
+/// `max` anchor and silence a listing for the paragraph a refutation makes
+/// most worth a human's attention. So a refuting record is skipped here —
+/// a claim graded only by refutations has no first proof and contributes
+/// nothing to any block's anchor, exactly as an ungrounded claim does not.
+/// [`Verdict::Qualifies`] is left counting, matching `analyze_ledger`'s own
+/// treatment of it as a valid (if noted) grounding, never a contradiction.
+///
+/// **An empty digest is not evidence of *when* the current wording
+/// settled.** `analyze_ledger` grandfathers a record with no digest at all
+/// (written before the field existed) into "grades the current text",
+/// because failing to do so would silently retire its checks for every
+/// pre-digest document — and grandfathering there fails loudly, in the safe
+/// direction: at worst it reports a disagreement a revision has since
+/// resolved. Here the empty digest would instead be *read as a timestamp*
+/// for the event "this wording settled" — a fact the record does not
+/// attest to, since it predates the field that would let it say which
+/// wording it graded. Reusing the grandfather here fails in the *unsafe*
+/// direction: it can anchor a block years before its current wording was
+/// ever actually graded, silencing a listing that should have fired (see
+/// the module-level bug this fixed, reproduced in
+/// `empty_digest_grandfathering_does_not_anchor_before_current_wording_was_ever_graded`).
+/// So only a record whose digest **exactly matches** the claim's current
+/// proposition counts here; a claim graded only by pre-digest records has
+/// no first proof, the same non-finding an ungrounded claim gets. This can
+/// under-report a legacy-only claim that in fact still matches its current
+/// wording — the safe direction for a check that is silent by default (see
+/// `report::render`'s preamble on this check's own clock caveat) — rather
+/// than over-report by trusting a timestamp the record never promised.
+///
+/// # Acknowledgement is a filter over this trigger, never an input to it
+///
+/// `acks` and `ack_claims` exist only to *discharge* an entry this
+/// function would otherwise have produced — they can never manufacture
+/// one. The trigger above (text/citation pair postdating the anchor) is
+/// computed exactly as it always was; only afterwards, for a block that
+/// trigger already listed, is a match against `acks` attempted, and a
+/// match moves the entry from the first returned partition to the
+/// second rather than dropping it.
+///
+/// A match requires the ack's `block`, `text` and `cite` to equal the
+/// block's current ones, its `digests` to equal one sha256 digest per
+/// entry of the current `cite` — taken over each claim's proposition
+/// **as `ack_claims` holds it**, deliberately not `claims` above, see
+/// [`crate::acks`]'s module doc comment — and its `identity` to equal
+/// `ack_identity`, the snapshot's own. All four are pure equality over
+/// recomputed values; no timestamp is compared. When more than one ack
+/// matches, the *earliest* is used, mirroring this function's own use of
+/// the earliest event bearing a block's current wording.
+pub fn prose_after_proof(
+    prose_events: &[ProseEvent],
+    claims: &[Claim],
+    evidence: &[EvidenceRecord],
+    acks: &[AckEvent],
+    ack_claims: &[AckClaim],
+    ack_identity: Option<&str>,
+) -> (Vec<ProseRevisedSinceProof>, Vec<AcknowledgedBlock>) {
+    // Per claim, the earliest in-proof record: its timestamp and the
+    // pass that wrote it. A claim absent from this map has no first
+    // proof — either ungrounded, out of proof, graded only by a
+    // refutation, or graded only by pre-digest records — and contributes
+    // nothing to any block's anchor. See the doc comment above for why
+    // this is *not* `analyze_ledger`'s own digest test.
+    let mut first_proof: HashMap<&str, (u64, &str)> = HashMap::new();
+    for claim in claims {
+        let current = crate::evidence::sha256_hex(&claim.proposition);
+        let mut best: Option<(u64, &str)> = None;
+        for r in evidence.iter().filter(|r| r.claim_id == claim.id) {
+            // Only a record that actually grades today's wording — an
+            // empty (pre-digest) digest does not qualify, unlike
+            // `analyze_ledger`'s grandfathering (see doc comment).
+            if r.proposition_digest != current {
+                continue;
+            }
+            // A refutation examined this wording and rejected it; it did
+            // not put the wording in proof (see doc comment).
+            if r.verdict == Verdict::Refutes {
+                continue;
+            }
+            best = Some(match best {
+                None => (r.timestamp, r.pass.as_str()),
+                Some((t, _)) if r.timestamp < t => (r.timestamp, r.pass.as_str()),
+                Some(existing) => existing,
+            });
+        }
+        if let Some(b) = best {
+            first_proof.insert(claim.id.as_str(), b);
+        }
+    }
+
+    // Per block, its full history as (timestamp, text, cite-list, why)
+    // after each event, in event order — cite carried forward across a
+    // Revise that leaves it unstated, exactly as `prose::load_all` does.
+    // `why` is `None` for a `Create` (which has none) and `Some` for a
+    // `Revise` (which always carries one) — read back below to fill
+    // `ProseRevisedSinceProof::why`.
+    struct History {
+        heading: bool,
+        versions: Vec<(u64, String, Vec<String>, Option<String>)>,
+    }
+    let mut order: Vec<String> = Vec::new();
+    let mut blocks: HashMap<String, History> = HashMap::new();
+    for ev in prose_events {
+        match ev {
+            ProseEvent::Create { id, heading, text, cite, before, timestamp, .. } => {
+                // Guard matches `prose::load_all`'s dedup of a repeated
+                // `Create` for one id: reachable via a hand-edited log,
+                // and via a race in `workspace::next_id`'s unlocked
+                // read-modify-write of `counters.json` under concurrent
+                // `tetel prose` invocations (verified: `load_counters`
+                // reads, increments in memory, `save_counters` writes —
+                // no lock, no compare-and-swap — so two processes can
+                // both read the same counter and mint the same id).
+                // `load_all` pushes the id into its order list only
+                // once (a second push is a no-op there because
+                // `filter_map`'s `by_id.remove` finds nothing left the
+                // second time), so the id keeps its *first*-occurrence
+                // position while `by_id.insert` — like `blocks.insert`
+                // below — still lets the *last* Create's content win.
+                // Without this guard, `order` carries the id twice and
+                // the final loop below emits the same (already-merged)
+                // block once per `Create`, not once per block.
+                //
+                // `before` is honoured the same way `load_all` honours
+                // it — inserted at the anchor's current position if
+                // still present, appended otherwise — so this function's
+                // `order`, and therefore the entries it reports, follow
+                // *document* order rather than authoring (event) order.
+                // Without this, a memo authored with `prose --before`
+                // (see prose.rs's module doc comment on why insertion
+                // exists) prints its residue entries out of the order a
+                // reader sees them in the rendered document.
+                if !blocks.contains_key(id) {
+                    match before.as_deref().and_then(|b| order.iter().position(|o| o == b)) {
+                        Some(at) => order.insert(at, id.clone()),
+                        None => order.push(id.clone()),
+                    }
+                }
+                blocks.insert(
+                    id.clone(),
+                    History {
+                        heading: *heading,
+                        versions: vec![(*timestamp, text.clone(), cite.clone(), None)],
+                    },
+                );
+            }
+            ProseEvent::Revise { id, text, cite, why, timestamp, .. } => {
+                if let Some(h) = blocks.get_mut(id) {
+                    let carried = h.versions.last().map(|(_, _, c, _)| c.clone()).unwrap_or_default();
+                    let cite = cite.clone().unwrap_or(carried);
+                    h.versions.push((*timestamp, text.clone(), cite, Some(why.clone())));
+                }
+            }
+        }
+    }
+
+    // Digest per claim id, taken over the proposition as `ack_claims`
+    // (claims.jsonl) holds it — deliberately a *different* map from
+    // `first_proof` above, which digests `claims`' (ledger-derived)
+    // propositions. See this function's doc comment and `crate::acks`'s
+    // module doc comment for why the two must not be conflated.
+    let ack_digest: HashMap<&str, String> =
+        ack_claims.iter().map(|c| (c.id.as_str(), crate::evidence::sha256_hex(&c.prop))).collect();
+
+    let mut listed = Vec::new();
+    let mut acknowledged = Vec::new();
+    for id in &order {
+        let Some(h) = blocks.get(id) else { continue };
+        if h.heading {
+            continue;
+        }
+        let Some((_, cur_text, cur_cite, _)) = h.versions.last() else { continue };
+        if cur_cite.is_empty() {
+            continue;
+        }
+
+        let mut cited: Vec<(String, u64, String)> = cur_cite
+            .iter()
+            .filter_map(|cid| first_proof.get(cid.as_str()).map(|(t, p)| (cid.clone(), *t, (*p).to_string())))
+            .collect();
+        if cited.is_empty() {
+            continue; // existential gate: no cited claim is in proof
+        }
+        cited.sort_by(|a, b| a.0.cmp(&b.0));
+        let anchor = cited.iter().map(|(_, t, _)| *t).max().unwrap();
+
+        // Earliest event whose text AND citation list both equal the
+        // current ones — not the last event. See the doc comment above
+        // on why keying on content, and on the pair, is load-bearing.
+        // Its own `why` (present only if that event was a `Revise`)
+        // travels with it, since it is the reason for *this* wording,
+        // not for whichever event happened to be last.
+        let (block_timestamp, why) = h
+            .versions
+            .iter()
+            .filter(|(_, t, c, _)| t == cur_text && c == cur_cite)
+            .min_by_key(|(ts, _, _, _)| *ts)
+            .map(|(ts, _, _, w)| (*ts, w.clone()))
+            .expect("the current version is always a member of its own history");
+
+        if block_timestamp > anchor {
+            // Try to discharge via a matching ack before listing — see
+            // this function's doc comment on what "matching" requires.
+            // `recomputed_digests` is `None` the moment any current
+            // citation fails to resolve against `ack_claims`, which
+            // makes a match impossible (as it must be: `acks::create`
+            // itself refuses to mint an ack for a block citing an id
+            // `claims.jsonl` cannot resolve, so no real ack could ever
+            // carry a digest for one anyway).
+            let recomputed_digests: Option<Vec<String>> =
+                cur_cite.iter().map(|cid| ack_digest.get(cid.as_str()).cloned()).collect();
+            let matched = recomputed_digests.as_ref().and_then(|digests| {
+                acks.iter()
+                    .filter(|a| {
+                        a.block == *id
+                            && a.text == *cur_text
+                            && a.cite == *cur_cite
+                            && a.digests == *digests
+                            && ack_identity.is_some_and(|snap_id| a.identity == snap_id)
+                    })
+                    .min_by_key(|a| a.timestamp)
+            });
+            match matched {
+                Some(a) => acknowledged.push(AcknowledgedBlock {
+                    block_id: id.clone(),
+                    line: None,
+                    cited: cur_cite.clone(),
+                    timestamp: a.timestamp,
+                    why: a.why.clone(),
+                }),
+                None => listed.push(ProseRevisedSinceProof {
+                    block_id: id.clone(),
+                    line: None,
+                    cited,
+                    block_timestamp,
+                    why,
+                }),
+            }
+        }
+    }
+    (listed, acknowledged)
 }
 
 fn covers(extent: &[Designator], d: &Designator) -> bool {
@@ -585,6 +1027,9 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         qualified_claims: Vec::new(),
         out_of_proof: Vec::new(),
         superseded_evidence: Vec::new(),
+        prose_revised_since_proof: Vec::new(),
+        prose_acknowledged: Vec::new(),
+        acks_unreadable: None,
     }
 }
 
@@ -1427,6 +1872,636 @@ status: VERIFIED
         );
         assert!(findings.abutting_failures.is_empty());
         assert_eq!(findings.abutting_candidates.len(), 1);
+    }
+
+    // --- prose_after_proof ------------------------------------------
+
+    fn a_record_at(claim_id: &str, pass: &str, graded: &str, ts: u64) -> EvidenceRecord {
+        EvidenceRecord {
+            claim_id: claim_id.to_string(),
+            verdict: Verdict::Supports,
+            pass: pass.to_string(),
+            reported_kind: "reading".to_string(),
+            source: "proc:x".to_string(),
+            extent: vec![],
+            note: None,
+            pin: None,
+            timestamp: ts,
+            witnessed: false,
+            proposition_digest: crate::evidence::sha256_hex(graded),
+        }
+    }
+
+    /// Same as `a_record_at`, but with a caller-chosen verdict — for the
+    /// tests pinning that a refuting record cannot serve as first proof.
+    fn a_record_at_verdict(claim_id: &str, pass: &str, graded: &str, ts: u64, verdict: Verdict) -> EvidenceRecord {
+        EvidenceRecord { verdict, ..a_record_at(claim_id, pass, graded, ts) }
+    }
+
+    fn create_ev(id: &str, text: &str, cite: &[&str], ts: u64) -> ProseEvent {
+        ProseEvent::Create {
+            id: id.to_string(),
+            heading: false,
+            level: None,
+            text: text.to_string(),
+            cite: cite.iter().map(|s| s.to_string()).collect(),
+            before: None,
+            timestamp: ts,
+        }
+    }
+
+    fn revise_ev(id: &str, text: &str, cite: Option<&[&str]>, ts: u64) -> ProseEvent {
+        revise_ev_why(id, text, "test revision", cite, ts)
+    }
+
+    /// Same as `revise_ev`, but with a caller-chosen `why` — for the test
+    /// pinning that `prose_after_proof` carries it through.
+    fn revise_ev_why(id: &str, text: &str, why: &str, cite: Option<&[&str]>, ts: u64) -> ProseEvent {
+        ProseEvent::Revise {
+            id: id.to_string(),
+            text: text.to_string(),
+            why: why.to_string(),
+            cite: cite.map(|c| c.iter().map(|s| s.to_string()).collect()),
+            timestamp: ts,
+        }
+    }
+
+    /// The case creation-counting exists to catch (C5 in the design
+    /// memo): a paragraph written under nothing but an already-settled
+    /// claim. No revision anywhere — the block's one and only event
+    /// postdates the claim's first proof.
+    #[test]
+    fn lists_a_paragraph_created_after_its_only_claim_settled() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(
+            out.len(),
+            1,
+            "expected exactly one listed block, got {:?}",
+            out.iter().map(|o| o.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(out[0].block_id, "P1");
+        assert_eq!(out[0].block_timestamp, 200);
+        assert_eq!(out[0].cited, vec![("C1".to_string(), 100, "k1".to_string())]);
+    }
+
+    /// The load-bearing refutation this design records under "The pair
+    /// gate": keying a block's timestamp on text alone lets an author
+    /// leave the text untouched and repoint the citation list at a claim
+    /// the fix round had just settled — silencing a listing with an act
+    /// indistinguishable from good authoring. Keying on text *and*
+    /// citations together closes it, because changing either moves the
+    /// timestamp with it.
+    ///
+    /// This is the test named in the task's revert-check: green with the
+    /// pair-gate `t == cur_text && c == cur_cite` filter in place, red
+    /// if that filter is narrowed back to `t == cur_text` alone.
+    #[test]
+    fn citation_only_revision_is_listed_not_silenced() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![
+            // Created uncited, well before C1 ever settled.
+            create_ev("P1", "Body text that never changes.", &[], 10),
+            // Later: citations added, text left byte-identical. An
+            // ordinary, unrefused act — see prose.rs's `revise` doc
+            // comment on why `cite` exists.
+            revise_ev("P1", "Body text that never changes.", Some(&["C1"]), 150),
+        ];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(
+            out.len(),
+            1,
+            "a citation-only revision that points at an already-settled claim must be listed, \
+not silenced"
+        );
+        assert_eq!(out[0].block_timestamp, 150, "keyed on the pair, not on text alone");
+    }
+
+    /// Requiring every cited claim to be in proof let a single
+    /// record-less citation suppress a listing with nothing red to show
+    /// for it. The gate is existential: one in-proof citation anchors
+    /// the block, and the record-less one contributes nothing (and is
+    /// omitted from `cited`).
+    #[test]
+    fn existential_gate_ignores_a_record_less_citation() {
+        let claims = vec![a_claim("C1", "the wording"), a_claim("C2", "an ungrounded claim")];
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 50)];
+        let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 100)];
+
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].cited, vec![("C1".to_string(), 50, "k1".to_string())], "C2 has no first proof and must not appear");
+    }
+
+    // --- TET-61: acknowledgement -------------------------------------
+
+    fn an_ack_claim(id: &str, prop: &str) -> AckClaim {
+        AckClaim { id: id.to_string(), prop: prop.to_string(), from: vec![], withdrawn: false, revisions: 0 }
+    }
+
+    fn an_ack(block: &str, text: &str, cite: &[&str], digests: &[&str], identity: &str, why: &str, ts: u64) -> AckEvent {
+        AckEvent {
+            block: block.to_string(),
+            text: text.to_string(),
+            cite: cite.iter().map(|s| s.to_string()).collect(),
+            digests: digests.iter().map(|s| s.to_string()).collect(),
+            identity: identity.to_string(),
+            why: why.to_string(),
+            timestamp: ts,
+        }
+    }
+
+    /// The baseline positive case: an ack whose block, text, citations,
+    /// digests and identity all equal what the check recomputes moves the
+    /// entry from the listed partition to the acknowledged one, and the
+    /// acknowledged entry carries the block's cited ids and the ack's own
+    /// verbatim reason.
+    #[test]
+    fn a_matching_ack_discharges_the_listing() {
+        let claim = a_claim("C1", "the wording");
+        let ack_claim = an_ack_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&digest], "ws-1", "re-read, still accurate", 250)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &[ack_claim], Some("ws-1"));
+        assert!(listed.is_empty(), "a matching ack must clear the listed partition: {:?}", listed.iter().map(|l| l.block_id.clone()).collect::<Vec<_>>());
+        assert_eq!(acknowledged.len(), 1);
+        assert_eq!(acknowledged[0].block_id, "P1");
+        assert_eq!(acknowledged[0].cited, vec!["C1".to_string()]);
+        assert_eq!(acknowledged[0].why, "re-read, still accurate");
+        assert_eq!(acknowledged[0].timestamp, 250);
+    }
+
+    /// An ack whose minting identity does not match the snapshot's own is
+    /// void rather than honoured — see C4/C8 in the design memo: nothing
+    /// binds a rendered memo to the workspace that produced it, so a
+    /// stale ack log copied in from elsewhere must not suppress.
+    #[test]
+    fn an_ack_from_a_different_identity_does_not_suppress() {
+        let claim = a_claim("C1", "the wording");
+        let ack_claim = an_ack_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&digest], "someone-elses-workspace", "re-read, fine", 250)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &[ack_claim], Some("this-snapshots-identity"));
+        assert_eq!(listed.len(), 1, "identity mismatch must not suppress");
+        assert!(acknowledged.is_empty());
+    }
+
+    /// Invariant (i) from the design memo's C10: the ack's key includes
+    /// the block's citation list, not just its text, so a later
+    /// citation-only revision voids an ack minted against the earlier
+    /// citation set — even when the two claims happen to share the exact
+    /// same proposition text (and therefore the same digest), which is
+    /// what makes this test able to catch a predicate weakened to ignore
+    /// `cite` while still checking `digests`: C1 and C2 are given
+    /// identical propositions on purpose, so a digest-only comparison
+    /// cannot tell the citation swap apart from no change at all.
+    ///
+    /// Mutation to redden this test: drop `a.cite == *cur_cite` from the
+    /// match predicate in `prose_after_proof`.
+    #[test]
+    fn ack_keyed_on_text_alone_would_survive_a_citation_only_revision() {
+        let claims = vec![a_claim("C1", "shared text"), a_claim("C2", "shared text")];
+        let ack_claims = vec![an_ack_claim("C1", "shared text"), an_ack_claim("C2", "shared text")];
+        let evidence = vec![a_record_at("C1", "k1", "shared text", 5), a_record_at("C2", "k2", "shared text", 15)];
+        let digest = crate::evidence::sha256_hex("shared text");
+        let prose = vec![
+            create_ev("P1", "Body.", &["C1"], 10),
+            // The ack matches this original (text, cite=[C1]) pair.
+            revise_ev_why("P1", "Body.", "repoint citation", Some(&["C2"]), 20),
+        ];
+        let acks = vec![an_ack("P1", "Body.", &["C1"], &[&digest], "ws-1", "read against C1, fine", 11)];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &claims, &evidence, &acks, &ack_claims, Some("ws-1"));
+        assert_eq!(
+            listed.len(),
+            1,
+            "a citation-only revision must void the old ack and stay listed, not be silently \
+suppressed by an ack keyed on text alone: acknowledged = {:?}",
+            acknowledged.iter().map(|a| a.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert!(acknowledged.is_empty());
+    }
+
+    /// Invariant (ii) from the design memo's C10: the ack's key includes
+    /// a digest per cited claim, so a later rewrite of a cited claim's
+    /// proposition voids an ack minted against the earlier wording — even
+    /// though the block's own text and citation *list* (the id `C1`) are
+    /// unchanged. `claims` (the ledger list the trigger's own anchor
+    /// calculation reads) is held constant across both sides so only the
+    /// digest recomputation moves — isolating exactly the property this
+    /// invariant is about.
+    ///
+    /// Mutation to redden this test: drop `a.digests == *digests` from
+    /// the match predicate in `prose_after_proof`.
+    #[test]
+    fn ack_keyed_without_digests_would_survive_a_rewrite_of_the_cited_claim() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "A paragraph about C1.", &["C1"], 200)];
+        let old_digest = crate::evidence::sha256_hex("the wording");
+        let acks = vec![an_ack("P1", "A paragraph about C1.", &["C1"], &[&old_digest], "ws-1", "read against the old wording", 250)];
+        // claims.jsonl's own C1 has since been rewritten to a different
+        // proposition — the ack's digest was taken over the old wording.
+        let ack_claims = vec![an_ack_claim("C1", "a completely different wording")];
+
+        let (listed, acknowledged) =
+            prose_after_proof(&prose, &[claim], &evidence, &acks, &ack_claims, Some("ws-1"));
+        assert_eq!(
+            listed.len(),
+            1,
+            "a rewritten cited claim must void the old ack and stay listed, not be silently \
+suppressed by an ack keyed on text and citations alone: acknowledged = {:?}",
+            acknowledged.iter().map(|a| a.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert!(acknowledged.is_empty());
+    }
+
+    /// No evidence ledger at all: no cited claim is in proof, so there is
+    /// no first proof to compare against and nothing is listed — the
+    /// vacuous case falls out of the in-proof test without a special rule.
+    #[test]
+    fn nothing_listed_with_no_evidence() {
+        let claim = a_claim("C1", "the wording");
+        let prose = vec![create_ev("P1", "Rests on C1, ungrounded.", &["C1"], 100)];
+        assert!(prose_after_proof(&prose, &[claim], &[], &[], &[], None).0.is_empty());
+    }
+
+    /// A paragraph that cites nothing is never listed. Note this guard
+    /// (`if cur_cite.is_empty() { continue }`) is not independently
+    /// observable by mutation: an empty `cur_cite` always produces an
+    /// empty `cited` from the existential-gate `filter_map` two lines
+    /// later, so the downstream `if cited.is_empty() { continue }` check
+    /// already skips this case on its own. Removing the early guard
+    /// changes no test outcome — it is kept for readability (naming the
+    /// population the memo names explicitly, "paragraphs that cite
+    /// nothing by choice") rather than as a load-bearing gate of its own.
+    #[test]
+    fn uncited_paragraph_is_never_listed() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 10)];
+        let prose = vec![create_ev("P2", "Cites nothing at all.", &[], 999)];
+        assert!(prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0.is_empty());
+    }
+
+    /// Headings are excluded by their own guard (`if h.heading {
+    /// continue }`), and — unlike the uncited-paragraph guard above —
+    /// this one is load-bearing: the raw log format does not forbid a
+    /// heading event from carrying citations (only the CLI path never
+    /// produces one), so a heading with a citation to an in-proof claim
+    /// must still be skipped, not merely happen to fall through some
+    /// other check. Constructed directly against the event log (bypassing
+    /// `prose::create`, which never lets the CLI attach citations to a
+    /// heading) so this guard is exercised on its own.
+    #[test]
+    fn heading_with_citations_is_still_never_listed() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 10)];
+        let heading_with_cite = ProseEvent::Create {
+            id: "P1".to_string(),
+            heading: true,
+            level: Some(2),
+            text: "A section heading".to_string(),
+            cite: vec!["C1".to_string()],
+            before: None,
+            timestamp: 999,
+        };
+        assert!(prose_after_proof(&[heading_with_cite], &[claim], &evidence, &[], &[], None).0.is_empty());
+    }
+
+    /// The first refutation this design records: `prose.jsonl` is
+    /// append-only, so a byte-exact revert appends a strictly later
+    /// timestamp. Keying the block's timestamp on the *earliest* event
+    /// whose content matches the current content — rather than on the
+    /// last event — is what lets the revert actually clear the listing.
+    #[test]
+    fn a_byte_exact_revert_clears_the_listing() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![
+            create_ev("P1", "Original wording.", &["C1"], 10), // before C1 settled
+            revise_ev("P1", "Fix-round rewrite.", None, 150),  // after — would be listed
+            revise_ev("P1", "Original wording.", None, 300),   // byte-exact revert
+        ];
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert!(
+            out.is_empty(),
+            "a revert to the pre-settlement wording must clear the listing, block timestamps: {:?}",
+            out.iter().map(|o| o.block_timestamp).collect::<Vec<_>>()
+        );
+    }
+
+    /// Pins the per-block quantifier: the anchor is the *latest* first
+    /// proof among a block's in-proof citations, not the earliest. C1
+    /// settles at t=100, C2 at t=200; the block is written at t=150 —
+    /// after C1 settled but before C2 did. Under the correct `max`
+    /// anchor (200) this must NOT be listed: the block is not anchored
+    /// until *every* claim it leans on has settled, and C2 has not yet.
+    /// Under a `min` anchor (100) it would wrongly be listed, since
+    /// t=150 > 100. This is the case a coordinator's mutation run found
+    /// unpinned: with a single citation, `min` and `max` over a
+    /// one-element set are extensionally equal, so every other fixture
+    /// in this module passes under both.
+    #[test]
+    fn anchor_is_the_latest_first_proof_not_the_earliest() {
+        let claims = vec![a_claim("C1", "wording one"), a_claim("C2", "wording two")];
+        let evidence =
+            vec![a_record_at("C1", "k1", "wording one", 100), a_record_at("C2", "k2", "wording two", 200)];
+        let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 150)];
+
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
+        assert!(
+            out.is_empty(),
+            "the block is not anchored until every in-proof citation has settled — C2 settles \
+after this block was written, so this must not be listed: {:?}",
+            out.iter().map(|o| o.block_timestamp).collect::<Vec<_>>()
+        );
+    }
+
+    /// Pins the per-claim quantifier: a claim's first proof is the
+    /// *earliest* in-proof record, not the latest. C1 carries two
+    /// records grading its current wording — one at t=200 (pass "kA"),
+    /// one at t=50 (pass "kB"). The block is written at t=100, strictly
+    /// after the earliest (50) but strictly before the later one (200).
+    /// Under the correct `min` this is listed, anchored at 50 by "kB".
+    /// Under a `max` it would not be (100 is not > 200).
+    #[test]
+    fn per_claim_first_proof_is_the_earliest_record_not_the_latest() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![
+            a_record_at("C1", "kA", "the wording", 200),
+            a_record_at("C1", "kB", "the wording", 50),
+        ];
+        let prose = vec![create_ev("P1", "Rests on C1.", &["C1"], 100)];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(out.len(), 1, "written after the claim's earliest in-proof record, must be listed");
+        assert_eq!(
+            out[0].cited,
+            vec![("C1".to_string(), 50, "kB".to_string())],
+            "the earliest in-proof record anchors the claim, not the latest"
+        );
+    }
+
+    /// Round-2 code review (A), consequence 1: a claim graded only by a
+    /// refutation must not print as "first entered proof" — that is a
+    /// false statement about a claim that was rejected, not confirmed.
+    /// Skipping `Verdict::Refutes` records means C1 has no first proof at
+    /// all here (the same non-finding an ungrounded claim gets), so a
+    /// block resting only on C1 is not listed.
+    ///
+    /// Mutation-run: with the `r.verdict == Verdict::Refutes { continue }`
+    /// guard removed (reverting to the pre-fix, verdict-blind filter),
+    /// this test fails — `out.len()` is 1, and `out[0].cited` carries
+    /// `("C1", 100, "k1")`, printing exactly the false "entered proof"
+    /// claim this test exists to catch. With the guard restored it
+    /// passes. See the fix report for the pasted `cargo test` output of
+    /// both runs.
+    #[test]
+    fn a_refuting_record_does_not_count_as_first_proof() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at_verdict("C1", "k1", "the wording", 100, Verdict::Refutes)];
+        let prose = vec![create_ev("P1", "Rests only on C1.", &["C1"], 200)];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert!(
+            out.is_empty(),
+            "a claim graded only by a refutation must have no first proof to anchor on \
+(nothing here confirms the wording), got {:?}",
+            out.iter().map(|o| (o.block_id.clone(), o.cited.clone())).collect::<Vec<_>>()
+        );
+    }
+
+    /// Round-2 code review (A), consequence 2: a *later* refutation of one
+    /// cited claim must not raise the block's `max` anchor and silence a
+    /// listing that rests on another claim's real (supported) proof. C1
+    /// is supported at t=100; C2 is refuted at t=500 — later than the
+    /// paragraph's own t=300. Under the pre-fix, verdict-blind filter, C2
+    /// would still contribute a first-proof entry at 500, the `max`
+    /// anchor would be 500, and 300 > 500 is false — the block would be
+    /// silenced, even though it rests on C1's genuine proof from t=100 and
+    /// was written squarely after it. With the fix, C2 contributes
+    /// nothing (refuted, no first proof), the anchor is C1's 100 alone,
+    /// and 300 > 100 — listed, anchored only on the claim that actually
+    /// entered proof.
+    ///
+    /// Mutation-run: with the `Verdict::Refutes` guard removed, this test
+    /// fails (`out` is empty — silenced). With the guard restored it
+    /// passes (`out.len() == 1`, anchored only on C1). See the fix report
+    /// for the pasted `cargo test` output of both runs.
+    #[test]
+    fn a_later_refutation_does_not_silence_a_block_resting_on_real_proof() {
+        let claims = vec![a_claim("C1", "wording one"), a_claim("C2", "wording two")];
+        let evidence = vec![
+            a_record_at("C1", "k1", "wording one", 100),
+            a_record_at_verdict("C2", "k2", "wording two", 500, Verdict::Refutes),
+        ];
+        let prose = vec![create_ev("P1", "Rests on both C1 and C2.", &["C1", "C2"], 300)];
+
+        let out = prose_after_proof(&prose, &claims, &evidence, &[], &[], None).0;
+        assert_eq!(
+            out.len(),
+            1,
+            "C2's later refutation must not raise the anchor and silence a block resting on \
+C1's real proof, got {:?}",
+            out.iter().map(|o| (o.block_id.clone(), o.cited.clone())).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            out[0].cited,
+            vec![("C1".to_string(), 100, "k1".to_string())],
+            "C2 must contribute nothing to the anchor — it was only ever refuted"
+        );
+    }
+
+    /// Round-2 code review (B): a legacy empty-digest record must not be
+    /// read as a timestamp for "this wording settled" — it predates the
+    /// digest field and does not attest to which wording it graded. C1's
+    /// current wording is graded for the first time at t=600; a
+    /// pre-digest record for the *same claim id* (necessarily some
+    /// earlier, unknown wording) sits at t=10. A paragraph written at
+    /// t=550 — before the current wording was ever actually graded — must
+    /// not be listed, even though 550 > 10.
+    ///
+    /// Verified this reproduces before fixing it: on the pre-fix code
+    /// (empty digest grandfathered into the `min`), this test fails —
+    /// `out` carries one entry anchored at t=10 via the legacy record,
+    /// falsely flagging a paragraph that in fact predates the only real
+    /// grading of its citation. See the fix report for the pasted
+    /// `cargo test` output of both runs.
+    #[test]
+    fn empty_digest_grandfathering_does_not_anchor_before_current_wording_was_ever_graded() {
+        let claim = a_claim("C1", "the wording, v2");
+        let evidence = vec![
+            // Pre-digest record: some earlier wording, timestamp unrelated
+            // to when v2 was graded.
+            EvidenceRecord {
+                proposition_digest: String::new(),
+                ..a_record_at("C1", "legacy", "the wording, v1", 10)
+            },
+            // The only record that actually grades the current wording.
+            a_record_at("C1", "k2", "the wording, v2", 600),
+        ];
+        let prose = vec![create_ev(
+            "P1",
+            "Written before the current wording was ever graded.",
+            &["C1"],
+            550,
+        )];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert!(
+            out.is_empty(),
+            "the block (t=550) predates the only record that actually grades the current \
+wording (t=600); anchoring at the legacy empty-digest record's t=10 would falsely list it, \
+got {:?}",
+            out.iter().map(|o| (o.block_timestamp, o.cited.clone())).collect::<Vec<_>>()
+        );
+    }
+
+    /// Pins the strict inequality at the final comparison. A block
+    /// written in the *same second* as its only citation's first proof
+    /// is not listed — the rule is "strictly later," not "at or after."
+    /// A `>=` mutation would list this.
+    #[test]
+    fn equal_timestamps_are_not_listed() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "Rests on C1.", &["C1"], 100)];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert!(
+            out.is_empty(),
+            "a block timestamped exactly at its anchor must not be listed, got {} entries",
+            out.len()
+        );
+    }
+
+    /// Pins the cite-carried-forward behaviour on a `Revise` that leaves
+    /// `cite` unstated (`cite: None`): the block keeps its previous
+    /// citation list rather than losing it. P1 is created citing C1
+    /// before C1 settles, then rewritten (text only, `cite: None`) after
+    /// C1's first proof. If the carry-forward silently dropped to
+    /// empty instead, the block would fail the cites-something gate and
+    /// vanish from the list with no citation ever having been removed by
+    /// any author action — the exact silent-drop failure mode this
+    /// design's existential/pair-gate work was built to avoid elsewhere.
+    #[test]
+    fn revise_without_cite_carries_the_previous_citation_list_forward() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![
+            create_ev("P1", "Original wording.", &["C1"], 10), // before C1 settled
+            revise_ev("P1", "Rewritten wording.", None, 150),  // text only; cite carried forward
+        ];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(
+            out.len(),
+            1,
+            "a text-only revision must keep citing C1 via carry-forward, and must be listed \
+since it postdates C1's settlement"
+        );
+        assert_eq!(out[0].cited, vec![("C1".to_string(), 100, "k1".to_string())]);
+    }
+
+    /// Round-2 code review (C): `ProseEvent::Revise` carries `why` — the
+    /// author's own stated reason for the edit — and a listed block whose
+    /// current version came from a `Revise` must carry it through rather
+    /// than discard it.
+    #[test]
+    fn a_listed_block_carries_the_revision_s_why() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![
+            create_ev("P1", "Original wording.", &["C1"], 10), // before C1 settled
+            revise_ev_why("P1", "Rewritten wording.", "tightened the claim after review", None, 150),
+        ];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].why.as_deref(), Some("tightened the claim after review"));
+    }
+
+    /// The other half of the same fix: a block listed on its *first*
+    /// version — a `Create`, never revised — has no `why` to carry, and
+    /// this must come back as `None`, not a fabricated empty string.
+    #[test]
+    fn a_block_listed_on_its_create_has_no_why() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![create_ev("P1", "Never revised.", &["C1"], 200)];
+
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].why, None, "a Create has no why; the field must not be fabricated");
+    }
+
+    /// A repeated `Create` for one block id — reachable via a
+    /// hand-edited log, and via `workspace::next_id`'s unlocked
+    /// read-modify-write of `counters.json` under concurrent `tetel
+    /// prose` invocations — must be reported at most once, matching
+    /// `prose::load_all`'s own dedup (single entry, last Create's
+    /// content wins). Without the `blocks.contains_key` guard, the same
+    /// merged block was emitted once per `Create` event for that id.
+    #[test]
+    fn a_duplicate_create_id_is_reported_at_most_once() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 100)];
+        let prose = vec![
+            create_ev("P1", "First create.", &["C1"], 10),
+            create_ev("P1", "Second create (duplicate id).", &["C1"], 200),
+        ];
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        assert_eq!(
+            out.len(),
+            1,
+            "a duplicate Create id must be reported at most once, got {:?}",
+            out.iter().map(|o| o.block_id.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            out[0].block_timestamp, 200,
+            "load_all-consistent: the last Create's content is what survives, not the first"
+        );
+    }
+
+    /// Entries must follow *document* order, honouring `--before`, not
+    /// the order blocks were authored in. P1 is created first; P2 is
+    /// created second but inserted before P1 — so the document (and
+    /// `load_all`) puts P2 first. Both cite C1 and are written after C1
+    /// settles, so both are listed; the order they come back in must be
+    /// [P2, P1], not the authoring order [P1, P2].
+    #[test]
+    fn entries_follow_document_order_not_authoring_order() {
+        let claim = a_claim("C1", "the wording");
+        let evidence = vec![a_record_at("C1", "k1", "the wording", 10)];
+        let prose = vec![
+            create_ev("P1", "Written first, belongs second.", &["C1"], 100),
+            ProseEvent::Create {
+                id: "P2".to_string(),
+                heading: false,
+                level: None,
+                text: "Written second, belongs first.".to_string(),
+                cite: vec!["C1".to_string()],
+                before: Some("P1".to_string()),
+                timestamp: 100,
+            },
+        ];
+        let out = prose_after_proof(&prose, &[claim], &evidence, &[], &[], None).0;
+        let ids: Vec<&str> = out.iter().map(|o| o.block_id.as_str()).collect();
+        assert_eq!(ids, vec!["P2", "P1"], "must follow document order (P2 before P1), not authoring order");
     }
 }
 

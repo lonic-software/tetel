@@ -1,0 +1,52 @@
+[1/15 r1] supports-plain  ok    0 disagreement(s)  19s
+[1/15 r2] supports-plain  ok    0 disagreement(s)  16s
+[1/15 r3] supports-plain  ok    0 disagreement(s)  19s
+[2/15 r1] supports-narrower-tuple  ok    0 disagreement(s)  27s
+[2/15 r2] supports-narrower-tuple  MISS  1 disagreement(s)  17s
+[2/15 r3] supports-narrower-tuple  ok    0 disagreement(s)  24s
+[3/15 r1] qualifies-quantifier-unsettleable  MISS  0 disagreement(s)  17s
+[3/15 r2] qualifies-quantifier-unsettleable  MISS  0 disagreement(s)  21s
+[3/15 r3] qualifies-quantifier-unsettleable  MISS  0 disagreement(s)  16s
+[4/15 r1] qualifies-enumeration-short  ok    1 disagreement(s)  28s
+[4/15 r2] qualifies-enumeration-short  ok    1 disagreement(s)  24s
+[4/15 r3] qualifies-enumeration-short  ok    1 disagreement(s)  36s
+[5/15 r1] qualifies-count-off-by-one  ok    1 disagreement(s)  17s
+[5/15 r2] qualifies-count-off-by-one  ok    1 disagreement(s)  15s
+[5/15 r3] qualifies-count-off-by-one  ok    2 disagreement(s)  14s
+[6/15 r1] refutes-name-search-for-behaviour  ok    2 disagreement(s)  29s
+[6/15 r2] refutes-name-search-for-behaviour  MISS  0 disagreement(s)  0s
+[6/15 r3] refutes-name-search-for-behaviour  ok    2 disagreement(s)  35s
+[7/15 r1] qualifies-sweep-underscoped  ok    2 disagreement(s)  20s
+[7/15 r2] qualifies-sweep-underscoped  ok    1 disagreement(s)  34s
+[7/15 r3] qualifies-sweep-underscoped  ok    1 disagreement(s)  16s
+[8/15 r1] refutes-direct  ok    1 disagreement(s)  22s
+[8/15 r2] refutes-direct  ok    1 disagreement(s)  22s
+[8/15 r3] refutes-direct  ok    1 disagreement(s)  22s
+[9/15 r1] refutes-wrong-citation  MISS  0 disagreement(s)  20s
+[9/15 r2] refutes-wrong-citation  ok    1 disagreement(s)  18s
+[9/15 r3] refutes-wrong-citation  ok    2 disagreement(s)  18s
+[10/15 r1] refutes-arithmetic  ok    1 disagreement(s)  16s
+[10/15 r2] refutes-arithmetic  ok    1 disagreement(s)  20s
+[10/15 r3] refutes-arithmetic  ok    1 disagreement(s)  30s
+[11/15 r1] qualifies-unstated-condition  ok    2 disagreement(s)  23s
+[11/15 r2] qualifies-unstated-condition  ok    3 disagreement(s)  20s
+[11/15 r3] qualifies-unstated-condition  ok    4 disagreement(s)  29s
+[12/15 r1] supports-multi-fact  MISS  1 disagreement(s)  48s
+[12/15 r2] supports-multi-fact  MISS  2 disagreement(s)  40s
+[12/15 r3] supports-multi-fact  MISS  2 disagreement(s)  32s
+[13/15 r1] note-names-a-file-the-extent-never-opened  ok    2 disagreement(s)  23s
+[13/15 r2] note-names-a-file-the-extent-never-opened  ok    1 disagreement(s)  20s
+[13/15 r3] note-names-a-file-the-extent-never-opened  ok    1 disagreement(s)  18s
+[14/15 r1] note-stays-inside-its-extent  MISS  1 disagreement(s)  26s
+[14/15 r2] note-stays-inside-its-extent  ok    0 disagreement(s)  22s
+[14/15 r3] note-stays-inside-its-extent  ok    0 disagreement(s)  19s
+[15/15 r1] note-names-a-second-file-only-one-was-opened  ok    3 disagreement(s)  18s
+[15/15 r2] note-names-a-second-file-only-one-was-opened  ok    3 disagreement(s)  25s
+[15/15 r3] note-names-a-second-file-only-one-was-opened  ok    3 disagreement(s)  17s
+
+approach              C — extract, extract, model judges
+model                 openai/gpt-5.6-luna (reasoning=high, repeat=3)
+flawed cases flagged  28 of 32
+clean left alone      7 of 12
+failed (excluded)     1 of 45
+cost                  $0.0532

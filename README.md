@@ -129,18 +129,36 @@ by editing — only by adding a later proof.
 
 Two labelled partitions, each stating its own scope, and **never a single document-level verdict**:
 
-- **machine-checked** — grammar, scope subset on enumerated rows, abutting literals, unsettled
+- **machine-checked** — grammar, subset (enumerated rows only), abutting literals, unsettled
   citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof,
-  modification targets whose census does not hold up against the snapshot, transplant premises that
-  are not the donor's words or that nothing answers, and provenance drift
-  between a document and its own snapshot. These fail the run.
-- **human-owed** — ungrounded claims, qualified verdicts in the grounder's own words, whether a claim
-  was graded by the workspace that authored it or an independent one, notes reaching past their
-  fact's extent, refusals recorded in a fact's mint window, and tetel's own standing non-coverage.
-  **None of it is settled by a passing check**, and none of it fails the run.
+  uncensused modification targets, transplant premises that are not the donor's words or that
+  nothing answers, an unreadable acknowledgement log, and provenance drift. These fail the run.
+- **human-owed** — every READING/OBSERVED/ATTESTED row, every row whose domain or extent contains a
+  proc:/external designator, the working-tree states this memo's facts were taken against, the RUN
+  command↔proposition correspondence, cited-but-undefined and defined-but-uncited ids, ungrounded
+  ledger claims, claims grounded only by attested (ingested) evidence, evidence sources that do not
+  resolve, ledger claims with no declared scope at all, qualified verdicts, superseded evidence,
+  facts whose note names a location outside their own captured extent, refusals recorded in a fact's
+  own mint window, prose revised after the claims it cites settled, prose whose revised-after-proof
+  listing was acknowledged, whether a claim was graded by the workspace that authored it or an
+  independent one, a missing snapshot, and tetel's own standing non-coverage. **None of it is settled
+  by a passing check**, and none of it fails the run.
 
 Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean
 run.
+
+## The mint-time verifier
+
+Optional, off by default, and the one part of tetel that reaches the network. When enabled, `fact`,
+`claim` and `prose` compare what you just wrote against the evidence the tool already captured for
+it, and report disagreements in the tool result — `scope.rs` for meaning rather than for location.
+It never refuses, never blocks a mint, and never runs inside `check`.
+
+It flags about 8 things on a 40-claim design, 6 of them real, for a few tens of cents. It also misses
+most of what a grounding pass catches, and it says so.
+
+**[`docs/verify.md`](docs/verify.md)** — configuration, every option, what the statuses mean, what it
+costs, and how well it actually works.
 
 ## Constraints — the things this must not become
 
@@ -165,8 +183,7 @@ run.
 Roughly in order, and each gated on measurement rather than enthusiasm — several proposed refusals
 have already been built, measured against a real corpus, and **rejected on precision**:
 
-- **More authoring-time refusals, where they are decidable.** Reporting prose revised since its
-  claims were last grounded.
+- **More authoring-time refusals, where they are decidable.**
 - **Supporting-span selection, in general.** The relation itself now ships, for transplant premises:
   a selection is refused unless it is verbatim in one observation a cited fact captured. What remains
   is the general case — at mint time, point at the span of captured output that supports the *note*.

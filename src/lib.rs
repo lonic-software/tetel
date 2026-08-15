@@ -24,23 +24,55 @@
 //!   snapshot directory beside it.
 //! - **`record` appends** one line to `<memo>.evidence.jsonl`, never
 //!   rewriting an existing one.
+//! - **`config <key> <value>` writes one settings file**: either the
+//!   per-user one under `$TETEL_CONFIG_HOME`/`$XDG_CONFIG_HOME/tetel`/
+//!   `~/.config/tetel`, or the selected workspace's own — never inside a
+//!   repository, which is why [`config`] has no project scope. Reading
+//!   settings writes nothing.
 //! - **Any command may append to its workspace's `refusals.log`** when it
 //!   refuses, which is the point of that log.
 //!
-//! Two properties hold across all of them, and both are deliberate:
+//! One property holds across all of them and is the load-bearing one:
 //! **nothing here ever executes a command named by a document** — a memo
 //! arriving in a pull request must not be able to run code on whoever
-//! checks it — and **there are no network calls anywhere**, which the
-//! dependency set enforces rather than the prose. `run` executes the
-//! command the *author* types, in the author's own session, and is the
-//! only process this crate spawns besides `git` for a tree marker.
+//! checks it. `run` executes the command the *author* types, in the
+//! author's own session, and is the only process this crate spawns
+//! besides `git` for a tree marker.
+//!
+//! # What this crate reaches over the network
+//!
+//! There used to be a second such property — no network calls anywhere,
+//! enforced by the dependency set rather than by this comment. [`verify`]
+//! made it false, and a softened version of the same sentence would be
+//! prose impersonating an invariant: once an HTTP client is linked the
+//! dependency set enforces nothing. So it takes the form this file
+//! already prefers, per command, and covers all fifteen:
+//!
+//! - **`fact`, `claim` and `prose` may make one outbound call** to the
+//!   configured provider, and only when [`verify`] is enabled *and* a key
+//!   is present in the environment. Never in the reply path: the call
+//!   happens after the mint result has gone back, and cannot fail a mint,
+//!   delay a reply or move an exit code.
+//! - **`check`, `brief`, `query`, `review`, `workspaces`, `look`,
+//!   `target`, `transplant`, `render`, `record` and `config` make none.**
+//!   That `check` is on this list and not the one above is the point of
+//!   the property above: a document must not be able to make the tool that
+//!   checks it reach anywhere.
+//! - **`run` is neither.** The crate makes no call of its own for `run`;
+//!   `run` spawns the command the author typed, in the author's own
+//!   session, and that process can reach the network exactly as anything
+//!   else the author runs in a terminal can. The old categorical sentence
+//!   never had to say this, being about the crate's own calls. A
+//!   per-command row does.
 
+pub mod acks;
 pub mod brief;
 pub mod buildid;
 pub mod checks;
 pub mod citations;
 pub mod claims;
 pub mod compose;
+pub mod config;
 pub mod evidence;
 pub mod facts;
 pub mod ledger;
@@ -57,6 +89,7 @@ pub mod scope;
 pub mod snapshot;
 pub mod targets;
 pub mod transplants;
+pub mod verify;
 pub mod workspace;
 pub mod worldstate;
 
@@ -167,6 +200,80 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
         // TET-32 that does not depend on the author having read a line
         // at the terminal.
         findings.mint_windows = facts::mint_windows(&snapshot_dir);
+        // Acknowledgements: read once, both for the machine-check
+        // disjunct below and to filter `prose_after_proof`'s listing.
+        // Unlike `prose.jsonl`, `compose::render` never reads this file
+        // (see `acks.rs`'s module doc comment), so a corrupt
+        // `acks.jsonl` has not already reddened provenance the way a
+        // corrupt `prose.jsonl` has (see the comment on the `if let
+        // Ok(prose_events)` block below) — it must be reported here or
+        // not at all.
+        let acks_read = acks::load_all(&snapshot_dir);
+        if let Err(e) = &acks_read {
+            findings.acks_unreadable = Some(e.to_string());
+        }
+        let acks_list = acks_read.unwrap_or_default();
+
+        // Prose blocks whose text (or citations) postdate the settling
+        // of what they cite. Read `prose.jsonl` directly rather than via
+        // `prose::load_all`, which discards every timestamp — see
+        // `checks::prose_after_proof`'s doc comment. `ledger.claims` is
+        // deliberately used here, not the snapshot's `claims.jsonl`: it
+        // is the same claim list already handed to `analyze_ledger`
+        // above, imported from the rendered document, which is what
+        // every `proposition_digest` on record was actually computed
+        // over. `ack_claims`/`ack_identity`, by contrast, deliberately
+        // *are* the snapshot's own `claims.jsonl` and `identity.json` —
+        // the source an acknowledgement's own digests and identity were
+        // computed against; see `checks::prose_after_proof`'s doc
+        // comment and `crate::acks`.
+        // `if let Ok(...)` here — silently skipping a `prose.jsonl` that
+        // exists but fails to parse — is *not* the silent-drop shape
+        // `checks::prose_after_proof`'s own doc comment warns against
+        // (that one is about a successful read over the wrong claims
+        // source producing wrong digests with a clean exit). This is
+        // the same file `snapshot::check` already read moments ago, at
+        // the top of this function, via the identical
+        // `workspace::read_jsonl::<ProseEvent>` call inside
+        // `compose::render` → `prose::load_all` (same path, same target
+        // type). A `prose.jsonl` that fails to parse here therefore
+        // already failed that earlier read too, and `findings.provenance`
+        // is already `Unreadable`, which `machine_check_failed` already
+        // reddens under `[provenance-drift]` — loudly, before this block
+        // runs. This `Err` arm is reachable only alongside a failure
+        // already reported elsewhere, never on its own; see
+        // `check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently`
+        // in tests/authoring_cli.rs, which pins that (it needs a real
+        // rendered snapshot to corrupt, hence authoring_cli rather than
+        // check_cli's static fixtures).
+        if let Ok(prose_events) =
+            workspace::read_jsonl::<prose::ProseEvent>(&snapshot_dir.join("prose.jsonl"))
+        {
+            let ack_claims = claims::load_all(&snapshot_dir).unwrap_or_default();
+            let ack_identity = workspace::identity_of(&snapshot_dir);
+            let (mut listed, mut acknowledged) = checks::prose_after_proof(
+                &prose_events,
+                &ledger.claims,
+                &evidence_records,
+                &acks_list,
+                &ack_claims,
+                ack_identity.as_deref(),
+            );
+            // The line each block's text begins on in the rendered
+            // document — from the one function that describes the
+            // block-to-line correspondence, so this can't drift from
+            // what `render` actually wrote.
+            if let Ok(offsets) = compose::block_offsets(&snapshot_dir) {
+                for item in &mut listed {
+                    item.line = offsets.get(&item.block_id).copied();
+                }
+                for item in &mut acknowledged {
+                    item.line = offsets.get(&item.block_id).copied();
+                }
+            }
+            findings.prose_revised_since_proof = listed;
+            findings.prose_acknowledged = acknowledged;
+        }
     }
     // A rendered target row with no snapshot behind it cannot be graded
     // either way, so it is reported rather than failed — the same standing

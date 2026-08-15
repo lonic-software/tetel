@@ -1,0 +1,328 @@
+[
+ {
+  "memo": "tet28-modification-target-census.md",
+  "id": "C5",
+  "prop": "A census check cannot be built on labels, and the record model already shows the right way to extend the schema. At mint time only key, label, world_root and world_state survive into an ExtentEntry \u2014 the observation's kind is dropped, and the grep pattern exists only inside a display label, where an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous. The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern \u2014 following the exact precedent world_root set: #[serde(default)], with the empty value read as \"predates the field, not eligible\" rather than guessed about. Legacy facts can then never satisfy a census requirement, whose remedy is precisely to re-run the grep under the new capture. The snapshot already ships facts.jsonl with full extent entries, so check reads these fields from files every snapshot already contains; and because no surface lets an author supply an extent by hand, both sides of the rooting comparison and the pattern are tool-captured by construction.",
+  "labels": [
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/pending.rs",
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/facts.rs",
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/worldstate.rs",
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/observe.rs"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "no surface lets an author supply an extent by hand",
+    "evidence": "flag anywhere on this module's CLI surface that lets a caller supply",
+    "why": "The evidence limits the no-supply guarantee to this module's CLI surface; it does not cover every authoring surface.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet28-modification-target-census.md",
+  "id": "C7",
+  "prop": "The decidable trigger is declaration (candidate 1): a modification target is a structured record the author creates \u2014 a symbol string plus a fact citation \u2014 and the refusal fires only on a declared target whose cited fact carries no qualifying census entry. This sits inside the machine partition's own stated principle, that machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\": a target row is exactly a pointer at evidence, and \"you did not point at your evidence\" is the README's own example of a decidable question. The refusal's remedy is singular \u2014 run the workspace-rooted grep for that symbol, mint the fact, cite it (or withdraw the target) \u2014 so refusal rather than report is the right disposition for the declared-but-uncensused case, by the same discriminator under which scope.rs chose report: there, only a person can tell context from conclusion; here, nothing is left to tell.",
+  "labels": [
+   "F5  /Volumes/SSD/Documents/lonic/tetel/src/report.rs lines 1-130",
+   "F5  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 1-200",
+   "F5  /Volumes/SSD/Documents/lonic/tetel/README.md lines 100-160"
+  ],
+  "n_cites": 1,
+  "findings": [
+   {
+    "kind": "contradicts",
+    "clause": "so refusal rather than report is the right disposition for the declared-but-uncensused case",
+    "evidence": "/// A ledger claim with no evidence record at all: `(id, proposition)`.\n    /// Human-owed \u2014 absence of evidence is not itself a failure.",
+    "why": "The captured checks classify a claim with no evidence record as human-owed and explicitly not a failure, rather than as a refusal-triggering machine failure.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet28-modification-target-census.md",
+  "id": "C8",
+  "prop": "Under-declaration \u2014 the memo recommends modifying a symbol it never declared \u2014 cannot be a refusal and must not be silently absorbed either. Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English, exactly the class the charter routes to the human-owed partition or nowhere; scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation and misses conclusion. The design therefore makes the omission visible instead of detected: (a) once a workspace declares any target, render emits a Modification targets section, and once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014 so a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader; and (b) check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\", gains a census-specific line (\"a recommendation whose target was never declared\") so the blind spot is printed rather than implicit.",
+  "labels": [
+   "F5  /Volumes/SSD/Documents/lonic/tetel/src/report.rs lines 1-130",
+   "F5  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 1-200",
+   "F5  /Volumes/SSD/Documents/lonic/tetel/README.md lines 100-160"
+  ],
+  "n_cites": 1,
+  "findings": [
+   {
+    "kind": "contradicts",
+    "clause": "check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\", gains a census-specific line (\"a recommendation whose target was never declared\")",
+    "evidence": "const NON_COVERAGE: &[&str] = &[\n    \"dependents that never declared themselves\",\n    \"deleted premises\",\n    \"one word used in two senses\",\n    \"a command that runs green without establishing its proposition\",\n    \"unfalsifiable-shaped claim phrasing\",\n];",
+    "why": "The captured standing non-coverage list closes after five entries and does not contain the claimed census-specific entry.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet29-imported-mechanism-premises.md",
+  "id": "C3",
+  "prop": "\"Transcribed verbatim\" cannot be an honour-system field, and does not need to be: the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output. Both sides of that comparison are Strings the tool controls \u2014 a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream), no authoring surface lets anyone supply output by hand, and output is immutable after mint \u2014 so substring containment is a pure byte-level comparison with no normalisation step owned by the check. Typing is the selection mechanism, not the trust: the author types the premise, but a typed premise the donor never wrote fails containment and is refused at the verb. This is exactly the README's Direction item for supporting-span selection (\"refused unless it is a verbatim substring of a cited fact \u2014 the author cannot type an extent, and here could not invent support, only select it\"), and TET-29 is the first place it becomes load-bearing rather than roadmap.",
+  "labels": [
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/targets.rs",
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/facts.rs",
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/observe.rs",
+   "F4  /Volumes/SSD/Documents/lonic/tetel/README.md lines 20-45",
+   "F4  /Volumes/SSD/Documents/lonic/tetel/README.md lines 140-175"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output",
+    "evidence": "//! So the trigger is a declaration, and the refusal never reads English",
+    "why": "The captured evidence describes a declaration-triggered refusal and does not touch any premise-text or verbatim-substring check.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [
+   {
+    "kind": "overreaches",
+    "clause": "no authoring surface lets anyone supply output by hand",
+    "evidence": "//! There is deliberately no\n//! flag anywhere on this module's CLI surface that lets a caller supply\n//! the extent or captured output themselves",
+    "why": "The evidence scopes this absence to `this module's CLI surface`, while the claim generalizes it to every authoring surface.",
+    "quote_verified": false
+   }
+  ],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet29-imported-mechanism-premises.md",
+  "id": "C8",
+  "prop": "An undischarged premise must be a legal workspace state, so the ticket's refusal cannot all move to the verb the way TET-28's did. The instrument works by transcribe-first: the author selects the donor's premises before knowing whether each holds at the destination \u2014 the confrontation the section exists to force. Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded, inverting that order (answer first, transcribe after) and pushing an author who cannot yet discharge a premise toward not declaring it at all \u2014 the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names. TET-28 never faced this because a census either exists or does not; a premise inventory is built across time. So the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\" (plus: donor fact exists and carries span boundaries, destination target exists and is live, a discharge cites an existing live claim); \"every premise is discharged\" is not a workspace invariant at all \u2014 it is a property of the finished document.",
+  "labels": [
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/scope.rs lines 30-170",
+   "F6  /Volumes/SSD/Documents/lonic/tetel/src/claims.rs lines 1-140"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "The instrument works by transcribe-first: the author selects the donor's premises before knowing whether each holds at the destination \u2014 the confrontation the section exists to force.",
+    "evidence": "//! `tetel claim` \u2014 assert, revise, or withdraw a proposition resting on\n//! facts. Refuses without `--cites` (a claim must cite at least one\n//! fact) and refuses on an unknown fact id.",
+    "why": "The captured material covers claim creation and fact citations, but does not touch premise transcription, destination evaluation, or any transcribe-first behavior.",
+    "quote_verified": true
+   },
+   {
+    "kind": "overreaches",
+    "clause": "TET-28 never faced this because a census either exists or does not; a premise inventory is built across time.",
+    "evidence": "//! `tetel claim` \u2014 assert, revise, or withdraw a proposition resting on\n//! facts. Refuses without `--cites` (a claim must cite at least one\n//! fact) and refuses on an unknown fact id.",
+    "why": "The captured material does not touch TET-28, census behavior, or premise-inventory construction.",
+    "quote_verified": true
+   },
+   {
+    "kind": "overreaches",
+    "clause": "So the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\" (plus: donor fact exists and carries span boundaries, destination target exists and is live, a discharge cites an existing live claim); \"every premise is discharged\" is not a workspace invariant at all \u2014 it is a property of the finished document.",
+    "evidence": "//! `tetel claim` \u2014 assert, revise, or withdraw a proposition resting on\n//! facts. Refuses without `--cites` (a claim must cite at least one\n//! fact) and refuses on an unknown fact id.",
+    "why": "The captured implementation shows claim/fact validation, not premise quotation, donor spans, destination targets, discharges, or discharged-premise invariants.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet29-imported-mechanism-premises.md",
+  "id": "C11",
+  "prop": "The rendered section follows compose.rs's shipped conventions with one deliberate difference. A \"## Transplants\" section renders beside the modification-target section: per live transplant, the donor fact id with its extent labels (labels, never absolute keys \u2014 the committed-document rule), the destination target id and symbol, and one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it; withdrawn transplants and premises are dropped, and once any claim exists the section renders even when empty (\"none declared\"), because the hole is the finding \u2014 the same visibility answer to under-declaration the target section shipped. The deliberate difference: compose.rs refuses to inline captured output into the document because output is unbounded, but a premise is an author-bounded selection, not a whole capture, so inlining it verbatim is both safe and the entire point \u2014 the reader must see the donor's clause on the page, spelled the way the donor's file spells it, or the section is a list of opaque pointers. Fenced blocks rather than table cells because a premise legitimately spans lines and markdown table cells cannot carry multi-line verbatim text without escaping, which would violate byte-fidelity.",
+  "labels": [
+   "F7  /Volumes/SSD/Documents/lonic/tetel/src/compose.rs lines 1-130",
+   "F7  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 120-215",
+   "F7  /Volumes/SSD/Documents/lonic/tetel/src/report.rs lines 13-40",
+   "F4  /Volumes/SSD/Documents/lonic/tetel/README.md lines 20-45",
+   "F4  /Volumes/SSD/Documents/lonic/tetel/README.md lines 140-175"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "contradicts",
+    "clause": "A \"## Transplants\" section renders beside the modification-target section",
+    "evidence": "    out.push_str(&render_targets(&crate::targets::load_all(workspace_dir)?, &claim_list));\n    out.push_str(&render_ledger(&claim_list));\n    out.push_str(&render_facts(\n        &crate::facts::load_all(workspace_dir)?,\n        &claim_list,\n    ));\n    Ok(out)\n}",
+    "why": "The captured render function appends the modification-target section, ledger, and facts section, then returns; it does not append a Transplants section.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet46-look-never-returns-tetel-content.md",
+  "id": "C2",
+  "prop": "The ticket's mechanical premise holds on this machine: the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep, it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes, `--exclude-dir='*.tetel'` prunes snapshot directories at any depth, and `--exclude='*.evidence.jsonl'` drops evidence ledgers. Nothing here was executed against GNU grep or on Linux, so the ticket's clause about \"the Linux greps CI runs\" is untested by this design and is asserted by no claim in it.",
+  "labels": [
+   "F2  proc: /usr/bin/grep --version (exit 0)",
+   "F2  proc: /usr/bin/env sh -c command -v grep; type grep; echo PATH=$PATH (exit 0)",
+   "F3  proc: /usr/bin/env sh -c R=/private/tmp/claude-501/-Volumes-SSD-Documents-lonic-tetel/9211edfe-d423-426f-893a-8bf7e4a017bf/scratchpad/gt; rm -rf $R; mkdir -p $R/src $R/docs/design/memo.md.tetel $R/deep/a.tetel; printf 'NEEDLE here\\n' > $R/src/code.rs; printf 'NEEDLE here\\n' > $R/docs/design/memo.md; printf 'NEEDLE here\\n' > $R/docs/design/memo.evidence.jsonl; printf 'NEEDLE here\\n' > $R/docs/design/memo.md.tetel/facts.jsonl; printf 'NEEDLE here\\n' > $R/deep/a.tetel/x.jsonl; printf 'NEEDLE here\\n' > $R/deep/plain.txt; find $R | sort (exit 0)",
+   "F3  proc: /usr/bin/env sh -c cd /private/tmp/claude-501/-Volumes-SSD-Documents-lonic-tetel/9211edfe-d423-426f-893a-8bf7e4a017bf/scratchpad/gt; G=/usr/bin/grep; e(){ echo \"--- $*\"; }; e 'baseline abs'; $G -r -I -n -H -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'excl-dir *.tetel'; $G -r -I -n -H --exclude-dir='*.tetel' -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'excl *.evidence.jsonl'; $G -r -I -n -H --exclude='*.evidence.jsonl' -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'excl basename memo.md'; $G -r -I -n -H --exclude='memo.md' -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'excl pathglob */docs/design/memo.md'; $G -r -I -n -H --exclude='*/docs/design/memo.md' -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'excl full abs path'; $G -r -I -n -H --exclude=\"$PWD/docs/design/memo.md\" -e NEEDLE $PWD | sed \"s|$PWD/||\"; e 'explicit cmdline file WITH matching --exclude'; $G -I -n -H --exclude='*.evidence.jsonl' -e NEEDLE $PWD/docs/design/memo.evidence.jsonl; echo \"exit=$?\"; e 'explicit cmdline dir root that IS a snapshot, with excl-dir'; $G -r -I -n -H --exclude-dir='*.tetel' -e NEEDLE $PWD/docs/design/memo.md.tetel; echo \"exit=$?\" (exit 0)",
+   "F3  proc: /usr/bin/env sh -c cd /private/tmp/claude-501/-Volumes-SSD-Documents-lonic-tetel/9211edfe-d423-426f-893a-8bf7e4a017bf/scratchpad/gt; G=/usr/bin/grep; echo '--- control: explicit cmdline file, NO --exclude'; $G -I -n -H -e NEEDLE $PWD/docs/design/memo.evidence.jsonl; echo \"exit=$?\"; echo '--- control: explicit snapshot dir root, NO --exclude-dir'; $G -r -I -n -H -e NEEDLE $PWD/docs/design/memo.md.tetel; echo \"exit=$?\"; echo '--- explicit cmdline file inside snapshot dir, WITH --exclude-dir=*.tetel'; $G -I -n -H --exclude-dir='*.tetel' -e NEEDLE $PWD/docs/design/memo.md.tetel/facts.jsonl; echo \"exit=$?\" (exit 0)"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep",
+    "evidence": "grep (BSD grep, GNU compatible) 2.6.0-FreeBSD\n\n/usr/bin/grep",
+    "why": "The capture verifies the standalone `/usr/bin/grep` binary, but it never invokes or inspects `look_grep`, so it does not establish which grep that symbol invokes.",
+    "quote_verified": true
+   },
+   {
+    "kind": "overreaches",
+    "clause": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+    "evidence": "--- baseline abs\ndeep/plain.txt:1:NEEDLE here\ndeep/a.tetel/x.jsonl:1:NEEDLE here\ndocs/design/memo.evidence.jsonl:1:NEEDLE here\ndocs/design/memo.md.tetel/facts.jsonl:1:NEEDLE here\ndocs/design/memo.md:1:NEEDLE here\nsrc/code.rs:1:NEEDLE here\n--- excl-dir *.tetel\ndeep/plain.txt:1:NEEDLE here\ndocs/design/memo.evidence.jsonl:1:NEEDLE here\ndocs/design/memo.md:1:NEEDLE here\nsrc/code.rs:1:NEEDLE here",
+    "why": "The capture demonstrates pruning for the two snapshot-directory locations in this fixture, but does not cover arbitrary directory depths.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [
+   {
+    "kind": "overreaches",
+    "clause": "the exact `-r -I -n -H -e` flag set `look_grep` already passes",
+    "evidence": "$G -r -I -n -H -e NEEDLE $PWD",
+    "why": "The flags were tested in a direct `$G` command, not through `look_grep`, so the capture does not establish what flags that symbol passes.",
+    "quote_verified": false
+   }
+  ],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C14",
+  "prop": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4, and it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades; but the graph must be built over ledger claims, which check 5's `row_citers` deliberately excludes, so the construction is reused while the index itself is new.",
+  "labels": [
+   "F11  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 404-480",
+   "F10  /Volumes/SSD/Documents/lonic/tetel/src/citations.rs lines 60-135"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "terminates on any input",
+    "evidence": "    // itself so a citation cycle back to the root terminates instead of\n    // looping, and so the root is never reported as its own dependent.",
+    "why": "The captured evidence covers termination for a citation cycle, but does not cover the broader population of any input.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet47-ground-what-is-owed.md",
+  "id": "C20",
+  "prop": "The donor's self-citation exclusion is not needed at the destination: check 5 skips a self-edge so that a root is \"never reported as its own dependent\", whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination.",
+  "labels": [
+   "F11  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 404-480"
+  ],
+  "n_cites": 1,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination",
+    "evidence": "// BFS, one root at a time, over the reverse graph (who cites this\n    // id) starting at each unsettled row. `visited` seeds with the root\n    // itself so a citation cycle back to the root terminates instead of\n    // looping, and so the root is never reported as its own dependent.",
+    "why": "The captured span shows check 5's reverse-graph traversal and root seeding, but no captured output shows the separate owed closure, its output set, its seeds, or the claimed effect of a self-edge there.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet56-bounded-grep-return.md",
+  "id": "C8",
+  "prop": "This design recommends 32768 bytes (32 KiB) as the bound, declared in the source as a judgement and not as a measurement. Its only stated constraint is that it be strictly below whatever cap the caller applies, and since tetel cannot observe that cap the value is chosen conservatively; its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded and two (target at 24974 bytes, label at 8201) return whole.",
+  "labels": [
+   "F5  proc: sh -c cd /Volumes/SSD/Documents/lonic/tetel && for s in claim fact check prose ack render get target label; do o=$(./target/release/tetel --workspace t56probe look --grep \"$s\" /Volumes/SSD/Documents/lonic/tetel); b=$(printf '%s' \"$o\" | wc -c); l=$(printf '%s' \"$o\" | wc -l); f=$(printf '%s' \"$o\" | cut -d: -f1 | sort -u | wc -l); m=$(printf '%s' \"$o\" | awk -F: '{print length($0)}' | sort -n | tail -1); echo \"$s bytes=$b lines=$l files=$f longest=$m\"; done (exit 0)",
+   "F7  /Volumes/SSD/Documents/lonic/tetel/src/mcp.rs lines 600-660"
+  ],
+  "n_cites": 2,
+  "findings": [
+   {
+    "kind": "contradicts",
+    "clause": "seven of them (claim, fact, check, prose, ack, render, get) return bounded",
+    "evidence": "claim bytes=  162896 lines=    1189 files=      67 longest=1090\nfact bytes=  125553 lines=     926 files=      42 longest=1090\ncheck bytes=  124539 lines=     883 files=      71 longest=1090\nprose bytes=   81794 lines=     587 files=      40 longest=867\nack bytes=   75393 lines=     641 files=      49 longest=713\nrender bytes=   62144 lines=     457 files=      32 longest=1090\nget bytes=   45210 lines=     342 files=      47 longest=1090",
+    "why": "Each of the seven censuses identified as bounded exceeds the claimed 32768-byte bound; the captured byte counts range from 45210 to 162896.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C3",
+  "prop": "The acknowledgement event cannot live in `prose.jsonl`. `ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`, and `workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it; empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1. A new tag value therefore makes every older build unable to read even the prose it already understood.",
+  "labels": [
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/prose.rs lines 36-130",
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/snapshot.rs lines 40-110",
+   "F3  /Volumes/SSD/Documents/lonic/tetel/src/workspace.rs lines 444-480"
+  ],
+  "n_cites": 1,
+  "findings": [
+   {
+    "kind": "overreaches",
+    "clause": "A new tag value therefore makes every older build unable to read even the prose it already understood.",
+    "evidence": "tetel: error querying: unknown variant `Ack`, expected `Create` or `Revise` at line 1 column 14",
+    "why": "The captured run demonstrates failure for this build at this pin, but does not cover every older build.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ },
+ {
+  "memo": "tet61-residue-scoped-acknowledgement.md",
+  "id": "C19",
+  "prop": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event, because no field in it is specific to this residue. It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp; it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed. A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them, which is a re-homing rather than a rework.",
+  "labels": [
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 364-489",
+   "F2  /Volumes/SSD/Documents/lonic/tetel/src/checks.rs lines 489-600"
+  ],
+  "n_cites": 1,
+  "findings": [
+   {
+    "kind": "contradicts",
+    "clause": "not the block timestamp",
+    "evidence": "// Per block, its full history as (timestamp, text, cite-list, why)\n    // after each event, in event order",
+    "why": "The captured implementation records each event's timestamp in the block history and later uses that history to derive the block timestamp, so the claim that the log does not record the block timestamp is incompatible with the evidence.",
+    "quote_verified": true
+   }
+  ],
+  "dropped": [],
+  "later": [
+   "supports"
+  ]
+ }
+]

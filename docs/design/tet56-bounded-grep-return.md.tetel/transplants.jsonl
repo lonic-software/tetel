@@ -1,0 +1,10 @@
+{"event":"Declare","id":"X1","from":"F9","into":"T1","timestamp":1786361638}
+{"event":"Premise","id":"X1.1","transplant":"X1","text":"A range entirely past the end of the file is not an error","timestamp":1786361643}
+{"event":"Premise","id":"X1.2","transplant":"X1","text":"key is the resolved path regardless of the range requested","timestamp":1786361647}
+{"event":"Discharge","premise":"X1.1","cites":"C13","timestamp":1786361669}
+{"event":"Discharge","premise":"X1.2","cites":"C14","timestamp":1786361671}
+{"event":"Declare","id":"X2","from":"F13","into":"T2","timestamp":1786361760}
+{"event":"Premise","id":"X2.1","transplant":"X2","text":"A deliberate exclusion earns its own line,","timestamp":1786361768}
+{"event":"Premise","id":"X2.2","transplant":"X2","text":"every string in this list is static and","timestamp":1786361770}
+{"event":"Discharge","premise":"X2.1","cites":"C15","timestamp":1786361794}
+{"event":"Discharge","premise":"X2.2","cites":"C16","timestamp":1786361796}

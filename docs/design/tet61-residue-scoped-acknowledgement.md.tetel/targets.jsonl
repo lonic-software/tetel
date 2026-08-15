@@ -1,0 +1,13 @@
+{"event":"Declare","id":"T1","symbol":"prose_after_proof","from":"F11","timestamp":1786293792}
+{"event":"Declare","id":"T2","symbol":"prose_revised_since_proof","from":"F11","timestamp":1786293794}
+{"event":"Declare","id":"T3","symbol":"SNAPSHOT_FILES","from":"F11","timestamp":1786293797}
+{"event":"Declare","id":"T4","symbol":"NON_COVERAGE","from":"F11","timestamp":1786293798}
+{"event":"Declare","id":"T5","symbol":"ProseRequest","from":"F14","timestamp":1786294544}
+{"event":"Declare","id":"T6","symbol":"ProseOutcome","from":"F14","timestamp":1786294546}
+{"event":"Declare","id":"T7","symbol":"snapshot::write","from":"F14","timestamp":1786294548}
+{"event":"Declare","id":"T8","symbol":"ProseParams","from":"F17","timestamp":1786295668}
+{"event":"Declare","id":"T9","symbol":"Command::Prose","from":"F17","timestamp":1786295670}
+{"event":"Declare","id":"T10","symbol":"Prose","from":"F19","timestamp":1786296586}
+{"event":"Withdraw","id":"T7","why":"F18 removes the modification this target existed for. With no withdrawal verb and no production removal path, a workspace log is monotone, so a snapshot's copy of it is always a prefix of the workspace's — which can only suppress fewer blocks, the direction the design already declares safe. Reconciliation therefore buys nothing here, and its cost is a permanently destructive change to a shared writer. `snapshot::write` is no longer a symbol this design tells an implementer to modify.","timestamp":1786296589}
+{"event":"Declare","id":"T11","symbol":"machine_check_failed","from":"F20","timestamp":1786297260}
+{"event":"Declare","id":"T12","symbol":"total_failures","from":"F20","timestamp":1786297264}
