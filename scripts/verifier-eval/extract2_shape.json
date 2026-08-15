@@ -1,0 +1,2840 @@
+[
+  {
+    "case_id": "supports-plain",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "value",
+          "value": "an explicit array of ten entries",
+          "line": ""
+        },
+        {
+          "name": "acks.jsonl",
+          "kind": "value",
+          "value": "one of the entries in SNAPSHOT_FILES",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "acks.jsonl"
+      ],
+      "counts": [
+        {
+          "what": "entries in SNAPSHOT_FILES",
+          "n": 10
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "definition",
+          "value": "public constant of type [&str; 10] containing [\"facts.jsonl\", \"claims.jsonl\", \"prose.jsonl\", \"targets.jsonl\", \"transplants.jsonl\", \"acks.jsonl\", \"counters.json\", \"identity.json\", \"pending.json\", \"refusals.log\"]",
+          "line": "71:81"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/snapshot.rs"
+      ],
+      "counts": [
+        {
+          "what": "entries in SNAPSHOT_FILES",
+          "n": 10
+        }
+      ]
+    },
+    "elapsed": 13.170867681503296
+  },
+  {
+    "case_id": "supports-plain",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "value",
+          "value": "an explicit array of ten entries",
+          "line": ""
+        },
+        {
+          "name": "acks.jsonl",
+          "kind": "mention",
+          "value": "one of the entries in SNAPSHOT_FILES",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "acks.jsonl"
+      ],
+      "counts": [
+        {
+          "what": "entries in SNAPSHOT_FILES",
+          "n": 10
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "type",
+          "value": "[&str; 10]",
+          "line": "71"
+        },
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "value",
+          "value": "['facts.jsonl', 'claims.jsonl', 'prose.jsonl', 'targets.jsonl', 'transplants.jsonl', 'acks.jsonl', 'counters.json', 'identity.json', 'pending.json', 'refusals.log']",
+          "line": "71-81"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/snapshot.rs",
+        "facts.jsonl",
+        "claims.jsonl",
+        "prose.jsonl",
+        "targets.jsonl",
+        "transplants.jsonl",
+        "acks.jsonl",
+        "counters.json",
+        "identity.json",
+        "pending.json",
+        "refusals.log"
+      ],
+      "counts": [
+        {
+          "what": "entries in SNAPSHOT_FILES",
+          "n": 10
+        }
+      ]
+    },
+    "elapsed": 19.604408979415894
+  },
+  {
+    "case_id": "supports-plain",
+    "should_flag": false,
+    "flagged": true,
+    "ok": false,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts SNAPSHOT_FILES at 1; evidence puts it at 71:84"
+      ]
+    ],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "value",
+          "value": "an explicit array of ten entries",
+          "line": "1"
+        },
+        {
+          "name": "acks.jsonl",
+          "kind": "mention",
+          "value": "one of the entries in SNAPSHOT_FILES",
+          "line": "1"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "acks.jsonl"
+      ],
+      "counts": [
+        {
+          "what": "entries in SNAPSHOT_FILES",
+          "n": 10
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "SNAPSHOT_FILES",
+          "kind": "value",
+          "value": "[\"facts.jsonl\",\"claims.jsonl\",\"prose.jsonl\",\"targets.jsonl\",\"transplants.jsonl\",\"acks.jsonl\",\"counters.json\",\"identity.json\",\"pending.json\",\"refusals.log\"]",
+          "line": "71:84"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/snapshot.rs",
+        "facts.jsonl",
+        "claims.jsonl",
+        "prose.jsonl",
+        "targets.jsonl",
+        "transplants.jsonl",
+        "acks.jsonl",
+        "counters.json",
+        "identity.json",
+        "pending.json",
+        "refusals.log"
+      ],
+      "counts": [
+        {
+          "what": "SNAPSHOT_FILES entries",
+          "n": 10
+        }
+      ]
+    },
+    "elapsed": 11.635626077651978
+  },
+  {
+    "case_id": "supports-narrower-than-evidence",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "returns at least the id of each overlapping fact",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "function taking dir: &Path and cited: &[String], returning io::Result<Vec<(String, Vec<String>)>>",
+          "line": "146"
+        },
+        {
+          "name": "dir",
+          "kind": "type",
+          "value": "&Path",
+          "line": "146"
+        },
+        {
+          "name": "cited",
+          "kind": "type",
+          "value": "&[String]",
+          "line": "146"
+        },
+        {
+          "name": "out",
+          "kind": "mention",
+          "value": "argument to Ok",
+          "line": "168"
+        }
+      ],
+      "covers": "dir",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/claims.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 11.568974018096924
+  },
+  {
+    "case_id": "supports-narrower-than-evidence",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "returns at least the id of each overlapping fact",
+          "line": ""
+        },
+        {
+          "name": "id",
+          "kind": "mention",
+          "value": "the id of each overlapping fact",
+          "line": ""
+        }
+      ],
+      "covers": "overlapping facts",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "fn overlap_report(dir: &Path, cited: &[String]) -> io::Result<Vec<(String, Vec<String>)>>",
+          "line": "146"
+        },
+        {
+          "name": "dir",
+          "kind": "type",
+          "value": "&Path",
+          "line": "146"
+        },
+        {
+          "name": "cited",
+          "kind": "type",
+          "value": "&[String]",
+          "line": "146"
+        }
+      ],
+      "covers": "function overlap_report",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/claims.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 14.613245248794556
+  },
+  {
+    "case_id": "supports-narrower-than-evidence",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "returns at least the id of each overlapping fact",
+          "line": ""
+        },
+        {
+          "name": "id",
+          "kind": "mention",
+          "value": "the id of each overlapping fact",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "each"
+      ],
+      "paths": [],
+      "counts": [
+        {
+          "what": "",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "overlap_report",
+          "kind": "definition",
+          "value": "function taking dir: &Path and cited: &[String], returning io::Result<Vec<(String, Vec<String>)>>",
+          "line": "146"
+        },
+        {
+          "name": "dir",
+          "kind": "type",
+          "value": "&Path",
+          "line": "146"
+        },
+        {
+          "name": "cited",
+          "kind": "type",
+          "value": "&[String]",
+          "line": "146"
+        }
+      ],
+      "covers": "function overlap_report",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/claims.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 18.09146022796631
+  },
+  {
+    "case_id": "qualifies-enumeration-short",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "look_path has a third refusal (invalid --lines range); the claim says it refuses only two things.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "look_path",
+          "kind": "mention",
+          "value": "refuses a missing path and a directory",
+          "line": ""
+        }
+      ],
+      "covers": "any existing file",
+      "quantifiers": [
+        "only",
+        "always"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "look_path",
+          "kind": "definition",
+          "value": "function returning Result<LookOutcome>",
+          "line": "277"
+        },
+        {
+          "name": "dir",
+          "kind": "value",
+          "value": "&Path",
+          "line": "277"
+        },
+        {
+          "name": "path",
+          "kind": "value",
+          "value": "&str",
+          "line": "277"
+        },
+        {
+          "name": "lines",
+          "kind": "value",
+          "value": "Option<(usize, usize)>",
+          "line": "277"
+        },
+        {
+          "name": "a",
+          "kind": "value",
+          "value": "first element of the lines range tuple",
+          "line": "300"
+        },
+        {
+          "name": "b",
+          "kind": "value",
+          "value": "second element of the lines range tuple",
+          "line": "300"
+        }
+      ],
+      "covers": "the look_path function, a path, and a directory",
+      "quantifiers": [
+        "no"
+      ],
+      "paths": [
+        "/repo/src/observe.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 24.275840282440186
+  },
+  {
+    "case_id": "qualifies-enumeration-short",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "look_path has a third refusal (invalid --lines range); the claim says it refuses only two things.",
+    "err": "unparsed",
+    "claim": {
+      "bindings": [
+        {
+          "name": "look_path",
+          "kind": "mention",
+          "value": "refuses only a missing path and a directory",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "only",
+        "always"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": null,
+    "elapsed": 28.195201873779297
+  },
+  {
+    "case_id": "qualifies-enumeration-short",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "look_path has a third refusal (invalid --lines range); the claim says it refuses only two things.",
+    "err": "unparsed",
+    "claim": {
+      "bindings": [
+        {
+          "name": "look_path",
+          "kind": "mention",
+          "value": "refuses only a missing path and a directory",
+          "line": ""
+        }
+      ],
+      "covers": "any existing file",
+      "quantifiers": [
+        "only",
+        "always"
+      ],
+      "paths": [],
+      "counts": [
+        {
+          "what": "",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": null,
+    "elapsed": 31.877783060073853
+  },
+  {
+    "case_id": "qualifies-count-off-by-one",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The output shows 70 distinct files, not 71. The line count (883) is right.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "check",
+          "kind": "mention",
+          "value": "the census target",
+          "line": ""
+        }
+      ],
+      "covers": "71 distinct files",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "matched lines",
+          "n": 883
+        },
+        {
+          "what": "distinct files",
+          "n": 71
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [],
+      "covers": "/repo, specifically src/ and tests/",
+      "quantifiers": [],
+      "paths": [
+        "/repo",
+        "src/",
+        "tests/"
+      ],
+      "counts": [
+        {
+          "what": "lines containing 'check' in src/ and tests/",
+          "n": 883
+        },
+        {
+          "what": "files containing 'check' in src/ and tests/",
+          "n": 70
+        }
+      ]
+    },
+    "elapsed": 14.45933485031128
+  },
+  {
+    "case_id": "qualifies-count-off-by-one",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The output shows 70 distinct files, not 71. The line count (883) is right.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "check",
+          "kind": "mention",
+          "value": "the census target",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "lines matched",
+          "n": 883
+        },
+        {
+          "what": "distinct files",
+          "n": 71
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "run",
+          "kind": "value",
+          "value": "grep -rn check src/ tests/ | wc -l; grep -rl check src/ tests/ | wc -l",
+          "line": "1"
+        }
+      ],
+      "covers": "/repo, specifically the src/ and tests/ directories",
+      "quantifiers": [],
+      "paths": [
+        "/repo",
+        "src/",
+        "tests/"
+      ],
+      "counts": [
+        {
+          "what": "matching lines containing check in src/ and tests/",
+          "n": 883
+        },
+        {
+          "what": "files containing check in src/ and tests/",
+          "n": 70
+        }
+      ]
+    },
+    "elapsed": 15.961904287338257
+  },
+  {
+    "case_id": "qualifies-count-off-by-one",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The output shows 70 distinct files, not 71. The line count (883) is right.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "check",
+          "kind": "mention",
+          "value": "the item for which the census was conducted",
+          "line": ""
+        }
+      ],
+      "covers": "lines across 71 distinct files",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "lines matched",
+          "n": 883
+        },
+        {
+          "what": "distinct files",
+          "n": 71
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [],
+      "covers": "/repo/src/ and /repo/tests/",
+      "quantifiers": [],
+      "paths": [
+        "/repo",
+        "src/",
+        "tests/"
+      ],
+      "counts": [
+        {
+          "what": "matching lines containing check in src/ and tests/",
+          "n": 883
+        },
+        {
+          "what": "files containing check in src/ and tests/",
+          "n": 70
+        }
+      ]
+    },
+    "elapsed": 15.420493841171265
+  },
+  {
+    "case_id": "refutes-name-search-for-behaviour",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "claim-ranges-wider-than-evidence",
+        "claim covers 'this crate'; the evidence covers only 'src/; /repo/src/transplants.rs lines 430:436'"
+      ],
+      [
+        "quantifier-amplifies",
+        "claim says 'Nothing', and a mismatch above breaks it"
+      ]
+    ],
+    "flaw": "The claim is about behaviour but the evidence is a search for a word. The second extent shows a truncation that never uses the word 'truncat'.",
+    "err": null,
+    "claim": {
+      "bindings": [],
+      "covers": "this crate",
+      "quantifiers": [
+        "Nothing"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "refuse_incomplete",
+          "kind": "definition",
+          "value": "a function taking text: &str and returning String",
+          "line": "430"
+        },
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "&str",
+          "line": "430"
+        },
+        {
+          "name": "first",
+          "kind": "value",
+          "value": "text.lines().next().unwrap_or(\"\").trim()",
+          "line": "432"
+        },
+        {
+          "name": "shown",
+          "kind": "value",
+          "value": "if text.lines().count() > 1 { format!(\"{first} \u2026\") } else { first.to_string() }",
+          "line": "433:435"
+        }
+      ],
+      "covers": "src/; /repo/src/transplants.rs lines 430:436",
+      "quantifiers": [
+        "no"
+      ],
+      "paths": [
+        "/repo",
+        "src/",
+        "/repo/src/transplants.rs"
+      ],
+      "counts": [
+        {
+          "what": "grep matches for 'truncat' under src/",
+          "n": 0
+        },
+        {
+          "what": "lines in text considered by text.lines().count()",
+          "n": 1
+        },
+        {
+          "what": "source lines shown in the range 430:436",
+          "n": 7
+        }
+      ]
+    },
+    "elapsed": 15.728956937789917
+  },
+  {
+    "case_id": "refutes-name-search-for-behaviour",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "claim-ranges-wider-than-evidence",
+        "claim covers 'this crate'; the evidence covers only 'src/'"
+      ],
+      [
+        "quantifier-amplifies",
+        "claim says 'nothing', and a mismatch above breaks it"
+      ]
+    ],
+    "flaw": "The claim is about behaviour but the evidence is a search for a word. The second extent shows a truncation that never uses the word 'truncat'.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "the practice",
+          "kind": "definition",
+          "value": "truncating author-supplied text",
+          "line": ""
+        },
+        {
+          "name": "this design",
+          "kind": "mention",
+          "value": "introduces the practice of truncating author-supplied text",
+          "line": ""
+        }
+      ],
+      "covers": "this crate",
+      "quantifiers": [
+        "nothing"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "truncat",
+          "kind": "mention",
+          "value": "grep search pattern",
+          "line": ""
+        },
+        {
+          "name": "refuse_incomplete",
+          "kind": "definition",
+          "value": "function taking text: &str and returning String",
+          "line": "430"
+        },
+        {
+          "name": "text",
+          "kind": "value",
+          "value": "&str parameter of refuse_incomplete",
+          "line": "430"
+        },
+        {
+          "name": "first",
+          "kind": "value",
+          "value": "text.lines().next().unwrap_or(\"\").trim()",
+          "line": "432"
+        },
+        {
+          "name": "shown",
+          "kind": "value",
+          "value": "if text.lines().count() > 1 { format!(\"{first} \u2026\") } else { first.to_string() }",
+          "line": "433:435"
+        }
+      ],
+      "covers": "src/",
+      "quantifiers": [
+        "no"
+      ],
+      "paths": [
+        "/repo",
+        "src/",
+        "/repo/src/transplants.rs"
+      ],
+      "counts": [
+        {
+          "what": "grep matches",
+          "n": 0
+        }
+      ]
+    },
+    "elapsed": 23.0459041595459
+  },
+  {
+    "case_id": "refutes-name-search-for-behaviour",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The claim is about behaviour but the evidence is a search for a word. The second extent shows a truncation that never uses the word 'truncat'.",
+    "err": "unparsed",
+    "claim": {
+      "bindings": [],
+      "covers": "this crate",
+      "quantifiers": [
+        "Nothing"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": null,
+    "elapsed": 29.389276027679443
+  },
+  {
+    "case_id": "qualifies-sweep-underscoped",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "claim-ranges-wider-than-evidence",
+        "claim covers 'repository'; the evidence covers only 'src/'"
+      ],
+      [
+        "quantifier-amplifies",
+        "claim says 'No', and a mismatch above breaks it"
+      ]
+    ],
+    "flaw": "The sweep was rooted at src/ only; the claim quantifies over the whole repository, which includes tests/ and build scripts.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "code",
+          "kind": "mention",
+          "value": "parses a label by splitting it on a delimiter",
+          "line": ""
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "is parsed by splitting it on a delimiter and can have a segment appended",
+          "line": ""
+        },
+        {
+          "name": "delimiter",
+          "kind": "mention",
+          "value": "used to split a label",
+          "line": ""
+        },
+        {
+          "name": "segment",
+          "kind": "mention",
+          "value": "appended to a label",
+          "line": ""
+        },
+        {
+          "name": "consumer",
+          "kind": "mention",
+          "value": "could be broken by appending a segment to a label",
+          "line": ""
+        }
+      ],
+      "covers": "repository",
+      "quantifiers": [
+        "No"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [],
+      "covers": "src/",
+      "quantifiers": [],
+      "paths": [
+        "/repo",
+        "src/"
+      ],
+      "counts": [
+        {
+          "what": "matches",
+          "n": 0
+        }
+      ]
+    },
+    "elapsed": 19.6056809425354
+  },
+  {
+    "case_id": "qualifies-sweep-underscoped",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "claim-ranges-wider-than-evidence",
+        "claim covers 'this repository'; the evidence covers only '/repo/src/'"
+      ],
+      [
+        "quantifier-amplifies",
+        "claim says 'No', and a mismatch above breaks it"
+      ]
+    ],
+    "flaw": "The sweep was rooted at src/ only; the claim quantifies over the whole repository, which includes tests/ and build scripts.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "code",
+          "kind": "mention",
+          "value": "code in the repository that parses a label by splitting it on a delimiter",
+          "line": ""
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "a label parsed by splitting on a delimiter and to which a segment may be appended",
+          "line": ""
+        },
+        {
+          "name": "delimiter",
+          "kind": "mention",
+          "value": "a delimiter used to split a label",
+          "line": ""
+        },
+        {
+          "name": "segment",
+          "kind": "mention",
+          "value": "a segment appended to a label",
+          "line": ""
+        },
+        {
+          "name": "consumer",
+          "kind": "mention",
+          "value": "a consumer that cannot be broken by appending a segment to a label",
+          "line": ""
+        }
+      ],
+      "covers": "this repository",
+      "quantifiers": [
+        "No"
+      ],
+      "paths": [],
+      "counts": [
+        {
+          "what": "code that parses a label by splitting it on a delimiter",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [],
+      "covers": "/repo/src/",
+      "quantifiers": [],
+      "paths": [
+        "/repo",
+        "src/"
+      ],
+      "counts": [
+        {
+          "what": "matches",
+          "n": 0
+        }
+      ]
+    },
+    "elapsed": 18.734086751937866
+  },
+  {
+    "case_id": "qualifies-sweep-underscoped",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "claim-ranges-wider-than-evidence",
+        "claim covers 'this repository'; the evidence covers only '/repo, src/'"
+      ],
+      [
+        "quantifier-amplifies",
+        "claim says 'No', and a mismatch above breaks it"
+      ]
+    ],
+    "flaw": "The sweep was rooted at src/ only; the claim quantifies over the whole repository, which includes tests/ and build scripts.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "code",
+          "kind": "mention",
+          "value": "parses a label by splitting it on a delimiter",
+          "line": "1"
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "is parsed by splitting it on a delimiter and can have a segment appended to it",
+          "line": "1"
+        },
+        {
+          "name": "delimiter",
+          "kind": "mention",
+          "value": "is used to split a label",
+          "line": "1"
+        },
+        {
+          "name": "segment",
+          "kind": "mention",
+          "value": "is appended to a label",
+          "line": "1"
+        },
+        {
+          "name": "consumer",
+          "kind": "mention",
+          "value": "cannot be broken by appending a segment to a label",
+          "line": "1"
+        }
+      ],
+      "covers": "this repository",
+      "quantifiers": [
+        "No"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [],
+      "covers": "/repo, src/",
+      "quantifiers": [
+        "no"
+      ],
+      "paths": [
+        "/repo",
+        "src/"
+      ],
+      "counts": [
+        {
+          "what": "matches",
+          "n": 0
+        }
+      ]
+    },
+    "elapsed": 21.384413719177246
+  },
+  {
+    "case_id": "refutes-direct",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-mismatch",
+        "text: claim describes it as 'plain required String' while the evidence shows ['option'] in 'Option<String> field of ProseParams'"
+      ]
+    ],
+    "flaw": "The output shows the field is Option<String> with serde(default); the claim says it is a plain required String.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "plain required String",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ProseParams",
+          "kind": "type",
+          "value": "struct",
+          "line": "350"
+        },
+        {
+          "name": "workspace",
+          "kind": "value",
+          "value": "String field of ProseParams",
+          "line": "351"
+        },
+        {
+          "name": "text",
+          "kind": "value",
+          "value": "Option<String> field of ProseParams",
+          "line": "353"
+        },
+        {
+          "name": "cites",
+          "kind": "value",
+          "value": "Option<Vec<String>> field of ProseParams",
+          "line": "355"
+        }
+      ],
+      "covers": "/repo/src/mcp.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/mcp.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 16.501445770263672
+  },
+  {
+    "case_id": "refutes-direct",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts ProseParams at 1; evidence puts it at 350"
+      ],
+      [
+        "binding-mismatch",
+        "text: claim describes it as 'a plain required String with neither Option nor a serde defa' while the evidence shows ['option'] in 'Option<String>'"
+      ],
+      [
+        "binding-at-wrong-line",
+        "claim puts text at 1; evidence puts it at 353"
+      ]
+    ],
+    "flaw": "The output shows the field is Option<String> with serde(default); the claim says it is a plain required String.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "ProseParams",
+          "kind": "mention",
+          "value": "a declaration containing text",
+          "line": "1"
+        },
+        {
+          "name": "text",
+          "kind": "definition",
+          "value": "a plain required String with neither Option nor a serde default",
+          "line": "1"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ProseParams",
+          "kind": "definition",
+          "value": "struct",
+          "line": "350"
+        },
+        {
+          "name": "workspace",
+          "kind": "type",
+          "value": "String",
+          "line": "351"
+        },
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "Option<String>",
+          "line": "353"
+        },
+        {
+          "name": "cites",
+          "kind": "type",
+          "value": "Option<Vec<String>>",
+          "line": "355"
+        }
+      ],
+      "covers": "/repo/src/mcp.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/mcp.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 14.889680862426758
+  },
+  {
+    "case_id": "refutes-direct",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-mismatch",
+        "text: claim describes it as 'plain required String, with neither Option nor a serde defau' while the evidence shows ['option'] in 'Option<String>'"
+      ]
+    ],
+    "flaw": "The output shows the field is Option<String> with serde(default); the claim says it is a plain required String.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "ProseParams",
+          "kind": "mention",
+          "value": "declares text",
+          "line": ""
+        },
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "plain required String, with neither Option nor a serde default",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ProseParams",
+          "kind": "type",
+          "value": "struct",
+          "line": "350"
+        },
+        {
+          "name": "workspace",
+          "kind": "type",
+          "value": "String",
+          "line": "351"
+        },
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "Option<String>",
+          "line": "353"
+        },
+        {
+          "name": "cites",
+          "kind": "type",
+          "value": "Option<Vec<String>>",
+          "line": "355"
+        }
+      ],
+      "covers": "/repo/src/mcp.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/mcp.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 19.17418599128723
+  },
+  {
+    "case_id": "refutes-wrong-citation",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts scope at 210-213; evidence puts it at 194-196"
+      ]
+    ],
+    "flaw": "The scope literal is at 194-197, not 210-213; lines 210-213 are a different statement.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "the literal listing the machine-checked categories",
+          "line": "210-213"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, uncensused modification targets, transplant premises, provenance drift",
+          "line": "194-196"
+        }
+      ],
+      "covers": "/repo/src/report.rs",
+      "quantifiers": [
+        "only"
+      ],
+      "paths": [
+        "/repo/src/report.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 15.564832925796509
+  },
+  {
+    "case_id": "refutes-wrong-citation",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts scope at 210-213; evidence puts it at 194:197"
+      ]
+    ],
+    "flaw": "The scope literal is at 194-197, not 210-213; lines 210-213 are a different statement.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "the literal listing the machine-checked categories",
+          "line": "210-213"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, uncensused modification targets, transplant premises, provenance drift",
+          "line": "194:197"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "only"
+      ],
+      "paths": [
+        "/repo/src/report.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 20.358200073242188
+  },
+  {
+    "case_id": "refutes-wrong-citation",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts scope at src/report.rs:210-213; evidence puts it at 194-197"
+      ]
+    ],
+    "flaw": "The scope literal is at 194-197, not 210-213; lines 210-213 are a different statement.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "the literal listing the machine-checked categories",
+          "line": "src/report.rs:210-213"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, uncensused modification targets, transplant premises, provenance drift",
+          "line": "194-197"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "only"
+      ],
+      "paths": [
+        "/repo/src/report.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 15.282348871231079
+  },
+  {
+    "case_id": "refutes-arithmetic",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts designer at 1; evidence puts it at 2"
+      ],
+      [
+        "binding-at-wrong-line",
+        "claim puts children at 1; evidence puts it at 3"
+      ]
+    ],
+    "flaw": "13.0M + 9.24M is 22.24M, and the parts do not sum to the stated 31.5M total.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "loop",
+          "kind": "value",
+          "value": "31.5M base-input-equivalents in total",
+          "line": "1"
+        },
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13.0M base-input-equivalents",
+          "line": "1"
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9.24M base-input-equivalents",
+          "line": "1"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13,003,879",
+          "line": "2"
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9,240,000",
+          "line": "3"
+        }
+      ],
+      "covers": "/repo",
+      "quantifiers": [],
+      "paths": [
+        "/repo"
+      ],
+      "counts": [
+        {
+          "what": "designer",
+          "n": 13003879
+        },
+        {
+          "what": "children",
+          "n": 9240000
+        }
+      ]
+    },
+    "elapsed": 11.088804244995117
+  },
+  {
+    "case_id": "refutes-arithmetic",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "count-mismatch",
+        "claim says 13.0M designer cost; evidence shows 13003879"
+      ],
+      [
+        "count-mismatch",
+        "claim says 9.24M children cost; evidence shows 9240000"
+      ]
+    ],
+    "flaw": "13.0M + 9.24M is 22.24M, and the parts do not sum to the stated 31.5M total.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "loop cost",
+          "kind": "value",
+          "value": "31.5M base-input-equivalents in total",
+          "line": ""
+        },
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13.0M",
+          "line": ""
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9.24M",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "loop cost",
+          "n": "31.5M"
+        },
+        {
+          "what": "designer cost",
+          "n": "13.0M"
+        },
+        {
+          "what": "children cost",
+          "n": "9.24M"
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13,003,879",
+          "line": "2"
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9,240,000",
+          "line": "3"
+        }
+      ],
+      "covers": "/repo",
+      "quantifiers": [],
+      "paths": [
+        "/repo"
+      ],
+      "counts": [
+        {
+          "what": "designer",
+          "n": 13003879
+        },
+        {
+          "what": "children",
+          "n": 9240000
+        }
+      ]
+    },
+    "elapsed": 14.278648853302002
+  },
+  {
+    "case_id": "refutes-arithmetic",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "binding-at-wrong-line",
+        "claim puts designer at 1; evidence puts it at 2"
+      ],
+      [
+        "binding-at-wrong-line",
+        "claim puts children at 1; evidence puts it at 3"
+      ]
+    ],
+    "flaw": "13.0M + 9.24M is 22.24M, and the parts do not sum to the stated 31.5M total.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "loop",
+          "kind": "value",
+          "value": "31.5M base-input-equivalents in total",
+          "line": "1"
+        },
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13.0M base-input-equivalents",
+          "line": "1"
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9.24M base-input-equivalents",
+          "line": "1"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "run",
+          "kind": "value",
+          "value": "cost breakdown",
+          "line": "1"
+        },
+        {
+          "name": "designer",
+          "kind": "value",
+          "value": "13,003,879",
+          "line": "2"
+        },
+        {
+          "name": "children",
+          "kind": "value",
+          "value": "9,240,000",
+          "line": "3"
+        }
+      ],
+      "covers": "/repo",
+      "quantifiers": [],
+      "paths": [
+        "/repo"
+      ],
+      "counts": [
+        {
+          "what": "designer",
+          "n": 13003879
+        },
+        {
+          "what": "children",
+          "n": 9240000
+        }
+      ]
+    },
+    "elapsed": 9.260822057723999
+  },
+  {
+    "case_id": "qualifies-unstated-condition",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The guarantee holds only when the root is a directory; for a single-file root the exclusions are not applied at all.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "look --grep",
+          "kind": "mention",
+          "value": "a census tool",
+          "line": ""
+        },
+        {
+          "name": "census",
+          "kind": "mention",
+          "value": "a `look --grep` operation",
+          "line": ""
+        },
+        {
+          "name": "tetel",
+          "kind": "mention",
+          "value": "the writer of its own output",
+          "line": ""
+        },
+        {
+          "name": "the tool",
+          "kind": "mention",
+          "value": "`look --grep`",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "Every",
+        "no"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "decide",
+          "kind": "definition",
+          "value": "function taking root: &Path and returning Exclusions",
+          "line": "240"
+        },
+        {
+          "name": "root",
+          "kind": "value",
+          "value": "&Path parameter",
+          "line": "240"
+        },
+        {
+          "name": "Exclusions",
+          "kind": "type",
+          "value": "return type of decide; contains None and Applied variants",
+          "line": "240, 242, 250"
+        },
+        {
+          "name": "why",
+          "kind": "value",
+          "value": "\"the caller named one file\"",
+          "line": "242"
+        },
+        {
+          "name": "None",
+          "kind": "mention",
+          "value": "variant of Exclusions",
+          "line": "242"
+        },
+        {
+          "name": "Applied",
+          "kind": "mention",
+          "value": "variant of Exclusions with memos and ignored fields",
+          "line": "250"
+        },
+        {
+          "name": "memos",
+          "kind": "mention",
+          "value": "field of Exclusions::Applied",
+          "line": "250"
+        },
+        {
+          "name": "ignored",
+          "kind": "mention",
+          "value": "field of Exclusions::Applied",
+          "line": "250"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/observe.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 26.532070875167847
+  },
+  {
+    "case_id": "qualifies-unstated-condition",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The guarantee holds only when the root is a directory; for a single-file root the exclusions are not applied at all.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "look --grep",
+          "kind": "mention",
+          "value": "a census tool",
+          "line": ""
+        },
+        {
+          "name": "census",
+          "kind": "definition",
+          "value": "skips tetel's own output and cannot return content the tool previously wrote",
+          "line": ""
+        },
+        {
+          "name": "tetel",
+          "kind": "mention",
+          "value": "the owner of its own output",
+          "line": ""
+        },
+        {
+          "name": "tool",
+          "kind": "mention",
+          "value": "look --grep",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "Every",
+        "no"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "decide",
+          "kind": "definition",
+          "value": "function taking root: &Path and returning Exclusions",
+          "line": "240"
+        },
+        {
+          "name": "root",
+          "kind": "value",
+          "value": "parameter of type &Path",
+          "line": "240"
+        },
+        {
+          "name": "Path",
+          "kind": "type",
+          "value": "type of root",
+          "line": "240"
+        },
+        {
+          "name": "Exclusions",
+          "kind": "type",
+          "value": "return type of decide",
+          "line": "240"
+        },
+        {
+          "name": "is_dir",
+          "kind": "mention",
+          "value": "method called on root",
+          "line": "241"
+        },
+        {
+          "name": "Exclusions::None",
+          "kind": "value",
+          "value": "variant constructed with why",
+          "line": "242"
+        },
+        {
+          "name": "why",
+          "kind": "value",
+          "value": "\"the caller named one file\"",
+          "line": "242"
+        },
+        {
+          "name": "Exclusions::Applied",
+          "kind": "value",
+          "value": "variant constructed with memos and ignored",
+          "line": "250"
+        },
+        {
+          "name": "memos",
+          "kind": "mention",
+          "value": "field in Exclusions::Applied",
+          "line": "250"
+        },
+        {
+          "name": "ignored",
+          "kind": "mention",
+          "value": "field in Exclusions::Applied",
+          "line": "250"
+        }
+      ],
+      "covers": "function decide",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/observe.rs"
+      ],
+      "counts": [
+        {
+          "what": "files named by the caller",
+          "n": 1
+        }
+      ]
+    },
+    "elapsed": 34.61386799812317
+  },
+  {
+    "case_id": "qualifies-unstated-condition",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The guarantee holds only when the root is a directory; for a single-file root the exclusions are not applied at all.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "look --grep",
+          "kind": "mention",
+          "value": "census tool or operation",
+          "line": ""
+        },
+        {
+          "name": "tetel",
+          "kind": "value",
+          "value": "the source of its own output",
+          "line": ""
+        },
+        {
+          "name": "the tool",
+          "kind": "mention",
+          "value": "the writer of the previously written content",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [
+        "Every",
+        "no"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "decide",
+          "kind": "definition",
+          "value": "a function taking root: &Path and returning Exclusions",
+          "line": "240"
+        },
+        {
+          "name": "root",
+          "kind": "value",
+          "value": "a parameter of type &Path",
+          "line": "240"
+        },
+        {
+          "name": "Path",
+          "kind": "type",
+          "value": "the type of root",
+          "line": "240"
+        },
+        {
+          "name": "Exclusions",
+          "kind": "type",
+          "value": "the return type of decide",
+          "line": "240"
+        },
+        {
+          "name": "Exclusions::None",
+          "kind": "value",
+          "value": "returned when !root.is_dir()",
+          "line": "242"
+        },
+        {
+          "name": "why",
+          "kind": "value",
+          "value": "\"the caller named one file\"",
+          "line": "242"
+        },
+        {
+          "name": "Exclusions::Applied",
+          "kind": "value",
+          "value": "returned with fields memos and ignored",
+          "line": "250"
+        },
+        {
+          "name": "memos",
+          "kind": "mention",
+          "value": "a field in Exclusions::Applied",
+          "line": "250"
+        },
+        {
+          "name": "ignored",
+          "kind": "mention",
+          "value": "a field in Exclusions::Applied",
+          "line": "250"
+        }
+      ],
+      "covers": "the function decide",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/observe.rs"
+      ],
+      "counts": [
+        {
+          "what": "files",
+          "n": 1
+        }
+      ]
+    },
+    "elapsed": 27.188729763031006
+  },
+  {
+    "case_id": "supports-multi-fact",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": "unparsed",
+    "claim": {
+      "bindings": [
+        {
+          "name": "pin",
+          "kind": "definition",
+          "value": "computed over each observation's label and output",
+          "line": ""
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "an observation's label; changing a label changes the pin",
+          "line": ""
+        },
+        {
+          "name": "output",
+          "kind": "mention",
+          "value": "an observation's output, included in the computation of the pin",
+          "line": ""
+        }
+      ],
+      "covers": "each observation",
+      "quantifiers": [
+        "each"
+      ],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": null,
+    "elapsed": 35.61905574798584
+  },
+  {
+    "case_id": "supports-multi-fact",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "pin",
+          "kind": "definition",
+          "value": "computed over each observation's label and output; changing a label changes the pin",
+          "line": ""
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "an observation's label; changing it changes the pin",
+          "line": ""
+        },
+        {
+          "name": "output",
+          "kind": "mention",
+          "value": "an observation's output",
+          "line": ""
+        }
+      ],
+      "covers": "each observation's label and output",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "e",
+          "kind": "definition",
+          "value": "an element of &buf.entries",
+          "line": "400"
+        },
+        {
+          "name": "label",
+          "kind": "value",
+          "value": "e.label.clone()",
+          "line": "405"
+        },
+        {
+          "name": "key",
+          "kind": "value",
+          "value": "e.key.clone()",
+          "line": "405"
+        },
+        {
+          "name": "h",
+          "kind": "definition",
+          "value": "Sha256::new()",
+          "line": "425"
+        },
+        {
+          "name": "e",
+          "kind": "definition",
+          "value": "an element of &buf.entries",
+          "line": "427"
+        }
+      ],
+      "covers": "/repo/src/facts.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/facts.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 22.568878173828125
+  },
+  {
+    "case_id": "supports-multi-fact",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": "unparsed",
+    "claim": {
+      "bindings": [
+        {
+          "name": "pin",
+          "kind": "definition",
+          "value": "computed over each observation's label and output; changing a label changes the pin",
+          "line": "1"
+        },
+        {
+          "name": "label",
+          "kind": "mention",
+          "value": "an observation's label; changing it changes the pin",
+          "line": "1"
+        },
+        {
+          "name": "output",
+          "kind": "mention",
+          "value": "an observation's output, used in computing the pin",
+          "line": "1"
+        }
+      ],
+      "covers": "each observation",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": null,
+    "elapsed": 31.36280608177185
+  },
+  {
+    "case_id": "note-names-a-file-the-extent-never-opened",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "path-outside-extent",
+        "claim names src/report.rs; the extent does not open it"
+      ]
+    ],
+    "flaw": "The note concludes about src/report.rs, but the extent only opened src/checks.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "mention",
+          "value": "omits the prose residue from its disjunction",
+          "line": ""
+        },
+        {
+          "name": "scope",
+          "kind": "mention",
+          "value": "a literal in src/report.rs that lists the prose residue among the human-owed categories",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "mention",
+          "value": "the type named in the impl block",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "a method on Findings returning bool, with condition !self.grammar.is_empty() || !self.subset.is_empty() || !self.out_of_proof.is_empty()",
+          "line": "188-196"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "a field checked for emptiness",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "a field checked for emptiness",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "a field checked for emptiness",
+          "line": "191"
+        }
+      ],
+      "covers": "/repo/src/checks.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 17.199471950531006
+  },
+  {
+    "case_id": "note-names-a-file-the-extent-never-opened",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "path-outside-extent",
+        "claim names src/report.rs; the extent does not open it"
+      ]
+    ],
+    "flaw": "The note concludes about src/report.rs, but the extent only opened src/checks.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "mention",
+          "value": "a disjunction that omits the prose residue; listed among human-owed categories",
+          "line": ""
+        },
+        {
+          "name": "scope",
+          "kind": "value",
+          "value": "a literal in src/report.rs listing machine_check_failed among human-owed categories",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "type",
+          "value": "type named in the impl block",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "pub fn machine_check_failed(&self) -> bool",
+          "line": "188:196"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "self.grammar",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "self.subset",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "self.out_of_proof",
+          "line": "191"
+        }
+      ],
+      "covers": "Findings::machine_check_failed",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": [
+        {
+          "what": "non-empty checks combined with ||",
+          "n": 3
+        }
+      ]
+    },
+    "elapsed": 24.413240909576416
+  },
+  {
+    "case_id": "note-names-a-file-the-extent-never-opened",
+    "should_flag": true,
+    "flagged": true,
+    "ok": true,
+    "findings": [
+      [
+        "path-outside-extent",
+        "claim names src/report.rs; the extent does not open it"
+      ]
+    ],
+    "flaw": "The note concludes about src/report.rs, but the extent only opened src/checks.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "mention",
+          "value": "omits the prose residue from its disjunction and is listed among the human-owed categories",
+          "line": ""
+        },
+        {
+          "name": "scope",
+          "kind": "mention",
+          "value": "a literal in src/report.rs that lists machine_check_failed among the human-owed categories",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "src/report.rs"
+      ],
+      "counts": [
+        {
+          "what": "",
+          "n": 0
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "mention",
+          "value": "type used as the implementation target",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "method on Findings returning bool; its body checks whether grammar, subset, or out_of_proof is non-empty",
+          "line": "188"
+        },
+        {
+          "name": "self",
+          "kind": "value",
+          "value": "receiver of the Findings method",
+          "line": "188"
+        },
+        {
+          "name": "bool",
+          "kind": "type",
+          "value": "return type of machine_check_failed",
+          "line": "188"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "field of self whose emptiness is checked",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "field of self whose emptiness is checked",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "field of self whose emptiness is checked",
+          "line": "191"
+        },
+        {
+          "name": "is_empty",
+          "kind": "mention",
+          "value": "method called on grammar, subset, and out_of_proof",
+          "line": "189:191"
+        }
+      ],
+      "covers": "/repo/src/checks.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 19.9236900806427
+  },
+  {
+    "case_id": "note-stays-inside-its-extent",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "an explicit disjunction over the findings fields",
+          "line": ""
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "value",
+          "value": "one of the terms of machine_check_failed",
+          "line": ""
+        }
+      ],
+      "covers": "findings fields",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "type",
+          "value": "the type whose methods are implemented",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "a public method on Findings returning bool",
+          "line": "188"
+        },
+        {
+          "name": "self",
+          "kind": "mention",
+          "value": "the method receiver",
+          "line": "188"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "a field of self checked for emptiness",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "a field of self checked for emptiness",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "a field of self checked for emptiness",
+          "line": "191"
+        }
+      ],
+      "covers": "/repo/src/checks.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 20.2311909198761
+  },
+  {
+    "case_id": "note-stays-inside-its-extent",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "an explicit disjunction over the findings fields",
+          "line": ""
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "one of the terms of machine_check_failed",
+          "line": ""
+        }
+      ],
+      "covers": "findings fields",
+      "quantifiers": [],
+      "paths": [],
+      "counts": [
+        {
+          "what": "out_of_proof among the terms of machine_check_failed",
+          "n": 1
+        }
+      ]
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "type",
+          "value": "the type being implemented",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "a method on Findings returning bool",
+          "line": "188"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "a field checked for being non-empty",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "a field checked for being non-empty",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "a field checked for being non-empty",
+          "line": "191"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 26.011779069900513
+  },
+  {
+    "case_id": "note-stays-inside-its-extent",
+    "should_flag": false,
+    "flagged": false,
+    "ok": true,
+    "findings": [],
+    "flaw": null,
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "an explicit disjunction over the findings fields",
+          "line": ""
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "one of the terms of machine_check_failed",
+          "line": ""
+        }
+      ],
+      "covers": "findings fields",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "Findings",
+          "kind": "type",
+          "value": "the type being implemented",
+          "line": "180"
+        },
+        {
+          "name": "machine_check_failed",
+          "kind": "definition",
+          "value": "a public method on Findings returning bool",
+          "line": "188"
+        },
+        {
+          "name": "grammar",
+          "kind": "mention",
+          "value": "self.grammar",
+          "line": "189"
+        },
+        {
+          "name": "subset",
+          "kind": "mention",
+          "value": "self.subset",
+          "line": "190"
+        },
+        {
+          "name": "out_of_proof",
+          "kind": "mention",
+          "value": "self.out_of_proof",
+          "line": "191"
+        }
+      ],
+      "covers": "/repo/src/checks.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/checks.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 13.254038095474243
+  },
+  {
+    "case_id": "note-names-a-second-file-only-one-was-opened",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The claim reasons about both compose.rs and ledger.rs; the extent opened only compose.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "compose::render",
+          "kind": "definition",
+          "value": "replaces embedded newlines with spaces when it writes a claim into the ledger table",
+          "line": "1"
+        },
+        {
+          "name": "ledger::import",
+          "kind": "definition",
+          "value": "trims each cell on the way back in",
+          "line": "1"
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ledger_cell",
+          "kind": "definition",
+          "value": "a function taking &str and returning String",
+          "line": "310"
+        },
+        {
+          "name": "text",
+          "kind": "value",
+          "value": "a function parameter of type &str",
+          "line": "310"
+        }
+      ],
+      "covers": "the function ledger_cell in /repo/src/compose.rs, lines 310:318",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/compose.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 13.833914041519165
+  },
+  {
+    "case_id": "note-names-a-second-file-only-one-was-opened",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The claim reasons about both compose.rs and ledger.rs; the extent opened only compose.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "compose::render",
+          "kind": "definition",
+          "value": "replaces embedded newlines with spaces when writing a claim into the ledger table",
+          "line": ""
+        },
+        {
+          "name": "ledger::import",
+          "kind": "definition",
+          "value": "trims each cell on the way back in",
+          "line": ""
+        }
+      ],
+      "covers": "",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ledger_cell",
+          "kind": "definition",
+          "value": "function taking text: &str and returning String",
+          "line": "310:318"
+        },
+        {
+          "name": "text",
+          "kind": "type",
+          "value": "&str",
+          "line": "310"
+        }
+      ],
+      "covers": "/repo/src/compose.rs",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/compose.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 14.1774001121521
+  },
+  {
+    "case_id": "note-names-a-second-file-only-one-was-opened",
+    "should_flag": true,
+    "flagged": false,
+    "ok": false,
+    "findings": [],
+    "flaw": "The claim reasons about both compose.rs and ledger.rs; the extent opened only compose.rs.",
+    "err": null,
+    "claim": {
+      "bindings": [
+        {
+          "name": "compose::render",
+          "kind": "definition",
+          "value": "replaces embedded newlines with spaces when it writes a claim into the ledger table",
+          "line": "1"
+        },
+        {
+          "name": "ledger::import",
+          "kind": "definition",
+          "value": "trims each cell on the way back in",
+          "line": "1"
+        }
+      ],
+      "covers": "the ledger table and each cell imported from it",
+      "quantifiers": [],
+      "paths": [],
+      "counts": []
+    },
+    "evidence": {
+      "bindings": [
+        {
+          "name": "ledger_cell",
+          "kind": "definition",
+          "value": "fn ledger_cell(text: &str) -> String",
+          "line": "310"
+        },
+        {
+          "name": "text",
+          "kind": "value",
+          "value": "function parameter of type &str",
+          "line": "310"
+        }
+      ],
+      "covers": "function ledger_cell",
+      "quantifiers": [],
+      "paths": [
+        "/repo/src/compose.rs"
+      ],
+      "counts": []
+    },
+    "elapsed": 11.274015188217163
+  }
+]

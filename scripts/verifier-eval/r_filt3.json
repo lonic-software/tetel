@@ -1,0 +1,3018 @@
+[
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C5",
+    "prop": "A census check cannot be built on labels, and the record model already shows the right way to extend the schema. At mint time only key, label, world_root and world_state survive into an ExtentEntry \u2014 the observation's kind is dropped, and the grep pattern exists only inside a display label, where an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous. The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern \u2014 following the exact precedent world_root set: #[serde(default)], with the empty value read as \"predates the field, not eligible\" rather than guessed about. Legacy facts can then never satisfy a census requirement, whose remedy is precisely to re-run the grep under the new capture. The snapshot already ships facts.jsonl with full extent entries, so check reads these fields from files every snapshot already contains; and because no surface lets an author supply an extent by hand, both sides of the rooting comparison and the pattern are tool-captured by construction.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The captured evidence limits the absence to this module's CLI surface, but the assertion extends it to every surface.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.0060174749999999996,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "no surface lets an author supply an extent by hand",
+        "evidence": "//! There is deliberately no flag anywhere on this module's CLI surface that lets a caller supply\n//! the extent or captured output themselves \u2014 that absence is the",
+        "why": "The captured evidence limits the absence to this module's CLI surface, but the assertion extends it to every surface.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "A census check cannot be built on labels",
+        "label": "argument"
+      },
+      {
+        "text": "the record model already shows the right way to extend the schema",
+        "label": "argument"
+      },
+      {
+        "text": "At mint time only key, label, world_root and world_state survive into an ExtentEntry",
+        "label": "current"
+      },
+      {
+        "text": "the observation's kind is dropped",
+        "label": "current"
+      },
+      {
+        "text": "the grep pattern exists only inside a display label",
+        "label": "current"
+      },
+      {
+        "text": "an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous",
+        "label": "argument"
+      },
+      {
+        "text": "The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern",
+        "label": "argument"
+      },
+      {
+        "text": "following the exact precedent world_root set: #[serde(default)]",
+        "label": "proposed"
+      },
+      {
+        "text": "with the empty value read as \"predates the field, not eligible\" rather than guessed about",
+        "label": "proposed"
+      },
+      {
+        "text": "Legacy facts can then never satisfy a census requirement",
+        "label": "argument"
+      },
+      {
+        "text": "whose remedy is precisely to re-run the grep under the new capture",
+        "label": "argument"
+      },
+      {
+        "text": "The snapshot already ships facts.jsonl with full extent entries",
+        "label": "current"
+      },
+      {
+        "text": "check reads these fields from files every snapshot already contains",
+        "label": "proposed"
+      },
+      {
+        "text": "no surface lets an author supply an extent by hand",
+        "label": "current"
+      },
+      {
+        "text": "both sides of the rooting comparison and the pattern are tool-captured by construction",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every checkable premise holds: ExtentEntry is exactly { key, label, world_root, world_state } and mint() copies only those four fields from PendingEntry, dropping kind; the pattern survives only inside the display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable; world_root is #[serde(default)] with the empty value documented and treated as predating the field, comparable with nothing, rather than guessed about; the fact module states there is deliberately no surface to supply an extent by hand; and the snapshot ships facts.jsonl (first entry of SNAPSHOT_FILES) by verbatim copy, so the proposed fields would reach check in files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot-side premise specifically: SNAPSHOT_FILES lists facts.jsonl first and snapshot::write copies it verbatim beside the memo, so check reads extent fields from files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified at mint time exactly key, label, world_root, world_state survive into ExtentEntry \u2014 kind is dropped \u2014 and world_root's own doc comment states the precedent claimed: #[serde(default)], with an empty value treated as predating the field and \"comparable with nothing ... rather than guessing\". The module doc states no surface lets a caller supply extent or output by hand."
+      },
+      {
+        "verdict": "supports",
+        "note": "The grep pattern today exists only inside display labels \u2014 \"{file} (grep: {pattern})\" and \"no-match: {pattern} in {root}\" \u2014 where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable, so a census check cannot be built on labels."
+      },
+      {
+        "verdict": "supports",
+        "note": "SNAPSHOT_FILES ships facts.jsonl verbatim into <memo>.tetel/, so a check reading structured extent fields reads files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified clause by clause: mint copies only key/label/world_root/world_state into ExtentEntry, dropping the observation's kind; the grep pattern survives only inside display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where an author-chosen pattern containing \"(grep: \" or \" in \" genuinely makes parsing ambiguous; world_root is #[serde(default)] with the empty value documented as predates-the-field and treated as comparable-with-nothing rather than guessed; and no surface lets an author supply an extent by hand. Legacy facts lacking the proposed fields would therefore fail the census by construction, with re-running the grep as the remedy."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot ships facts.jsonl among its enumerated SNAPSHOT_FILES, and the rendered document itself never carries a fact's extent \u2014 so a check reading the proposed structured fields would read them from files every snapshot already contains, as the claim says."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C5",
+    "prop": "A census check cannot be built on labels, and the record model already shows the right way to extend the schema. At mint time only key, label, world_root and world_state survive into an ExtentEntry \u2014 the observation's kind is dropped, and the grep pattern exists only inside a display label, where an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous. The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern \u2014 following the exact precedent world_root set: #[serde(default)], with the empty value read as \"predates the field, not eligible\" rather than guessed about. Legacy facts can then never satisfy a census requirement, whose remedy is precisely to re-run the grep under the new capture. The snapshot already ships facts.jsonl with full extent entries, so check reads these fields from files every snapshot already contains; and because no surface lets an author supply an extent by hand, both sides of the rooting comparison and the pattern are tool-captured by construction.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The evidence establishes the absence of such a flag only on this module's CLI surface, not on every possible authoring surface.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.0063294,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "no surface lets an author supply an extent by hand",
+        "evidence": "There is deliberately no flag anywhere on this module's CLI surface that lets a caller supply the extent or captured output themselves",
+        "why": "The evidence establishes the absence of such a flag only on this module's CLI surface, not on every possible authoring surface.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "A census check cannot be built on labels",
+        "label": "argument"
+      },
+      {
+        "text": "the record model already shows the right way to extend the schema",
+        "label": "current"
+      },
+      {
+        "text": "At mint time only key, label, world_root and world_state survive into an ExtentEntry",
+        "label": "current"
+      },
+      {
+        "text": "the observation's kind is dropped",
+        "label": "current"
+      },
+      {
+        "text": "the grep pattern exists only inside a display label",
+        "label": "current"
+      },
+      {
+        "text": "an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous",
+        "label": "argument"
+      },
+      {
+        "text": "the census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern",
+        "label": "argument"
+      },
+      {
+        "text": "following the exact precedent world_root set: #[serde(default)]",
+        "label": "proposed"
+      },
+      {
+        "text": "with the empty value read as \"predates the field, not eligible\" rather than guessed about",
+        "label": "proposed"
+      },
+      {
+        "text": "Legacy facts can then never satisfy a census requirement",
+        "label": "argument"
+      },
+      {
+        "text": "whose remedy is precisely to re-run the grep under the new capture",
+        "label": "argument"
+      },
+      {
+        "text": "The snapshot already ships facts.jsonl with full extent entries",
+        "label": "current"
+      },
+      {
+        "text": "check reads these fields from files every snapshot already contains",
+        "label": "proposed"
+      },
+      {
+        "text": "no surface lets an author supply an extent by hand",
+        "label": "current"
+      },
+      {
+        "text": "both sides of the rooting comparison and the pattern are tool-captured by construction",
+        "label": "current"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every checkable premise holds: ExtentEntry is exactly { key, label, world_root, world_state } and mint() copies only those four fields from PendingEntry, dropping kind; the pattern survives only inside the display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable; world_root is #[serde(default)] with the empty value documented and treated as predating the field, comparable with nothing, rather than guessed about; the fact module states there is deliberately no surface to supply an extent by hand; and the snapshot ships facts.jsonl (first entry of SNAPSHOT_FILES) by verbatim copy, so the proposed fields would reach check in files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot-side premise specifically: SNAPSHOT_FILES lists facts.jsonl first and snapshot::write copies it verbatim beside the memo, so check reads extent fields from files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified at mint time exactly key, label, world_root, world_state survive into ExtentEntry \u2014 kind is dropped \u2014 and world_root's own doc comment states the precedent claimed: #[serde(default)], with an empty value treated as predating the field and \"comparable with nothing ... rather than guessing\". The module doc states no surface lets a caller supply extent or output by hand."
+      },
+      {
+        "verdict": "supports",
+        "note": "The grep pattern today exists only inside display labels \u2014 \"{file} (grep: {pattern})\" and \"no-match: {pattern} in {root}\" \u2014 where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable, so a census check cannot be built on labels."
+      },
+      {
+        "verdict": "supports",
+        "note": "SNAPSHOT_FILES ships facts.jsonl verbatim into <memo>.tetel/, so a check reading structured extent fields reads files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified clause by clause: mint copies only key/label/world_root/world_state into ExtentEntry, dropping the observation's kind; the grep pattern survives only inside display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where an author-chosen pattern containing \"(grep: \" or \" in \" genuinely makes parsing ambiguous; world_root is #[serde(default)] with the empty value documented as predates-the-field and treated as comparable-with-nothing rather than guessed; and no surface lets an author supply an extent by hand. Legacy facts lacking the proposed fields would therefore fail the census by construction, with re-running the grep as the remedy."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot ships facts.jsonl among its enumerated SNAPSHOT_FILES, and the rendered document itself never carries a fact's extent \u2014 so a check reading the proposed structured fields would read them from files every snapshot already contains, as the claim says."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C5",
+    "prop": "A census check cannot be built on labels, and the record model already shows the right way to extend the schema. At mint time only key, label, world_root and world_state survive into an ExtentEntry \u2014 the observation's kind is dropped, and the grep pattern exists only inside a display label, where an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous. The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern \u2014 following the exact precedent world_root set: #[serde(default)], with the empty value read as \"predates the field, not eligible\" rather than guessed about. Legacy facts can then never satisfy a census requirement, whose remedy is precisely to re-run the grep under the new capture. The snapshot already ships facts.jsonl with full extent entries, so check reads these fields from files every snapshot already contains; and because no surface lets an author supply an extent by hand, both sides of the rooting comparison and the pattern are tool-captured by construction.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The captured evidence limits the absence to this module's CLI surface; the assertion extends it to every authoring surface.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.009943925,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "no surface lets an author supply an extent by hand",
+        "evidence": "//! Refuses on an empty buffer. There is deliberately no\n//! flag anywhere on this module's CLI surface that lets a caller supply\n//! the extent or captured output themselves \u2014 that absence is the\n//! guarantee that a fact was actually backed by a `look`/`run`, not a\n//! rule enforced after the fact.",
+        "why": "The captured evidence limits the absence to this module's CLI surface; the assertion extends it to every authoring surface.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "A census check cannot be built on labels",
+        "label": "argument"
+      },
+      {
+        "text": "the record model already shows the right way to extend the schema",
+        "label": "argument"
+      },
+      {
+        "text": "At mint time only key, label, world_root and world_state survive into an ExtentEntry",
+        "label": "current"
+      },
+      {
+        "text": "the observation's kind is dropped",
+        "label": "current"
+      },
+      {
+        "text": "the grep pattern exists only inside a display label",
+        "label": "current"
+      },
+      {
+        "text": "an author-chosen pattern containing \" in \" or \"(grep: \" would make parsing ambiguous",
+        "label": "argument"
+      },
+      {
+        "text": "The census therefore needs the new root-level search entry to carry two structured fields into ExtentEntry \u2014 the observation kind and the search pattern",
+        "label": "proposed"
+      },
+      {
+        "text": "following the exact precedent",
+        "label": "proposed"
+      },
+      {
+        "text": "world_root set: #[serde(default)]",
+        "label": "current"
+      },
+      {
+        "text": "with the empty value read as \"predates the field, not eligible\" rather than guessed about",
+        "label": "proposed"
+      },
+      {
+        "text": "Legacy facts can then never satisfy a census requirement",
+        "label": "argument"
+      },
+      {
+        "text": "whose remedy is precisely to re-run the grep under the new capture",
+        "label": "proposed"
+      },
+      {
+        "text": "The snapshot already ships facts.jsonl with full extent entries",
+        "label": "current"
+      },
+      {
+        "text": "check reads these fields from files every snapshot already contains",
+        "label": "proposed"
+      },
+      {
+        "text": "no surface lets an author supply an extent by hand",
+        "label": "current"
+      },
+      {
+        "text": "both sides of the rooting comparison and the pattern are tool-captured by construction",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every checkable premise holds: ExtentEntry is exactly { key, label, world_root, world_state } and mint() copies only those four fields from PendingEntry, dropping kind; the pattern survives only inside the display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable; world_root is #[serde(default)] with the empty value documented and treated as predating the field, comparable with nothing, rather than guessed about; the fact module states there is deliberately no surface to supply an extent by hand; and the snapshot ships facts.jsonl (first entry of SNAPSHOT_FILES) by verbatim copy, so the proposed fields would reach check in files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot-side premise specifically: SNAPSHOT_FILES lists facts.jsonl first and snapshot::write copies it verbatim beside the memo, so check reads extent fields from files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified at mint time exactly key, label, world_root, world_state survive into ExtentEntry \u2014 kind is dropped \u2014 and world_root's own doc comment states the precedent claimed: #[serde(default)], with an empty value treated as predating the field and \"comparable with nothing ... rather than guessing\". The module doc states no surface lets a caller supply extent or output by hand."
+      },
+      {
+        "verdict": "supports",
+        "note": "The grep pattern today exists only inside display labels \u2014 \"{file} (grep: {pattern})\" and \"no-match: {pattern} in {root}\" \u2014 where a pattern containing \"(grep: \" or \" in \" is genuinely unparseable, so a census check cannot be built on labels."
+      },
+      {
+        "verdict": "supports",
+        "note": "SNAPSHOT_FILES ships facts.jsonl verbatim into <memo>.tetel/, so a check reading structured extent fields reads files every snapshot already contains."
+      },
+      {
+        "verdict": "supports",
+        "note": "Verified clause by clause: mint copies only key/label/world_root/world_state into ExtentEntry, dropping the observation's kind; the grep pattern survives only inside display labels (\"{file} (grep: {pattern})\", \"no-match: {pattern} in {root}\"), where an author-chosen pattern containing \"(grep: \" or \" in \" genuinely makes parsing ambiguous; world_root is #[serde(default)] with the empty value documented as predates-the-field and treated as comparable-with-nothing rather than guessed; and no surface lets an author supply an extent by hand. Legacy facts lacking the proposed fields would therefore fail the census by construction, with re-running the grep as the remedy."
+      },
+      {
+        "verdict": "supports",
+        "note": "The snapshot ships facts.jsonl among its enumerated SNAPSHOT_FILES, and the rendered document itself never carries a fact's extent \u2014 so a check reading the proposed structured fields would read them from files every snapshot already contains, as the claim says."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C7",
+    "prop": "The decidable trigger is declaration (candidate 1): a modification target is a structured record the author creates \u2014 a symbol string plus a fact citation \u2014 and the refusal fires only on a declared target whose cited fact carries no qualifying census entry. This sits inside the machine partition's own stated principle, that machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\": a target row is exactly a pointer at evidence, and \"you did not point at your evidence\" is the README's own example of a decidable question. The refusal's remedy is singular \u2014 run the workspace-rooted grep for that symbol, mint the fact, cite it (or withdraw the target) \u2014 so refusal rather than report is the right disposition for the declared-but-uncensused case, by the same discriminator under which scope.rs chose report: there, only a person can tell context from conclusion; here, nothing is left to tell.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The machine-checked failure total includes grammar errors and ledger errors, so machine failures include document-format and parsing failures, not only contradictions between a document and the record it rests on.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.01529263,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "evidence": "    let total_failures = findings.grammar_errors.len()\n        + findings.subset_failures.len()\n        + findings.abutting_failures.len()\n        + findings.unsettled_failures.len()\n        + findings.cascade_failures.len()\n        + findings.ledger_errors.len()\n        + findings.verdict_disagreements.len()\n        + findings.out_of_proof.len()\n        + usize::from(findings.provenance_failed());",
+        "why": "The machine-checked failure total includes grammar errors and ledger errors, so machine failures include document-format and parsing failures, not only contradictions between a document and the record it rests on.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The decidable trigger is declaration (candidate 1)",
+        "label": "argument"
+      },
+      {
+        "text": "a modification target is a structured record the author creates",
+        "label": "proposed"
+      },
+      {
+        "text": "a symbol string plus a fact citation",
+        "label": "proposed"
+      },
+      {
+        "text": "the refusal fires only on a declared target whose cited fact carries no qualifying census entry",
+        "label": "proposed"
+      },
+      {
+        "text": "This sits inside the machine partition's own stated principle",
+        "label": "argument"
+      },
+      {
+        "text": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "label": "current"
+      },
+      {
+        "text": "a target row is exactly a pointer at evidence",
+        "label": "argument"
+      },
+      {
+        "text": "\"you did not point at your evidence\" is the README's own example of a decidable question",
+        "label": "current"
+      },
+      {
+        "text": "The refusal's remedy is singular",
+        "label": "proposed"
+      },
+      {
+        "text": "run the workspace-rooted grep for that symbol",
+        "label": "proposed"
+      },
+      {
+        "text": "mint the fact",
+        "label": "proposed"
+      },
+      {
+        "text": "cite it",
+        "label": "proposed"
+      },
+      {
+        "text": "withdraw the target",
+        "label": "proposed"
+      },
+      {
+        "text": "refusal rather than report is the right disposition for the declared-but-uncensused case",
+        "label": "argument"
+      },
+      {
+        "text": "by the same discriminator under which scope.rs chose report",
+        "label": "argument"
+      },
+      {
+        "text": "there, only a person can tell context from conclusion",
+        "label": "argument"
+      },
+      {
+        "text": "here, nothing is left to tell",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists in source: checks.rs's provenance_failed doc calls machine failures there \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and README's Constraints give \"You did not point at your evidence\" as the worked example of a decidable question. The declared-target trigger itself is the memo's design choice; its claimed fit with these principles is accurate as argued, and the report/refuse discriminator it invokes matches scope.rs's stated disposition (only a person can tell context from conclusion \u2014 recorded separately from F6)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The discriminator clause: scope.rs chose report over refusal precisely because \"only a person can tell [context] from an unsupported inference\" \u2014 for a declared target citing a fact with no qualifying census entry, nothing is left for a person to tell, so the memo's application of the same discriminator to reach refusal is faithful to the precedent it cites."
+      },
+      {
+        "verdict": "supports",
+        "note": "The two quoted anchors are verbatim in source: checks.rs (provenance_failed doc) defines machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and the README states \"you did not point at your evidence\" is a decidable question. The discriminator attributed to scope.rs is also verbatim there (\"only a person can tell that from an unsupported inference\"). A declared target row (symbol + fact citation) checked against tool-captured extent fields involves no natural-language reading, so the claim's placement of the declared-but-uncensused case on the refusal side follows the codebase's own stated dispositions."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists verbatim in checks.rs \u2014 machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\" (stated for provenance drift/unreadable snapshot, i.e. as the partition's own criterion). A declared target of the proposed shape (symbol + fact citation) is checkable against that criterion by existence and byte comparison, and the contrasting discriminator (scope.rs chose report because only a person can tell context from conclusion) is accurately drawn from the code."
+      },
+      {
+        "verdict": "supports",
+        "note": "\"'You did not point at your evidence' is a decidable question\" is the README's own Constraints example, verbatim, and the declared-target refusal is exactly that question restated for a target row."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C7",
+    "prop": "The decidable trigger is declaration (candidate 1): a modification target is a structured record the author creates \u2014 a symbol string plus a fact citation \u2014 and the refusal fires only on a declared target whose cited fact carries no qualifying census entry. This sits inside the machine partition's own stated principle, that machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\": a target row is exactly a pointer at evidence, and \"you did not point at your evidence\" is the README's own example of a decidable question. The refusal's remedy is singular \u2014 run the workspace-rooted grep for that symbol, mint the fact, cite it (or withdraw the target) \u2014 so refusal rather than report is the right disposition for the declared-but-uncensused case, by the same discriminator under which scope.rs chose report: there, only a person can tell context from conclusion; here, nothing is left to tell.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The machine-failure total includes grammar errors, which are document-grammar failures rather than objective contradictions between the document and an underlying record.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.003853625,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "evidence": "let total_failures = findings.grammar_errors.len()\n        + findings.subset_failures.len()\n        + findings.abutting_failures.len()\n        + findings.unsettled_failures.len()\n        + findings.cascade_failures.len()\n        + findings.ledger_errors.len()\n        + findings.verdict_disagreements.len()\n        + findings.out_of_proof.len()\n        + usize::from(findings.provenance_failed());",
+        "why": "The machine-failure total includes grammar errors, which are document-grammar failures rather than objective contradictions between the document and an underlying record.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The decidable trigger is declaration (candidate 1)",
+        "label": "argument"
+      },
+      {
+        "text": "a modification target is a structured record the author creates \u2014 a symbol string plus a fact citation \u2014",
+        "label": "proposed"
+      },
+      {
+        "text": "the refusal fires only on a declared target whose cited fact carries no qualifying census entry",
+        "label": "proposed"
+      },
+      {
+        "text": "This sits inside the machine partition's own stated principle",
+        "label": "argument"
+      },
+      {
+        "text": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "label": "current"
+      },
+      {
+        "text": "a target row is exactly a pointer at evidence",
+        "label": "argument"
+      },
+      {
+        "text": "\"you did not point at your evidence\" is the README's own example of a decidable question",
+        "label": "current"
+      },
+      {
+        "text": "The refusal's remedy is singular",
+        "label": "proposed"
+      },
+      {
+        "text": "run the workspace-rooted grep for that symbol",
+        "label": "proposed"
+      },
+      {
+        "text": "mint the fact",
+        "label": "proposed"
+      },
+      {
+        "text": "cite it (or withdraw the target)",
+        "label": "proposed"
+      },
+      {
+        "text": "refusal rather than report is the right disposition for the declared-but-uncensused case",
+        "label": "argument"
+      },
+      {
+        "text": "by the same discriminator under which scope.rs chose report",
+        "label": "argument"
+      },
+      {
+        "text": "scope.rs chose report",
+        "label": "current"
+      },
+      {
+        "text": "there, only a person can tell context from conclusion",
+        "label": "argument"
+      },
+      {
+        "text": "here, nothing is left to tell",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists in source: checks.rs's provenance_failed doc calls machine failures there \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and README's Constraints give \"You did not point at your evidence\" as the worked example of a decidable question. The declared-target trigger itself is the memo's design choice; its claimed fit with these principles is accurate as argued, and the report/refuse discriminator it invokes matches scope.rs's stated disposition (only a person can tell context from conclusion \u2014 recorded separately from F6)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The discriminator clause: scope.rs chose report over refusal precisely because \"only a person can tell [context] from an unsupported inference\" \u2014 for a declared target citing a fact with no qualifying census entry, nothing is left for a person to tell, so the memo's application of the same discriminator to reach refusal is faithful to the precedent it cites."
+      },
+      {
+        "verdict": "supports",
+        "note": "The two quoted anchors are verbatim in source: checks.rs (provenance_failed doc) defines machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and the README states \"you did not point at your evidence\" is a decidable question. The discriminator attributed to scope.rs is also verbatim there (\"only a person can tell that from an unsupported inference\"). A declared target row (symbol + fact citation) checked against tool-captured extent fields involves no natural-language reading, so the claim's placement of the declared-but-uncensused case on the refusal side follows the codebase's own stated dispositions."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists verbatim in checks.rs \u2014 machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\" (stated for provenance drift/unreadable snapshot, i.e. as the partition's own criterion). A declared target of the proposed shape (symbol + fact citation) is checkable against that criterion by existence and byte comparison, and the contrasting discriminator (scope.rs chose report because only a person can tell context from conclusion) is accurately drawn from the code."
+      },
+      {
+        "verdict": "supports",
+        "note": "\"'You did not point at your evidence' is a decidable question\" is the README's own Constraints example, verbatim, and the declared-target refusal is exactly that question restated for a target row."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C7",
+    "prop": "The decidable trigger is declaration (candidate 1): a modification target is a structured record the author creates \u2014 a symbol string plus a fact citation \u2014 and the refusal fires only on a declared target whose cited fact carries no qualifying census entry. This sits inside the machine partition's own stated principle, that machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\": a target row is exactly a pointer at evidence, and \"you did not point at your evidence\" is the README's own example of a decidable question. The refusal's remedy is singular \u2014 run the workspace-rooted grep for that symbol, mint the fact, cite it (or withdraw the target) \u2014 so refusal rather than report is the right disposition for the declared-but-uncensused case, by the same discriminator under which scope.rs chose report: there, only a person can tell context from conclusion; here, nothing is left to tell.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The machine-checked failure total includes ledger parse errors such as wrong cell counts, empty IDs, and duplicate IDs. Those are malformed-document conditions, not objective contradictions between the document and a record it claims to rest on.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.007961725000000001,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "evidence": "    // --- machine-checked partition -----------------------------------\n    let failing = findings.machine_check_failed();\n    let total_failures = findings.grammar_errors.len()\n        + findings.subset_failures.len()\n        + findings.abutting_failures.len()\n        + findings.unsettled_failures.len()\n        + findings.cascade_failures.len()\n        + findings.ledger_errors.len()\n        + findings.verdict_disagreements.len()\n        + findings.out_of_proof.len()\n        + usize::from(findings.provenance_failed());\n\n    /// Formatted `line N: message` \u2014 ledger rows that could not be\n    /// parsed at all (wrong cell count, empty id, duplicate id). Never\n    /// silently dropped.",
+        "why": "The machine-checked failure total includes ledger parse errors such as wrong cell counts, empty IDs, and duplicate IDs. Those are malformed-document conditions, not objective contradictions between the document and a record it claims to rest on.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The decidable trigger is declaration (candidate 1)",
+        "label": "argument"
+      },
+      {
+        "text": "a modification target is a structured record the author creates",
+        "label": "proposed"
+      },
+      {
+        "text": "a symbol string plus a fact citation",
+        "label": "proposed"
+      },
+      {
+        "text": "the refusal fires only on a declared target whose cited fact carries no qualifying census entry.",
+        "label": "proposed"
+      },
+      {
+        "text": "This sits inside the machine partition's own stated principle",
+        "label": "argument"
+      },
+      {
+        "text": "machine failures are \"objective contradictions between a document and the record it claims to rest on, decidable without a human\"",
+        "label": "current"
+      },
+      {
+        "text": "a target row is exactly a pointer at evidence",
+        "label": "argument"
+      },
+      {
+        "text": "\"you did not point at your evidence\" is the README's own example of a decidable question.",
+        "label": "current"
+      },
+      {
+        "text": "The refusal's remedy is singular",
+        "label": "proposed"
+      },
+      {
+        "text": "run the workspace-rooted grep for that symbol, mint the fact, cite it (or withdraw the target)",
+        "label": "proposed"
+      },
+      {
+        "text": "refusal rather than report is the right disposition for the declared-but-uncensused case",
+        "label": "argument"
+      },
+      {
+        "text": "by the same discriminator under which scope.rs chose report",
+        "label": "argument"
+      },
+      {
+        "text": "scope.rs chose report",
+        "label": "current"
+      },
+      {
+        "text": "there, only a person can tell context from conclusion",
+        "label": "argument"
+      },
+      {
+        "text": "here, nothing is left to tell.",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists in source: checks.rs's provenance_failed doc calls machine failures there \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and README's Constraints give \"You did not point at your evidence\" as the worked example of a decidable question. The declared-target trigger itself is the memo's design choice; its claimed fit with these principles is accurate as argued, and the report/refuse discriminator it invokes matches scope.rs's stated disposition (only a person can tell context from conclusion \u2014 recorded separately from F6)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The discriminator clause: scope.rs chose report over refusal precisely because \"only a person can tell [context] from an unsupported inference\" \u2014 for a declared target citing a fact with no qualifying census entry, nothing is left for a person to tell, so the memo's application of the same discriminator to reach refusal is faithful to the precedent it cites."
+      },
+      {
+        "verdict": "supports",
+        "note": "The two quoted anchors are verbatim in source: checks.rs (provenance_failed doc) defines machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\", and the README states \"you did not point at your evidence\" is a decidable question. The discriminator attributed to scope.rs is also verbatim there (\"only a person can tell that from an unsupported inference\"). A declared target row (symbol + fact citation) checked against tool-captured extent fields involves no natural-language reading, so the claim's placement of the declared-but-uncensused case on the refusal side follows the codebase's own stated dispositions."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quoted principle exists verbatim in checks.rs \u2014 machine failures as \"objective contradictions between a document and the record it claims to rest on, decidable without a human\" (stated for provenance drift/unreadable snapshot, i.e. as the partition's own criterion). A declared target of the proposed shape (symbol + fact citation) is checkable against that criterion by existence and byte comparison, and the contrasting discriminator (scope.rs chose report because only a person can tell context from conclusion) is accurately drawn from the code."
+      },
+      {
+        "verdict": "supports",
+        "note": "\"'You did not point at your evidence' is a decidable question\" is the README's own Constraints example, verbatim, and the declared-target refusal is exactly that question restated for a target row."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C8",
+    "prop": "Under-declaration \u2014 the memo recommends modifying a symbol it never declared \u2014 cannot be a refusal and must not be silently absorbed either. Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English, exactly the class the charter routes to the human-owed partition or nowhere; scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation and misses conclusion. The design therefore makes the omission visible instead of detected: (a) once a workspace declares any target, render emits a Modification targets section, and once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014 so a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader; and (b) check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\", gains a census-specific line (\"a recommendation whose target was never declared\") so the blind spot is printed rather than implicit.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.006564899999999999,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "the memo recommends modifying a symbol it never declared",
+        "label": "current"
+      },
+      {
+        "text": "cannot be a refusal",
+        "label": "argument"
+      },
+      {
+        "text": "must not be silently absorbed either",
+        "label": "argument"
+      },
+      {
+        "text": "Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English",
+        "label": "argument"
+      },
+      {
+        "text": "exactly the class the charter routes to the human-owed partition or nowhere",
+        "label": "argument"
+      },
+      {
+        "text": "scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation",
+        "label": "current"
+      },
+      {
+        "text": "misses conclusion",
+        "label": "current"
+      },
+      {
+        "text": "The design therefore makes the omission visible instead of detected",
+        "label": "proposed"
+      },
+      {
+        "text": "once a workspace declares any target, render emits a Modification targets section",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014",
+        "label": "proposed"
+      },
+      {
+        "text": "a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader",
+        "label": "proposed"
+      },
+      {
+        "text": "whose first entry is already \"dependents that never declared themselves\"",
+        "label": "current"
+      },
+      {
+        "text": "gains a census-specific line (\"a recommendation whose target was never declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "the blind spot is printed rather than implicit",
+        "label": "proposed"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The (b) anchor is exact: report.rs's NON_COVERAGE list's first entry is byte-for-byte \"dependents that never declared themselves\". The routing premise (heuristic reads belong \"in the human-owed partition or nowhere\") and the scope.rs precedent (symbol string-matching flags quotation, misses conclusion) are both in source as quoted (F7, F6). Clauses (a) and the census-specific non-coverage line are the memo's own design commitments, not yet code; nothing in source contradicts them."
+      },
+      {
+        "verdict": "supports",
+        "note": "The claim's factual anchor holds: check's standing non-coverage list exists as report.rs's NON_COVERAGE const and its first entry is byte-for-byte \"dependents that never declared themselves\", so adding a census-specific line extends an existing printed mechanism. The rest of the claim (render section, \"none declared\" placeholder) is the design being proposed, resting on the premise that detecting recommendations in prose would be a heuristic read of English."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that \"a sentence tells an implementer to modify X\" cannot be decided mechanically is the codebase's own recorded position: the README routes non-decidable judgments to the human-owed partition or nowhere, and scope.rs's measured rejection shows the symbol detector such a trigger would need flags quotation and misses conclusion."
+      },
+      {
+        "verdict": "supports",
+        "note": "check's standing non-coverage list (NON_COVERAGE in report.rs) exists and its first entry is exactly \"dependents that never declared themselves\", so the proposed census-specific line extends a mechanism that is already there and already printed item by item."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that under-declaration cannot be a refusal rests on scope.rs's measured precedent, which does show the symbol detector flags quotation while missing conclusion, and on the stated project constraint routing heuristic judgments to human-owed or nowhere. The (a)/(b) remedies are the memo's own design commitments, consistent with both."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C8",
+    "prop": "Under-declaration \u2014 the memo recommends modifying a symbol it never declared \u2014 cannot be a refusal and must not be silently absorbed either. Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English, exactly the class the charter routes to the human-owed partition or nowhere; scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation and misses conclusion. The design therefore makes the omission visible instead of detected: (a) once a workspace declares any target, render emits a Modification targets section, and once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014 so a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader; and (b) check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\", gains a census-specific line (\"a recommendation whose target was never declared\") so the blind spot is printed rather than implicit.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.008099225,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "the memo recommends modifying a symbol it never declared",
+        "label": "current"
+      },
+      {
+        "text": "cannot be a refusal",
+        "label": "argument"
+      },
+      {
+        "text": "must not be silently absorbed either",
+        "label": "argument"
+      },
+      {
+        "text": "Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English",
+        "label": "argument"
+      },
+      {
+        "text": "exactly the class the charter routes to the human-owed partition or nowhere",
+        "label": "current"
+      },
+      {
+        "text": "scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation",
+        "label": "current"
+      },
+      {
+        "text": "misses conclusion",
+        "label": "current"
+      },
+      {
+        "text": "The design therefore makes the omission visible instead of detected",
+        "label": "proposed"
+      },
+      {
+        "text": "once a workspace declares any target, render emits a Modification targets section",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\"",
+        "label": "proposed"
+      },
+      {
+        "text": "a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader",
+        "label": "proposed"
+      },
+      {
+        "text": "check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\"",
+        "label": "current"
+      },
+      {
+        "text": "gains a census-specific line (\"a recommendation whose target was never declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "the blind spot is printed rather than implicit",
+        "label": "proposed"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The (b) anchor is exact: report.rs's NON_COVERAGE list's first entry is byte-for-byte \"dependents that never declared themselves\". The routing premise (heuristic reads belong \"in the human-owed partition or nowhere\") and the scope.rs precedent (symbol string-matching flags quotation, misses conclusion) are both in source as quoted (F7, F6). Clauses (a) and the census-specific non-coverage line are the memo's own design commitments, not yet code; nothing in source contradicts them."
+      },
+      {
+        "verdict": "supports",
+        "note": "The claim's factual anchor holds: check's standing non-coverage list exists as report.rs's NON_COVERAGE const and its first entry is byte-for-byte \"dependents that never declared themselves\", so adding a census-specific line extends an existing printed mechanism. The rest of the claim (render section, \"none declared\" placeholder) is the design being proposed, resting on the premise that detecting recommendations in prose would be a heuristic read of English."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that \"a sentence tells an implementer to modify X\" cannot be decided mechanically is the codebase's own recorded position: the README routes non-decidable judgments to the human-owed partition or nowhere, and scope.rs's measured rejection shows the symbol detector such a trigger would need flags quotation and misses conclusion."
+      },
+      {
+        "verdict": "supports",
+        "note": "check's standing non-coverage list (NON_COVERAGE in report.rs) exists and its first entry is exactly \"dependents that never declared themselves\", so the proposed census-specific line extends a mechanism that is already there and already printed item by item."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that under-declaration cannot be a refusal rests on scope.rs's measured precedent, which does show the symbol detector flags quotation while missing conclusion, and on the stated project constraint routing heuristic judgments to human-owed or nowhere. The (a)/(b) remedies are the memo's own design commitments, consistent with both."
+      }
+    ]
+  },
+  {
+    "memo": "tet28-modification-target-census.md",
+    "id": "C8",
+    "prop": "Under-declaration \u2014 the memo recommends modifying a symbol it never declared \u2014 cannot be a refusal and must not be silently absorbed either. Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English, exactly the class the charter routes to the human-owed partition or nowhere; scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation and misses conclusion. The design therefore makes the omission visible instead of detected: (a) once a workspace declares any target, render emits a Modification targets section, and once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014 so a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader; and (b) check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\", gains a census-specific line (\"a recommendation whose target was never declared\") so the blind spot is printed rather than implicit.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0077604499999999995,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "the memo recommends modifying a symbol it never declared",
+        "label": "current"
+      },
+      {
+        "text": "cannot be a refusal",
+        "label": "argument"
+      },
+      {
+        "text": "must not be silently absorbed either",
+        "label": "argument"
+      },
+      {
+        "text": "Deciding from prose that a sentence \"tells an implementer to modify X\" is a heuristic read of English",
+        "label": "argument"
+      },
+      {
+        "text": "the charter routes to the human-owed partition or nowhere",
+        "label": "current"
+      },
+      {
+        "text": "scope.rs's measured precedent shows the symbol-detector that trigger would need flags quotation",
+        "label": "current"
+      },
+      {
+        "text": "misses conclusion",
+        "label": "current"
+      },
+      {
+        "text": "The design therefore makes the omission visible instead of detected",
+        "label": "proposed"
+      },
+      {
+        "text": "once a workspace declares any target, render emits a Modification targets section",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists it emits the section even when empty \u2014 \"Modification targets: none declared\" \u2014",
+        "label": "proposed"
+      },
+      {
+        "text": "a memo that recommends changes while declaring nothing shows a hole where the census should be, in front of every reader",
+        "label": "proposed"
+      },
+      {
+        "text": "check's standing non-coverage list, whose first entry is already \"dependents that never declared themselves\"",
+        "label": "current"
+      },
+      {
+        "text": "gains a census-specific line (\"a recommendation whose target was never declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "the blind spot is printed rather than implicit",
+        "label": "proposed"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The (b) anchor is exact: report.rs's NON_COVERAGE list's first entry is byte-for-byte \"dependents that never declared themselves\". The routing premise (heuristic reads belong \"in the human-owed partition or nowhere\") and the scope.rs precedent (symbol string-matching flags quotation, misses conclusion) are both in source as quoted (F7, F6). Clauses (a) and the census-specific non-coverage line are the memo's own design commitments, not yet code; nothing in source contradicts them."
+      },
+      {
+        "verdict": "supports",
+        "note": "The claim's factual anchor holds: check's standing non-coverage list exists as report.rs's NON_COVERAGE const and its first entry is byte-for-byte \"dependents that never declared themselves\", so adding a census-specific line extends an existing printed mechanism. The rest of the claim (render section, \"none declared\" placeholder) is the design being proposed, resting on the premise that detecting recommendations in prose would be a heuristic read of English."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that \"a sentence tells an implementer to modify X\" cannot be decided mechanically is the codebase's own recorded position: the README routes non-decidable judgments to the human-owed partition or nowhere, and scope.rs's measured rejection shows the symbol detector such a trigger would need flags quotation and misses conclusion."
+      },
+      {
+        "verdict": "supports",
+        "note": "check's standing non-coverage list (NON_COVERAGE in report.rs) exists and its first entry is exactly \"dependents that never declared themselves\", so the proposed census-specific line extends a mechanism that is already there and already printed item by item."
+      },
+      {
+        "verdict": "supports",
+        "note": "The premise that under-declaration cannot be a refusal rests on scope.rs's measured precedent, which does show the symbol detector flags quotation while missing conclusion, and on the stated project constraint routing heuristic judgments to human-owed or nowhere. The (a)/(b) remedies are the memo's own design commitments, consistent with both."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C3",
+    "prop": "\"Transcribed verbatim\" cannot be an honour-system field, and does not need to be: the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output. Both sides of that comparison are Strings the tool controls \u2014 a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream), no authoring surface lets anyone supply output by hand, and output is immutable after mint \u2014 so substring containment is a pure byte-level comparison with no normalisation step owned by the check. Typing is the selection mechanism, not the trust: the author types the premise, but a typed premise the donor never wrote fails containment and is refused at the verb. This is exactly the README's Direction item for supporting-span selection (\"refused unless it is a verbatim substring of a cited fact \u2014 the author cannot type an extent, and here could not invent support, only select it\"), and TET-29 is the first place it becomes load-bearing rather than roadmap.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The comparison uses the caller-supplied `symbol` parameter, which is an `&str`, rather than two tool-controlled `String` values.; overreaches: The evidence establishes an absence only on this module's CLI surface, not across every authoring surface.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.021792825,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "Both sides of that comparison are Strings the tool controls",
+        "evidence": "pub fn declare(workspace_dir: &Path, symbol: &str, from: &str) -> Result<Target, AuthoringError> { \nif e.pattern == symbol {",
+        "why": "The comparison uses the caller-supplied `symbol` parameter, which is an `&str`, rather than two tool-controlled `String` values.",
+        "quote_verified": false
+      },
+      {
+        "kind": "overreaches",
+        "clause": "no authoring surface lets anyone supply output by hand",
+        "evidence": "There is deliberately no\n//! flag anywhere on this module's CLI surface that lets a caller supply\n//! the extent or captured output themselves",
+        "why": "The evidence establishes an absence only on this module's CLI surface, not across every authoring surface.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "\"Transcribed verbatim\" cannot be an honour-system field",
+        "label": "argument"
+      },
+      {
+        "text": "does not need to be",
+        "label": "argument"
+      },
+      {
+        "text": "the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output",
+        "label": "proposed"
+      },
+      {
+        "text": "Both sides of that comparison are Strings the tool controls",
+        "label": "current"
+      },
+      {
+        "text": "a fact's output is produced only by look/run",
+        "label": "current"
+      },
+      {
+        "text": "no authoring surface lets anyone supply output by hand",
+        "label": "current"
+      },
+      {
+        "text": "output is immutable after mint",
+        "label": "current"
+      },
+      {
+        "text": "substring containment is a pure byte-level comparison",
+        "label": "argument"
+      },
+      {
+        "text": "with no normalisation step owned by the check",
+        "label": "argument"
+      },
+      {
+        "text": "Typing is the selection mechanism, not the trust",
+        "label": "argument"
+      },
+      {
+        "text": "the author types the premise",
+        "label": "proposed"
+      },
+      {
+        "text": "a typed premise the donor never wrote fails containment",
+        "label": "argument"
+      },
+      {
+        "text": "is refused at the verb",
+        "label": "proposed"
+      },
+      {
+        "text": "This is exactly the README's Direction item for supporting-span selection",
+        "label": "current"
+      },
+      {
+        "text": "refused unless it is a verbatim substring of a cited fact",
+        "label": "proposed"
+      },
+      {
+        "text": "the author cannot type an extent",
+        "label": "proposed"
+      },
+      {
+        "text": "and here could not invent support, only select it",
+        "label": "proposed"
+      },
+      {
+        "text": "TET-29 is the first place it becomes load-bearing rather than roadmap",
+        "label": "proposed"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The README Direction item exists as claimed: \"refused unless it is a verbatim substring of a cited fact\" and \"the author cannot type an extent, and here could not invent support, only select it\" are both verbatim; the memo's quote joins them with a dash, eliding the intervening \"The dual of the extent guarantee:\" \u2014 all quoted words are exact and in order, so the identification stands. The item sits under Direction (roadmap), not under What exists today."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both sides of the containment comparison are tool-controlled Strings: facts.rs deliberately exposes no surface that accepts extent or output text, FactEvent::Revise has no output field so output is immutable after mint, and only look/run write the pending buffer a fact is minted from (observe.rs, F4)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The capture-side premises are all stated by the code: observe.rs's module doc makes look/run the only two ways into the pending buffer; facts.rs's module doc says there is deliberately no flag by which a caller supplies extent or output; FactEvent::Revise carries no output field at all, so output is immutable after mint. A typed premise the donor never wrote therefore has nothing to be contained in, which is the claim's mechanism."
+      },
+      {
+        "verdict": "supports",
+        "note": "The README Direction bullet is the supporting-span-selection item, and both quoted fragments are verbatim in it; the memo's quotation splices them with an em dash, eliding \"The dual of the extent guarantee:\" without changing meaning. The same README lists \"Requiring a transplanted mechanism to carry its donor's stated premises\" under Direction, i.e. roadmap \u2014 consistent with \"the first place it becomes load-bearing rather than roadmap\", and no span-selection verb exists anywhere in src/."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C3",
+    "prop": "\"Transcribed verbatim\" cannot be an honour-system field, and does not need to be: the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output. Both sides of that comparison are Strings the tool controls \u2014 a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream), no authoring surface lets anyone supply output by hand, and output is immutable after mint \u2014 so substring containment is a pure byte-level comparison with no normalisation step owned by the check. Typing is the selection mechanism, not the trust: the author types the premise, but a typed premise the donor never wrote fails containment and is refused at the verb. This is exactly the README's Direction item for supporting-span selection (\"refused unless it is a verbatim substring of a cited fact \u2014 the author cannot type an extent, and here could not invent support, only select it\"), and TET-29 is the first place it becomes load-bearing rather than roadmap.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The captured evidence limits the no-supply claim to this module's CLI surface; the assertion extends it to every authoring surface.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.023435604999999998,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "no authoring surface lets anyone supply output by hand",
+        "evidence": "//! flag anywhere on this module's CLI surface that lets a caller supply\n//! the extent or captured output themselves \u2014 that absence is the",
+        "why": "The captured evidence limits the no-supply claim to this module's CLI surface; the assertion extends it to every authoring surface.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "\"Transcribed verbatim\" cannot be an honour-system field",
+        "label": "argument"
+      },
+      {
+        "text": "does not need to be",
+        "label": "argument"
+      },
+      {
+        "text": "the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output",
+        "label": "proposed"
+      },
+      {
+        "text": "Both sides of that comparison are Strings the tool controls",
+        "label": "current"
+      },
+      {
+        "text": "a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream)",
+        "label": "current"
+      },
+      {
+        "text": "no authoring surface lets anyone supply output by hand",
+        "label": "current"
+      },
+      {
+        "text": "output is immutable after mint",
+        "label": "current"
+      },
+      {
+        "text": "substring containment is a pure byte-level comparison with no normalisation step owned by the check",
+        "label": "argument"
+      },
+      {
+        "text": "Typing is the selection mechanism, not the trust",
+        "label": "argument"
+      },
+      {
+        "text": "the author types the premise",
+        "label": "proposed"
+      },
+      {
+        "text": "a typed premise the donor never wrote fails containment",
+        "label": "proposed"
+      },
+      {
+        "text": "is refused at the verb",
+        "label": "proposed"
+      },
+      {
+        "text": "This is exactly the README's Direction item for supporting-span selection",
+        "label": "argument"
+      },
+      {
+        "text": "refused unless it is a verbatim substring of a cited fact",
+        "label": "proposed"
+      },
+      {
+        "text": "the author cannot type an extent",
+        "label": "proposed"
+      },
+      {
+        "text": "here could not invent support, only select it",
+        "label": "proposed"
+      },
+      {
+        "text": "TET-29 is the first place it becomes load-bearing rather than roadmap",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The README Direction item exists as claimed: \"refused unless it is a verbatim substring of a cited fact\" and \"the author cannot type an extent, and here could not invent support, only select it\" are both verbatim; the memo's quote joins them with a dash, eliding the intervening \"The dual of the extent guarantee:\" \u2014 all quoted words are exact and in order, so the identification stands. The item sits under Direction (roadmap), not under What exists today."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both sides of the containment comparison are tool-controlled Strings: facts.rs deliberately exposes no surface that accepts extent or output text, FactEvent::Revise has no output field so output is immutable after mint, and only look/run write the pending buffer a fact is minted from (observe.rs, F4)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The capture-side premises are all stated by the code: observe.rs's module doc makes look/run the only two ways into the pending buffer; facts.rs's module doc says there is deliberately no flag by which a caller supplies extent or output; FactEvent::Revise carries no output field at all, so output is immutable after mint. A typed premise the donor never wrote therefore has nothing to be contained in, which is the claim's mechanism."
+      },
+      {
+        "verdict": "supports",
+        "note": "The README Direction bullet is the supporting-span-selection item, and both quoted fragments are verbatim in it; the memo's quotation splices them with an em dash, eliding \"The dual of the extent guarantee:\" without changing meaning. The same README lists \"Requiring a transplanted mechanism to carry its donor's stated premises\" under Direction, i.e. roadmap \u2014 consistent with \"the first place it becomes load-bearing rather than roadmap\", and no span-selection verb exists anywhere in src/."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C3",
+    "prop": "\"Transcribed verbatim\" cannot be an honour-system field, and does not need to be: the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output. Both sides of that comparison are Strings the tool controls \u2014 a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream), no authoring surface lets anyone supply output by hand, and output is immutable after mint \u2014 so substring containment is a pure byte-level comparison with no normalisation step owned by the check. Typing is the selection mechanism, not the trust: the author types the premise, but a typed premise the donor never wrote fails containment and is refused at the verb. This is exactly the README's Direction item for supporting-span selection (\"refused unless it is a verbatim substring of a cited fact \u2014 the author cannot type an extent, and here could not invent support, only select it\"), and TET-29 is the first place it becomes load-bearing rather than roadmap.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.021579494999999997,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "\"Transcribed verbatim\" cannot be an honour-system field",
+        "label": "argument"
+      },
+      {
+        "text": "does not need to be",
+        "label": "argument"
+      },
+      {
+        "text": "the decidable relation is that a premise's text is refused unless it is a verbatim substring of the cited donor fact's captured output",
+        "label": "proposed"
+      },
+      {
+        "text": "Both sides of that comparison are Strings the tool controls",
+        "label": "current"
+      },
+      {
+        "text": "a fact's output is produced only by look/run (file bytes read verbatim by look_path, grep match lines, a process's merged stream)",
+        "label": "current"
+      },
+      {
+        "text": "no authoring surface lets anyone supply output by hand",
+        "label": "current"
+      },
+      {
+        "text": "output is immutable after mint",
+        "label": "current"
+      },
+      {
+        "text": "substring containment is a pure byte-level comparison with no normalisation step owned by the check",
+        "label": "argument"
+      },
+      {
+        "text": "Typing is the selection mechanism, not the trust",
+        "label": "argument"
+      },
+      {
+        "text": "the author types the premise",
+        "label": "current"
+      },
+      {
+        "text": "a typed premise the donor never wrote fails containment and is refused at the verb",
+        "label": "proposed"
+      },
+      {
+        "text": "This is exactly the README's Direction item for supporting-span selection",
+        "label": "argument"
+      },
+      {
+        "text": "refused unless it is a verbatim substring of a cited fact",
+        "label": "proposed"
+      },
+      {
+        "text": "the author cannot type an extent",
+        "label": "proposed"
+      },
+      {
+        "text": "here could not invent support, only select it",
+        "label": "proposed"
+      },
+      {
+        "text": "TET-29 is the first place it becomes load-bearing rather than roadmap",
+        "label": "proposed"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The README Direction item exists as claimed: \"refused unless it is a verbatim substring of a cited fact\" and \"the author cannot type an extent, and here could not invent support, only select it\" are both verbatim; the memo's quote joins them with a dash, eliding the intervening \"The dual of the extent guarantee:\" \u2014 all quoted words are exact and in order, so the identification stands. The item sits under Direction (roadmap), not under What exists today."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both sides of the containment comparison are tool-controlled Strings: facts.rs deliberately exposes no surface that accepts extent or output text, FactEvent::Revise has no output field so output is immutable after mint, and only look/run write the pending buffer a fact is minted from (observe.rs, F4)."
+      },
+      {
+        "verdict": "supports",
+        "note": "The capture-side premises are all stated by the code: observe.rs's module doc makes look/run the only two ways into the pending buffer; facts.rs's module doc says there is deliberately no flag by which a caller supplies extent or output; FactEvent::Revise carries no output field at all, so output is immutable after mint. A typed premise the donor never wrote therefore has nothing to be contained in, which is the claim's mechanism."
+      },
+      {
+        "verdict": "supports",
+        "note": "The README Direction bullet is the supporting-span-selection item, and both quoted fragments are verbatim in it; the memo's quotation splices them with an em dash, eliding \"The dual of the extent guarantee:\" without changing meaning. The same README lists \"Requiring a transplanted mechanism to carry its donor's stated premises\" under Direction, i.e. roadmap \u2014 consistent with \"the first place it becomes load-bearing rather than roadmap\", and no span-selection verb exists anywhere in src/."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C8",
+    "prop": "An undischarged premise must be a legal workspace state, so the ticket's refusal cannot all move to the verb the way TET-28's did. The instrument works by transcribe-first: the author selects the donor's premises before knowing whether each holds at the destination \u2014 the confrontation the section exists to force. Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded, inverting that order (answer first, transcribe after) and pushing an author who cannot yet discharge a premise toward not declaring it at all \u2014 the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names. TET-28 never faced this because a census either exists or does not; a premise inventory is built across time. So the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\" (plus: donor fact exists and carries span boundaries, destination target exists and is live, a discharge cites an existing live claim); \"every premise is discharged\" is not a workspace invariant at all \u2014 it is a property of the finished document.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.015192025000000001,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "An undischarged premise must be a legal workspace state",
+        "label": "argument"
+      },
+      {
+        "text": "the ticket's refusal cannot all move to the verb the way TET-28's did",
+        "label": "argument"
+      },
+      {
+        "text": "The instrument works by transcribe-first",
+        "label": "current"
+      },
+      {
+        "text": "the author selects the donor's premises before knowing whether each holds at the destination",
+        "label": "current"
+      },
+      {
+        "text": "the confrontation the section exists to force",
+        "label": "argument"
+      },
+      {
+        "text": "Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded",
+        "label": "argument"
+      },
+      {
+        "text": "inverting that order (answer first, transcribe after)",
+        "label": "argument"
+      },
+      {
+        "text": "pushing an author who cannot yet discharge a premise toward not declaring it at all",
+        "label": "argument"
+      },
+      {
+        "text": "the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names",
+        "label": "current"
+      },
+      {
+        "text": "TET-28 never faced this",
+        "label": "current"
+      },
+      {
+        "text": "a census either exists or does not",
+        "label": "current"
+      },
+      {
+        "text": "a premise inventory is built across time",
+        "label": "current"
+      },
+      {
+        "text": "the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\"",
+        "label": "proposed"
+      },
+      {
+        "text": "donor fact exists and carries span boundaries",
+        "label": "proposed"
+      },
+      {
+        "text": "destination target exists and is live",
+        "label": "proposed"
+      },
+      {
+        "text": "a discharge cites an existing live claim",
+        "label": "proposed"
+      },
+      {
+        "text": "\"every premise is discharged\" is not a workspace invariant at all",
+        "label": "argument"
+      },
+      {
+        "text": "it is a property of the finished document",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The discriminator C8 invokes is scope.rs's, verbatim at lines 49-50: \"Refusing would make the honest case unwritable to catch the dishonest one.\" The transcribe-first argument applies it as written \u2014 a declaration-time discharge requirement would invert the order the instrument exists to force, and the conclusion (which invariants are verb-enforced vs document-level) follows from stated, verified premises."
+      },
+      {
+        "verdict": "supports",
+        "note": "The contrast with TET-28 is accurate: targets.rs moves its whole refusal to the verb precisely because \"a census either exists or does not\" \u2014 declare() refuses at declaration and \"render therefore needs no refusal of its own\" \u2014 whereas a premise inventory built across time has a legal intermediate state, which is the asymmetry C8 asserts."
+      },
+      {
+        "verdict": "supports",
+        "note": "The named discriminator exists byte-for-byte in scope.rs (\"Refusing would make the honest case unwritable to catch the dishonest one.\"), and the contrast with TET-28 is accurate: targets.rs's census predicate is decidable at declaration because a census either exists in the cited fact's extent or does not, with no state built across time. The argument that discharge-at-declaration would invert transcribe-first is the design's own reasoning, and it applies that discriminator to the case it names rather than misquoting it."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C8",
+    "prop": "An undischarged premise must be a legal workspace state, so the ticket's refusal cannot all move to the verb the way TET-28's did. The instrument works by transcribe-first: the author selects the donor's premises before knowing whether each holds at the destination \u2014 the confrontation the section exists to force. Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded, inverting that order (answer first, transcribe after) and pushing an author who cannot yet discharge a premise toward not declaring it at all \u2014 the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names. TET-28 never faced this because a census either exists or does not; a premise inventory is built across time. So the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\" (plus: donor fact exists and carries span boundaries, destination target exists and is live, a discharge cites an existing live claim); \"every premise is discharged\" is not a workspace invariant at all \u2014 it is a property of the finished document.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.010079425,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "An undischarged premise must be a legal workspace state",
+        "label": "argument"
+      },
+      {
+        "text": "the ticket's refusal cannot all move to the verb the way TET-28's did",
+        "label": "argument"
+      },
+      {
+        "text": "The instrument works by transcribe-first",
+        "label": "proposed"
+      },
+      {
+        "text": "the author selects the donor's premises before knowing whether each holds at the destination",
+        "label": "proposed"
+      },
+      {
+        "text": "the confrontation the section exists to force",
+        "label": "argument"
+      },
+      {
+        "text": "Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded",
+        "label": "argument"
+      },
+      {
+        "text": "inverting that order (answer first, transcribe after)",
+        "label": "argument"
+      },
+      {
+        "text": "pushing an author who cannot yet discharge a premise toward not declaring it at all",
+        "label": "argument"
+      },
+      {
+        "text": "the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names",
+        "label": "current"
+      },
+      {
+        "text": "TET-28 never faced this",
+        "label": "current"
+      },
+      {
+        "text": "a census either exists or does not",
+        "label": "current"
+      },
+      {
+        "text": "a premise inventory is built across time",
+        "label": "proposed"
+      },
+      {
+        "text": "every premise is a genuine quotation of the cited donor's capture",
+        "label": "proposed"
+      },
+      {
+        "text": "donor fact exists and carries span boundaries",
+        "label": "proposed"
+      },
+      {
+        "text": "destination target exists and is live",
+        "label": "proposed"
+      },
+      {
+        "text": "a discharge cites an existing live claim",
+        "label": "proposed"
+      },
+      {
+        "text": "\"every premise is discharged\" is not a workspace invariant at all",
+        "label": "argument"
+      },
+      {
+        "text": "it is a property of the finished document",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The discriminator C8 invokes is scope.rs's, verbatim at lines 49-50: \"Refusing would make the honest case unwritable to catch the dishonest one.\" The transcribe-first argument applies it as written \u2014 a declaration-time discharge requirement would invert the order the instrument exists to force, and the conclusion (which invariants are verb-enforced vs document-level) follows from stated, verified premises."
+      },
+      {
+        "verdict": "supports",
+        "note": "The contrast with TET-28 is accurate: targets.rs moves its whole refusal to the verb precisely because \"a census either exists or does not\" \u2014 declare() refuses at declaration and \"render therefore needs no refusal of its own\" \u2014 whereas a premise inventory built across time has a legal intermediate state, which is the asymmetry C8 asserts."
+      },
+      {
+        "verdict": "supports",
+        "note": "The named discriminator exists byte-for-byte in scope.rs (\"Refusing would make the honest case unwritable to catch the dishonest one.\"), and the contrast with TET-28 is accurate: targets.rs's census predicate is decidable at declaration because a census either exists in the cited fact's extent or does not, with no state built across time. The argument that discharge-at-declaration would invert transcribe-first is the design's own reasoning, and it applies that discriminator to the case it names rather than misquoting it."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C8",
+    "prop": "An undischarged premise must be a legal workspace state, so the ticket's refusal cannot all move to the verb the way TET-28's did. The instrument works by transcribe-first: the author selects the donor's premises before knowing whether each holds at the destination \u2014 the confrontation the section exists to force. Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded, inverting that order (answer first, transcribe after) and pushing an author who cannot yet discharge a premise toward not declaring it at all \u2014 the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names. TET-28 never faced this because a census either exists or does not; a premise inventory is built across time. So the workspace invariant enforced at the verb is only \"every premise is a genuine quotation of the cited donor's capture\" (plus: donor fact exists and carries span boundaries, destination target exists and is live, a discharge cites an existing live claim); \"every premise is discharged\" is not a workspace invariant at all \u2014 it is a property of the finished document.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The assertion says \u201cnever,\u201d but the captured evidence describes only a limited set of three facts rather than covering TET-28\u2019s entire history.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.005660975,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "TET-28 never faced this",
+        "evidence": "Measured against the same three facts, it would\n//! have flagged a legitimate quotation",
+        "why": "The assertion says \u201cnever,\u201d but the captured evidence describes only a limited set of three facts rather than covering TET-28\u2019s entire history.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "An undischarged premise must be a legal workspace state",
+        "label": "argument"
+      },
+      {
+        "text": "the ticket's refusal cannot all move to the verb the way TET-28's did",
+        "label": "argument"
+      },
+      {
+        "text": "The instrument works by transcribe-first",
+        "label": "proposed"
+      },
+      {
+        "text": "the author selects the donor's premises before knowing whether each holds at the destination",
+        "label": "proposed"
+      },
+      {
+        "text": "the section exists to force",
+        "label": "argument"
+      },
+      {
+        "text": "Refusing a premise row that cites no claim at declaration time would demand the destination-holds claim exist before the premise can be recorded",
+        "label": "argument"
+      },
+      {
+        "text": "inverting that order (answer first, transcribe after)",
+        "label": "argument"
+      },
+      {
+        "text": "pushing an author who cannot yet discharge a premise toward not declaring it at all",
+        "label": "argument"
+      },
+      {
+        "text": "the same \"refusing would make the honest case unwritable to catch the dishonest one\" failure scope.rs's discriminator names",
+        "label": "current"
+      },
+      {
+        "text": "TET-28 never faced this",
+        "label": "current"
+      },
+      {
+        "text": "a census either exists or does not",
+        "label": "argument"
+      },
+      {
+        "text": "a premise inventory is built across time",
+        "label": "proposed"
+      },
+      {
+        "text": "every premise is a genuine quotation of the cited donor's capture",
+        "label": "proposed"
+      },
+      {
+        "text": "donor fact exists and carries span boundaries",
+        "label": "proposed"
+      },
+      {
+        "text": "destination target exists and is live",
+        "label": "proposed"
+      },
+      {
+        "text": "a discharge cites an existing live claim",
+        "label": "proposed"
+      },
+      {
+        "text": "every premise is discharged is not a workspace invariant at all",
+        "label": "argument"
+      },
+      {
+        "text": "it is a property of the finished document",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The discriminator C8 invokes is scope.rs's, verbatim at lines 49-50: \"Refusing would make the honest case unwritable to catch the dishonest one.\" The transcribe-first argument applies it as written \u2014 a declaration-time discharge requirement would invert the order the instrument exists to force, and the conclusion (which invariants are verb-enforced vs document-level) follows from stated, verified premises."
+      },
+      {
+        "verdict": "supports",
+        "note": "The contrast with TET-28 is accurate: targets.rs moves its whole refusal to the verb precisely because \"a census either exists or does not\" \u2014 declare() refuses at declaration and \"render therefore needs no refusal of its own\" \u2014 whereas a premise inventory built across time has a legal intermediate state, which is the asymmetry C8 asserts."
+      },
+      {
+        "verdict": "supports",
+        "note": "The named discriminator exists byte-for-byte in scope.rs (\"Refusing would make the honest case unwritable to catch the dishonest one.\"), and the contrast with TET-28 is accurate: targets.rs's census predicate is decidable at declaration because a census either exists in the cited fact's extent or does not, with no state built across time. The argument that discharge-at-declaration would invert transcribe-first is the design's own reasoning, and it applies that discriminator to the case it names rather than misquoting it."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C11",
+    "prop": "The rendered section follows compose.rs's shipped conventions with one deliberate difference. A \"## Transplants\" section renders beside the modification-target section: per live transplant, the donor fact id with its extent labels (labels, never absolute keys \u2014 the committed-document rule), the destination target id and symbol, and one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it; withdrawn transplants and premises are dropped, and once any claim exists the section renders even when empty (\"none declared\"), because the hole is the finding \u2014 the same visibility answer to under-declaration the target section shipped. The deliberate difference: compose.rs refuses to inline captured output into the document because output is unbounded, but a premise is an author-bounded selection, not a whole capture, so inlining it verbatim is both safe and the entire point \u2014 the reader must see the donor's clause on the page, spelled the way the donor's file spells it, or the section is a list of opaque pointers. Fenced blocks rather than table cells because a premise legitimately spans lines and markdown table cells cannot carry multi-line verbatim text without escaping, which would violate byte-fidelity.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.006972625,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The rendered section follows compose.rs's shipped conventions with one deliberate difference",
+        "label": "proposed"
+      },
+      {
+        "text": "A \"## Transplants\" section renders beside the modification-target section",
+        "label": "proposed"
+      },
+      {
+        "text": "per live transplant, the donor fact id with its extent labels",
+        "label": "proposed"
+      },
+      {
+        "text": "labels, never absolute keys",
+        "label": "proposed"
+      },
+      {
+        "text": "the destination target id and symbol",
+        "label": "proposed"
+      },
+      {
+        "text": "one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it",
+        "label": "proposed"
+      },
+      {
+        "text": "withdrawn transplants and premises are dropped",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists the section renders even when empty (\"none declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "the hole is the finding",
+        "label": "argument"
+      },
+      {
+        "text": "the same visibility answer to under-declaration the target section shipped",
+        "label": "argument"
+      },
+      {
+        "text": "compose.rs refuses to inline captured output into the document",
+        "label": "current"
+      },
+      {
+        "text": "output is unbounded",
+        "label": "argument"
+      },
+      {
+        "text": "a premise is an author-bounded selection, not a whole capture",
+        "label": "argument"
+      },
+      {
+        "text": "inlining it verbatim is both safe and the entire point",
+        "label": "argument"
+      },
+      {
+        "text": "the reader must see the donor's clause on the page, spelled the way the donor's file spells it",
+        "label": "argument"
+      },
+      {
+        "text": "or the section is a list of opaque pointers",
+        "label": "argument"
+      },
+      {
+        "text": "Fenced blocks rather than table cells",
+        "label": "proposed"
+      },
+      {
+        "text": "a premise legitimately spans lines",
+        "label": "argument"
+      },
+      {
+        "text": "markdown table cells cannot carry multi-line verbatim text without escaping",
+        "label": "argument"
+      },
+      {
+        "text": "which would violate byte-fidelity",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every convention cited is shipped in compose.rs: labels rendered, never absolute keys (\"a committed document should not carry /Users/<someone>/...\"); the target section renders when empty once any claim exists, doc'd as \"Because the hole is the finding\"; withdrawn records are dropped; captured output is not inlined because \"It is unbounded (a run can capture megabytes)\" \u2014 so a bounded author-selected premise is genuinely the deliberate difference, not a contradiction; and ledger_cell replaces newlines with spaces because a markdown table row is one physical line, supporting the fenced-block choice for multi-line verbatim text."
+      },
+      {
+        "verdict": "supports",
+        "note": "The conventions the section claims to follow are compose.rs's shipped ones: render_targets renders once any claim exists, as \"None declared...\" when empty, because \"the hole is the finding\"; withdrawn records are dropped; render_facts renders labels and never absolute keys, for exactly the committed-document reason; and captured output is deliberately not inlined because \"It is unbounded (a `run` can capture megabytes)\" \u2014 so the claimed difference (an author-bounded premise selection is safe to inline) is a genuine, correctly characterised departure rather than a contradiction. The fenced-block rationale is also grounded: ledger_cell must replace embedded newlines because a markdown table row is one physical line, which would break byte-fidelity for multi-line premises."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C11",
+    "prop": "The rendered section follows compose.rs's shipped conventions with one deliberate difference. A \"## Transplants\" section renders beside the modification-target section: per live transplant, the donor fact id with its extent labels (labels, never absolute keys \u2014 the committed-document rule), the destination target id and symbol, and one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it; withdrawn transplants and premises are dropped, and once any claim exists the section renders even when empty (\"none declared\"), because the hole is the finding \u2014 the same visibility answer to under-declaration the target section shipped. The deliberate difference: compose.rs refuses to inline captured output into the document because output is unbounded, but a premise is an author-bounded selection, not a whole capture, so inlining it verbatim is both safe and the entire point \u2014 the reader must see the donor's clause on the page, spelled the way the donor's file spells it, or the section is a list of opaque pointers. Fenced blocks rather than table cells because a premise legitimately spans lines and markdown table cells cannot carry multi-line verbatim text without escaping, which would violate byte-fidelity.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0083617,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The rendered section follows compose.rs's shipped conventions with one deliberate difference.",
+        "label": "proposed"
+      },
+      {
+        "text": "A \"## Transplants\" section renders beside the modification-target section",
+        "label": "proposed"
+      },
+      {
+        "text": "per live transplant, the donor fact id with its extent labels (labels, never absolute keys \u2014 the committed-document rule)",
+        "label": "proposed"
+      },
+      {
+        "text": "the destination target id and symbol",
+        "label": "proposed"
+      },
+      {
+        "text": "one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it",
+        "label": "proposed"
+      },
+      {
+        "text": "withdrawn transplants and premises are dropped",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists the section renders even when empty (\"none declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "because the hole is the finding",
+        "label": "argument"
+      },
+      {
+        "text": "the same visibility answer to under-declaration the target section shipped",
+        "label": "argument"
+      },
+      {
+        "text": "compose.rs refuses to inline captured output into the document",
+        "label": "current"
+      },
+      {
+        "text": "because output is unbounded",
+        "label": "argument"
+      },
+      {
+        "text": "a premise is an author-bounded selection, not a whole capture",
+        "label": "argument"
+      },
+      {
+        "text": "inlining it verbatim is both safe and the entire point",
+        "label": "argument"
+      },
+      {
+        "text": "the reader must see the donor's clause on the page, spelled the way the donor's file spells it",
+        "label": "argument"
+      },
+      {
+        "text": "or the section is a list of opaque pointers",
+        "label": "argument"
+      },
+      {
+        "text": "Fenced blocks rather than table cells",
+        "label": "proposed"
+      },
+      {
+        "text": "a premise legitimately spans lines",
+        "label": "argument"
+      },
+      {
+        "text": "markdown table cells cannot carry multi-line verbatim text without escaping",
+        "label": "current"
+      },
+      {
+        "text": "which would violate byte-fidelity",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every convention cited is shipped in compose.rs: labels rendered, never absolute keys (\"a committed document should not carry /Users/<someone>/...\"); the target section renders when empty once any claim exists, doc'd as \"Because the hole is the finding\"; withdrawn records are dropped; captured output is not inlined because \"It is unbounded (a run can capture megabytes)\" \u2014 so a bounded author-selected premise is genuinely the deliberate difference, not a contradiction; and ledger_cell replaces newlines with spaces because a markdown table row is one physical line, supporting the fenced-block choice for multi-line verbatim text."
+      },
+      {
+        "verdict": "supports",
+        "note": "The conventions the section claims to follow are compose.rs's shipped ones: render_targets renders once any claim exists, as \"None declared...\" when empty, because \"the hole is the finding\"; withdrawn records are dropped; render_facts renders labels and never absolute keys, for exactly the committed-document reason; and captured output is deliberately not inlined because \"It is unbounded (a `run` can capture megabytes)\" \u2014 so the claimed difference (an author-bounded premise selection is safe to inline) is a genuine, correctly characterised departure rather than a contradiction. The fenced-block rationale is also grounded: ledger_cell must replace embedded newlines because a markdown table row is one physical line, which would break byte-fidelity for multi-line premises."
+      }
+    ]
+  },
+  {
+    "memo": "tet29-imported-mechanism-premises.md",
+    "id": "C11",
+    "prop": "The rendered section follows compose.rs's shipped conventions with one deliberate difference. A \"## Transplants\" section renders beside the modification-target section: per live transplant, the donor fact id with its extent labels (labels, never absolute keys \u2014 the committed-document rule), the destination target id and symbol, and one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it; withdrawn transplants and premises are dropped, and once any claim exists the section renders even when empty (\"none declared\"), because the hole is the finding \u2014 the same visibility answer to under-declaration the target section shipped. The deliberate difference: compose.rs refuses to inline captured output into the document because output is unbounded, but a premise is an author-bounded selection, not a whole capture, so inlining it verbatim is both safe and the entire point \u2014 the reader must see the donor's clause on the page, spelled the way the donor's file spells it, or the section is a list of opaque pointers. Fenced blocks rather than table cells because a premise legitimately spans lines and markdown table cells cannot carry multi-line verbatim text without escaping, which would violate byte-fidelity.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0083307,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The rendered section follows compose.rs's shipped conventions with one deliberate difference.",
+        "label": "proposed"
+      },
+      {
+        "text": "A \"## Transplants\" section renders beside the modification-target section",
+        "label": "proposed"
+      },
+      {
+        "text": "per live transplant, the donor fact id with its extent labels",
+        "label": "proposed"
+      },
+      {
+        "text": "(labels, never absolute keys \u2014 the committed-document rule)",
+        "label": "proposed"
+      },
+      {
+        "text": "the destination target id and symbol",
+        "label": "proposed"
+      },
+      {
+        "text": "one entry per live premise carrying the selected text verbatim in a fenced block with the discharging claim id beside it",
+        "label": "proposed"
+      },
+      {
+        "text": "withdrawn transplants and premises are dropped",
+        "label": "proposed"
+      },
+      {
+        "text": "once any claim exists the section renders even when empty (\"none declared\")",
+        "label": "proposed"
+      },
+      {
+        "text": "the hole is the finding",
+        "label": "argument"
+      },
+      {
+        "text": "the same visibility answer to under-declaration",
+        "label": "argument"
+      },
+      {
+        "text": "the target section shipped",
+        "label": "current"
+      },
+      {
+        "text": "compose.rs refuses to inline captured output into the document",
+        "label": "current"
+      },
+      {
+        "text": "output is unbounded",
+        "label": "argument"
+      },
+      {
+        "text": "a premise is an author-bounded selection, not a whole capture",
+        "label": "argument"
+      },
+      {
+        "text": "inlining it verbatim is both safe and the entire point",
+        "label": "argument"
+      },
+      {
+        "text": "the reader must see the donor's clause on the page, spelled the way the donor's file spells it",
+        "label": "argument"
+      },
+      {
+        "text": "the section is a list of opaque pointers",
+        "label": "argument"
+      },
+      {
+        "text": "Fenced blocks rather than table cells",
+        "label": "proposed"
+      },
+      {
+        "text": "a premise legitimately spans lines",
+        "label": "argument"
+      },
+      {
+        "text": "markdown table cells cannot carry multi-line verbatim text without escaping",
+        "label": "argument"
+      },
+      {
+        "text": "which would violate byte-fidelity",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "Every convention cited is shipped in compose.rs: labels rendered, never absolute keys (\"a committed document should not carry /Users/<someone>/...\"); the target section renders when empty once any claim exists, doc'd as \"Because the hole is the finding\"; withdrawn records are dropped; captured output is not inlined because \"It is unbounded (a run can capture megabytes)\" \u2014 so a bounded author-selected premise is genuinely the deliberate difference, not a contradiction; and ledger_cell replaces newlines with spaces because a markdown table row is one physical line, supporting the fenced-block choice for multi-line verbatim text."
+      },
+      {
+        "verdict": "supports",
+        "note": "The conventions the section claims to follow are compose.rs's shipped ones: render_targets renders once any claim exists, as \"None declared...\" when empty, because \"the hole is the finding\"; withdrawn records are dropped; render_facts renders labels and never absolute keys, for exactly the committed-document reason; and captured output is deliberately not inlined because \"It is unbounded (a `run` can capture megabytes)\" \u2014 so the claimed difference (an author-bounded premise selection is safe to inline) is a genuine, correctly characterised departure rather than a contradiction. The fenced-block rationale is also grounded: ledger_cell must replace embedded newlines because a markdown table row is one physical line, which would break byte-fidelity for multi-line premises."
+      }
+    ]
+  },
+  {
+    "memo": "tet46-look-never-returns-tetel-content.md",
+    "id": "C2",
+    "prop": "The ticket's mechanical premise holds on this machine: the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep, it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes, `--exclude-dir='*.tetel'` prunes snapshot directories at any depth, and `--exclude='*.evidence.jsonl'` drops evidence ledgers. Nothing here was executed against GNU grep or on Linux, so the ticket's clause about \"the Linux greps CI runs\" is untested by this design and is asserted by no claim in it.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The capture tests only the two created snapshot directories, so it does not establish behavior for snapshot directories at any possible depth.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.004282879999999999,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "evidence": "mkdir -p $R/src $R/docs/design/memo.md.tetel $R/deep/a.tetel;",
+        "why": "The capture tests only the two created snapshot directories, so it does not establish behavior for snapshot directories at any possible depth.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The ticket's mechanical premise holds on this machine",
+        "label": "current"
+      },
+      {
+        "text": "the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep",
+        "label": "current"
+      },
+      {
+        "text": "it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude='*.evidence.jsonl'` drops evidence ledgers",
+        "label": "current"
+      },
+      {
+        "text": "Nothing here was executed against GNU grep or on Linux",
+        "label": "current"
+      },
+      {
+        "text": "the ticket's clause about \"the Linux greps CI runs\" is untested by this design",
+        "label": "argument"
+      },
+      {
+        "text": "the ticket's clause about \"the Linux greps CI runs\" is asserted by no claim in it",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet46-look-never-returns-tetel-content.md",
+    "id": "C2",
+    "prop": "The ticket's mechanical premise holds on this machine: the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep, it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes, `--exclude-dir='*.tetel'` prunes snapshot directories at any depth, and `--exclude='*.evidence.jsonl'` drops evidence ledgers. Nothing here was executed against GNU grep or on Linux, so the ticket's clause about \"the Linux greps CI runs\" is untested by this design and is asserted by no claim in it.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The capture demonstrates pruning for the sampled snapshot directories, but does not establish behavior for snapshot directories at every possible depth.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.00549998,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "evidence": "--- excl-dir *.tetel\ndeep/plain.txt:1:NEEDLE here\ndocs/design/memo.evidence.jsonl:1:NEEDLE here\ndocs/design/memo.md:1:NEEDLE here\nsrc/code.rs:1:NEEDLE here",
+        "why": "The capture demonstrates pruning for the sampled snapshot directories, but does not establish behavior for snapshot directories at every possible depth.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The ticket's mechanical premise holds on this machine",
+        "label": "current"
+      },
+      {
+        "text": "the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep",
+        "label": "current"
+      },
+      {
+        "text": "it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude='*.evidence.jsonl'` drops evidence ledgers",
+        "label": "current"
+      },
+      {
+        "text": "Nothing here was executed against GNU grep or on Linux",
+        "label": "current"
+      },
+      {
+        "text": "the ticket's clause about \"the Linux greps CI runs\" is untested by this design",
+        "label": "argument"
+      },
+      {
+        "text": "is asserted by no claim in it",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet46-look-never-returns-tetel-content.md",
+    "id": "C2",
+    "prop": "The ticket's mechanical premise holds on this machine: the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep, it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes, `--exclude-dir='*.tetel'` prunes snapshot directories at any depth, and `--exclude='*.evidence.jsonl'` drops evidence ledgers. Nothing here was executed against GNU grep or on Linux, so the ticket's clause about \"the Linux greps CI runs\" is untested by this design and is asserted by no claim in it.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The capture tests only the two snapshot-directory locations shown, at two particular depths; it does not cover directories at any possible depth.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.0037474,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "the `--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "evidence": "/private/tmp/claude-501/-Volumes-SSD-Documents-lonic-tetel/9211edfe-d423-426f-893a-8bf7e4a017bf/scratchpad/gt/deep/a.tetel\n/private/tmp/claude-501/-Volumes-SSD-Documents-lonic-tetel/9211edfe-d423-426f-893a-8bf7e4a017bf/scratchpad/gt/docs/design/memo.md.tetel",
+        "why": "The capture tests only the two snapshot-directory locations shown, at two particular depths; it does not cover directories at any possible depth.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The ticket's mechanical premise holds on this machine",
+        "label": "argument"
+      },
+      {
+        "text": "the grep that `look_grep` invokes is BSD grep 2.6.0-FreeBSD at /usr/bin/grep",
+        "label": "current"
+      },
+      {
+        "text": "it accepts both `--exclude-dir` and `--exclude` alongside the exact `-r -I -n -H -e` flag set `look_grep` already passes",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+        "label": "current"
+      },
+      {
+        "text": "`--exclude='*.evidence.jsonl'` drops evidence ledgers",
+        "label": "current"
+      },
+      {
+        "text": "Nothing here was executed against GNU grep or on Linux",
+        "label": "current"
+      },
+      {
+        "text": "the ticket's clause about \"the Linux greps CI runs\" is untested by this design",
+        "label": "argument"
+      },
+      {
+        "text": "is asserted by no claim in it",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C14",
+    "prop": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4, and it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades; but the graph must be built over ledger claims, which check 5's `row_citers` deliberately excludes, so the construction is reused while the index itself is new.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0033845,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "Rule 5's fixpoint is a traversal of the reverse citation graph",
+        "label": "proposed"
+      },
+      {
+        "text": "seeded with the claims owed by rules 1-4",
+        "label": "proposed"
+      },
+      {
+        "text": "it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades",
+        "label": "proposed"
+      },
+      {
+        "text": "check 5 already uses for row\u2192row cascades",
+        "label": "current"
+      },
+      {
+        "text": "the graph must be built over ledger claims",
+        "label": "argument"
+      },
+      {
+        "text": "which check 5's `row_citers` deliberately excludes",
+        "label": "current"
+      },
+      {
+        "text": "the construction is reused",
+        "label": "proposed"
+      },
+      {
+        "text": "the index itself is new",
+        "label": "proposed"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C14",
+    "prop": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4, and it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades; but the graph must be built over ledger claims, which check 5's `row_citers` deliberately excludes, so the construction is reused while the index itself is new.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.001358175,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4",
+        "label": "proposed"
+      },
+      {
+        "text": "it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction",
+        "label": "proposed"
+      },
+      {
+        "text": "check 5 already uses for row\u2192row cascades",
+        "label": "current"
+      },
+      {
+        "text": "the graph must be built over ledger claims",
+        "label": "argument"
+      },
+      {
+        "text": "check 5's `row_citers` deliberately excludes",
+        "label": "current"
+      },
+      {
+        "text": "the construction is reused",
+        "label": "proposed"
+      },
+      {
+        "text": "the index itself is new",
+        "label": "proposed"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C14",
+    "prop": "Rule 5's fixpoint is a traversal of the reverse citation graph seeded with the claims owed by rules 1-4, and it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction check 5 already uses for row\u2192row cascades; but the graph must be built over ledger claims, which check 5's `row_citers` deliberately excludes, so the construction is reused while the index itself is new.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.002395475,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "Rule 5's fixpoint is a traversal of the reverse citation graph",
+        "label": "proposed"
+      },
+      {
+        "text": "seeded with the claims owed by rules 1-4",
+        "label": "proposed"
+      },
+      {
+        "text": "it terminates on any input \u2014 including a citation cycle \u2014 by the same `visited`-set construction",
+        "label": "proposed"
+      },
+      {
+        "text": "check 5 already uses for row\u2192row cascades",
+        "label": "current"
+      },
+      {
+        "text": "the graph must be built over ledger claims",
+        "label": "argument"
+      },
+      {
+        "text": "ledger claims, which check 5's `row_citers` deliberately excludes",
+        "label": "current"
+      },
+      {
+        "text": "the construction is reused",
+        "label": "proposed"
+      },
+      {
+        "text": "the index itself is new",
+        "label": "proposed"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C20",
+    "prop": "The donor's self-citation exclusion is not needed at the destination: check 5 skips a self-edge so that a root is \"never reported as its own dependent\", whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.00471795,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The donor's self-citation exclusion is not needed at the destination",
+        "label": "argument"
+      },
+      {
+        "text": "check 5 skips a self-edge",
+        "label": "current"
+      },
+      {
+        "text": "a root is \"never reported as its own dependent\"",
+        "label": "current"
+      },
+      {
+        "text": "the owed closure's output is a set of ids to grade that already contains its own seeds",
+        "label": "current"
+      },
+      {
+        "text": "a self-edge can only re-derive owed-ness a claim already has",
+        "label": "argument"
+      },
+      {
+        "text": "changes neither the set nor its termination",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": "One provenance detail worth naming: the quoted phrase \"never reported as its own dependent\" is the comment on the `visited.insert(root.id)` seeding, while the self-edge skip carries its own comment \"self-citation is not a dependency\". Both sit in check 5 and both bear on the root/self relation, and the claim's operative conclusion is right either way \u2014 termination is supplied by the `visited` set alone, so dropping the self-edge exclusion changes neither the closure's set nor its termination."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both halves are in check 5 as described. One attribution nit that does not change the verdict: the quoted rationale \"never reported as its own dependent\" is the comment on the `visited`-set seeding of the BFS root, while the `if id == row.id { continue; }` skip carries the comment \"self-citation is not a dependency\". Both exclude the root from its own dependents, so the sentence is right about the purpose even though the quote sits on the neighbouring mechanism."
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C20",
+    "prop": "The donor's self-citation exclusion is not needed at the destination: check 5 skips a self-edge so that a root is \"never reported as its own dependent\", whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.006884955,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The donor's self-citation exclusion is not needed at the destination",
+        "label": "argument"
+      },
+      {
+        "text": "check 5 skips a self-edge",
+        "label": "current"
+      },
+      {
+        "text": "a root is \"never reported as its own dependent\"",
+        "label": "current"
+      },
+      {
+        "text": "the owed closure's output is a set of ids to grade",
+        "label": "current"
+      },
+      {
+        "text": "that already contains its own seeds",
+        "label": "current"
+      },
+      {
+        "text": "a self-edge can only re-derive owed-ness a claim already has",
+        "label": "argument"
+      },
+      {
+        "text": "changes neither the set nor its termination",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": "One provenance detail worth naming: the quoted phrase \"never reported as its own dependent\" is the comment on the `visited.insert(root.id)` seeding, while the self-edge skip carries its own comment \"self-citation is not a dependency\". Both sit in check 5 and both bear on the root/self relation, and the claim's operative conclusion is right either way \u2014 termination is supplied by the `visited` set alone, so dropping the self-edge exclusion changes neither the closure's set nor its termination."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both halves are in check 5 as described. One attribution nit that does not change the verdict: the quoted rationale \"never reported as its own dependent\" is the comment on the `visited`-set seeding of the BFS root, while the `if id == row.id { continue; }` skip carries the comment \"self-citation is not a dependency\". Both exclude the root from its own dependents, so the sentence is right about the purpose even though the quote sits on the neighbouring mechanism."
+      }
+    ]
+  },
+  {
+    "memo": "tet47-ground-what-is-owed.md",
+    "id": "C20",
+    "prop": "The donor's self-citation exclusion is not needed at the destination: check 5 skips a self-edge so that a root is \"never reported as its own dependent\", whereas the owed closure's output is a set of ids to grade that already contains its own seeds, so a self-edge can only re-derive owed-ness a claim already has and changes neither the set nor its termination.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0013795,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The donor's self-citation exclusion is not needed at the destination",
+        "label": "argument"
+      },
+      {
+        "text": "check 5 skips a self-edge",
+        "label": "current"
+      },
+      {
+        "text": "a root is \"never reported as its own dependent\"",
+        "label": "current"
+      },
+      {
+        "text": "the owed closure's output is a set of ids to grade that already contains its own seeds",
+        "label": "current"
+      },
+      {
+        "text": "a self-edge can only re-derive owed-ness a claim already has",
+        "label": "argument"
+      },
+      {
+        "text": "changes neither the set nor its termination",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": ""
+      },
+      {
+        "verdict": "supports",
+        "note": "One provenance detail worth naming: the quoted phrase \"never reported as its own dependent\" is the comment on the `visited.insert(root.id)` seeding, while the self-edge skip carries its own comment \"self-citation is not a dependency\". Both sit in check 5 and both bear on the root/self relation, and the claim's operative conclusion is right either way \u2014 termination is supplied by the `visited` set alone, so dropping the self-edge exclusion changes neither the closure's set nor its termination."
+      },
+      {
+        "verdict": "supports",
+        "note": "Both halves are in check 5 as described. One attribution nit that does not change the verdict: the quoted rationale \"never reported as its own dependent\" is the comment on the `visited`-set seeding of the BFS root, while the `if id == row.id { continue; }` skip carries the comment \"self-citation is not a dependency\". Both exclude the root from its own dependents, so the sentence is right about the purpose even though the quote sits on the neighbouring mechanism."
+      }
+    ]
+  },
+  {
+    "memo": "tet56-bounded-grep-return.md",
+    "id": "C8",
+    "prop": "This design recommends 32768 bytes (32 KiB) as the bound, declared in the source as a judgement and not as a measurement. Its only stated constraint is that it be strictly below whatever cap the caller applies, and since tetel cannot observe that cap the value is chosen conservatively; its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded and two (target at 24974 bytes, label at 8201) return whole.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "overreaches: The categorical claim about what tetel cannot observe ranges beyond the captured material, which is explicitly truncated and therefore samples rather than covers all relevant observation paths.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.006682765,
+    "findings": [
+      {
+        "kind": "overreaches",
+        "clause": "tetel cannot observe that cap",
+        "evidence": "[... 26443 bytes of captured output not shown]",
+        "why": "The categorical claim about what tetel cannot observe ranges beyond the captured material, which is explicitly truncated and therefore samples rather than covers all relevant observation paths.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "This design recommends 32768 bytes (32 KiB) as the bound",
+        "label": "proposed"
+      },
+      {
+        "text": "declared in the source as a judgement and not as a measurement",
+        "label": "current"
+      },
+      {
+        "text": "Its only stated constraint is that it be strictly below whatever cap the caller applies",
+        "label": "argument"
+      },
+      {
+        "text": "tetel cannot observe that cap",
+        "label": "current"
+      },
+      {
+        "text": "the value is chosen conservatively",
+        "label": "argument"
+      },
+      {
+        "text": "its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded",
+        "label": "current"
+      },
+      {
+        "text": "two (target at 24974 bytes, label at 8201) return whole",
+        "label": "current"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The consequence is reproduced with margin. Rebuilding look_grep's exact grep invocation, the seven censuses claim/fact/check/prose/ack/render/get come to 162183/124840/123826/81081/74680/61431/44497 bytes of stdout alone, every one far above 32768; target and label come to 24261 and 7488 bytes of stdout, and to 24975 and 8202 as full returns (stdout plus the `({note})\\n` exclusion line, whose byte-exact reconstruction is 714 with the six-memo list that predates this memo's own .md). The stated 24974 and 8201 are exactly those returns less the trailing newline, so both figures are reproducible under a stated convention. Worth knowing, not a defect: these two numbers embed the exclusion note, which lists rendered memo paths, so they drift as memos are added \u2014 the seven-bounded/two-whole conclusion does not."
+      }
+    ]
+  },
+  {
+    "memo": "tet56-bounded-grep-return.md",
+    "id": "C8",
+    "prop": "This design recommends 32768 bytes (32 KiB) as the bound, declared in the source as a judgement and not as a measurement. Its only stated constraint is that it be strictly below whatever cap the caller applies, and since tetel cannot observe that cap the value is chosen conservatively; its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded and two (target at 24974 bytes, label at 8201) return whole.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.01119328,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "This design recommends 32768 bytes (32 KiB) as the bound",
+        "label": "proposed"
+      },
+      {
+        "text": "declared in the source as a judgement and not as a measurement",
+        "label": "current"
+      },
+      {
+        "text": "Its only stated constraint is that it be strictly below whatever cap the caller applies",
+        "label": "proposed"
+      },
+      {
+        "text": "tetel cannot observe that cap",
+        "label": "current"
+      },
+      {
+        "text": "the value is chosen conservatively",
+        "label": "argument"
+      },
+      {
+        "text": "seven of them (claim, fact, check, prose, ack, render, get) return bounded",
+        "label": "current"
+      },
+      {
+        "text": "two (target at 24974 bytes, label at 8201) return whole",
+        "label": "current"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The consequence is reproduced with margin. Rebuilding look_grep's exact grep invocation, the seven censuses claim/fact/check/prose/ack/render/get come to 162183/124840/123826/81081/74680/61431/44497 bytes of stdout alone, every one far above 32768; target and label come to 24261 and 7488 bytes of stdout, and to 24975 and 8202 as full returns (stdout plus the `({note})\\n` exclusion line, whose byte-exact reconstruction is 714 with the six-memo list that predates this memo's own .md). The stated 24974 and 8201 are exactly those returns less the trailing newline, so both figures are reproducible under a stated convention. Worth knowing, not a defect: these two numbers embed the exclusion note, which lists rendered memo paths, so they drift as memos are added \u2014 the seven-bounded/two-whole conclusion does not."
+      }
+    ]
+  },
+  {
+    "memo": "tet56-bounded-grep-return.md",
+    "id": "C8",
+    "prop": "This design recommends 32768 bytes (32 KiB) as the bound, declared in the source as a judgement and not as a measurement. Its only stated constraint is that it be strictly below whatever cap the caller applies, and since tetel cannot observe that cap the value is chosen conservatively; its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded and two (target at 24974 bytes, label at 8201) return whole.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0041938,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "This design recommends 32768 bytes (32 KiB) as the bound",
+        "label": "proposed"
+      },
+      {
+        "text": "declared in the source as a judgement and not as a measurement",
+        "label": "current"
+      },
+      {
+        "text": "Its only stated constraint is that it be strictly below whatever cap the caller applies",
+        "label": "proposed"
+      },
+      {
+        "text": "since tetel cannot observe that cap",
+        "label": "current"
+      },
+      {
+        "text": "the value is chosen conservatively",
+        "label": "argument"
+      },
+      {
+        "text": "its consequence on the nine censuses measured here is that seven of them (claim, fact, check, prose, ack, render, get) return bounded",
+        "label": "current"
+      },
+      {
+        "text": "two (target at 24974 bytes, label at 8201) return whole",
+        "label": "current"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The consequence is reproduced with margin. Rebuilding look_grep's exact grep invocation, the seven censuses claim/fact/check/prose/ack/render/get come to 162183/124840/123826/81081/74680/61431/44497 bytes of stdout alone, every one far above 32768; target and label come to 24261 and 7488 bytes of stdout, and to 24975 and 8202 as full returns (stdout plus the `({note})\\n` exclusion line, whose byte-exact reconstruction is 714 with the six-memo list that predates this memo's own .md). The stated 24974 and 8201 are exactly those returns less the trailing newline, so both figures are reproducible under a stated convention. Worth knowing, not a defect: these two numbers embed the exclusion note, which lists rendered memo paths, so they drift as memos are added \u2014 the seven-bounded/two-whole conclusion does not."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C3",
+    "prop": "The acknowledgement event cannot live in `prose.jsonl`. `ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`, and `workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it; empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1. A new tag value therefore makes every older build unable to read even the prose it already understood.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.0023561,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The acknowledgement event cannot live in `prose.jsonl`.",
+        "label": "argument"
+      },
+      {
+        "text": "`ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`",
+        "label": "current"
+      },
+      {
+        "text": "`workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it",
+        "label": "current"
+      },
+      {
+        "text": "empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one {\"event\":\"Ack\",...} line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1.",
+        "label": "current"
+      },
+      {
+        "text": "A new tag value therefore makes every older build unable to read even the prose it already understood.",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise; read_jsonl `?`-propagates any line's parse failure over the whole log; and the binary built from this worktree, reading a prose.jsonl with one valid Create line plus one `{\"event\":\"Ack\",...}` line, exits 1 with `unknown variant `Ack`, expected `Create` or `Revise``."
+      },
+      {
+        "verdict": "supports",
+        "note": "Reproduced at this pin: a probe workspace whose prose.jsonl holds one valid Create line and one `{\"event\":\"Ack\",...}` line makes `tetel query prose` exit 1 with `unknown variant `Ack`, expected `Create` or `Revise``, returning none of the valid line. Backed by F3 (ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise) and F5 (read_jsonl propagates the per-line parse error with `?` over the whole read)."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C3",
+    "prop": "The acknowledgement event cannot live in `prose.jsonl`. `ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`, and `workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it; empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1. A new tag value therefore makes every older build unable to read even the prose it already understood.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.001909225,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The acknowledgement event cannot live in `prose.jsonl`.",
+        "label": "argument"
+      },
+      {
+        "text": "`ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`",
+        "label": "current"
+      },
+      {
+        "text": "`workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it",
+        "label": "current"
+      },
+      {
+        "text": "empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1.",
+        "label": "current"
+      },
+      {
+        "text": "A new tag value therefore makes every older build unable to read even the prose it already understood.",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise; read_jsonl `?`-propagates any line's parse failure over the whole log; and the binary built from this worktree, reading a prose.jsonl with one valid Create line plus one `{\"event\":\"Ack\",...}` line, exits 1 with `unknown variant `Ack`, expected `Create` or `Revise``."
+      },
+      {
+        "verdict": "supports",
+        "note": "Reproduced at this pin: a probe workspace whose prose.jsonl holds one valid Create line and one `{\"event\":\"Ack\",...}` line makes `tetel query prose` exit 1 with `unknown variant `Ack`, expected `Create` or `Revise``, returning none of the valid line. Backed by F3 (ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise) and F5 (read_jsonl propagates the per-line parse error with `?` over the whole read)."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C3",
+    "prop": "The acknowledgement event cannot live in `prose.jsonl`. `ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`, and `workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it; empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1. A new tag value therefore makes every older build unable to read even the prose it already understood.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "",
+    "err": null,
+    "flagged": false,
+    "cost": 0.002002225,
+    "findings": [],
+    "assertions": [
+      {
+        "text": "The acknowledgement event cannot live in `prose.jsonl`.",
+        "label": "argument"
+      },
+      {
+        "text": "`ProseEvent` is an internally-tagged serde enum over exactly `Create` and `Revise`,",
+        "label": "current"
+      },
+      {
+        "text": "`workspace::read_jsonl` propagates any line's parse failure as an error over the whole log rather than skipping it;",
+        "label": "current"
+      },
+      {
+        "text": "empirically, a build at this pin reading a `prose.jsonl` containing one valid `Create` line and one `{\"event\":\"Ack\",...}` line fails the entire read with `unknown variant \\`Ack\\`, expected \\`Create\\` or \\`Revise\\`` and exits 1.",
+        "label": "current"
+      },
+      {
+        "text": "A new tag value therefore makes every older build unable to read even the prose it already understood.",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise; read_jsonl `?`-propagates any line's parse failure over the whole log; and the binary built from this worktree, reading a prose.jsonl with one valid Create line plus one `{\"event\":\"Ack\",...}` line, exits 1 with `unknown variant `Ack`, expected `Create` or `Revise``."
+      },
+      {
+        "verdict": "supports",
+        "note": "Reproduced at this pin: a probe workspace whose prose.jsonl holds one valid Create line and one `{\"event\":\"Ack\",...}` line makes `tetel query prose` exit 1 with `unknown variant `Ack`, expected `Create` or `Revise``, returning none of the valid line. Backed by F3 (ProseEvent is `#[serde(tag = \"event\")]` over exactly Create and Revise) and F5 (read_jsonl propagates the per-line parse error with `?` over the whole read)."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C19",
+    "prop": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event, because no field in it is specific to this residue. It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp; it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed. A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them, which is a re-homing rather than a rework.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The cited entries are constructed from each claim id, its first-proof timestamp, and its pass, not from a digest. The current block text is not included in the cited entries or the returned record.; contradicts: The returned record includes `cited`, whose entries contain each cited claim's first-proof timestamp, and it explicitly includes `block_timestamp`; therefore it does record quantities derived by `prose_after_proof`.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.010944259999999999,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "evidence": "        let mut cited: Vec<(String, u64, String)> = cur_cite\n            .iter()\n            .filter_map(|cid| first_proof.get(cid.as_str()).map(|(t, p)| (cid.clone(), *t, (*p).to_string())))",
+        "why": "The cited entries are constructed from each claim id, its first-proof timestamp, and its pass, not from a digest. The current block text is not included in the cited entries or the returned record.",
+        "quote_verified": true
+      },
+      {
+        "kind": "contradicts",
+        "clause": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "evidence": "        let mut cited: Vec<(String, u64, String)> = cur_cite\n            .iter()\n            .filter_map(|cid| first_proof.get(cid.as_str()).map(|(t, p)| (cid.clone(), *t, (*p).to_string())))\n        out.push(ProseRevisedSinceProof { block_id: id.clone(), line: None, cited, block_timestamp, why });",
+        "why": "The returned record includes `cited`, whose entries contain each cited claim's first-proof timestamp, and it explicitly includes `block_timestamp`; therefore it does record quantities derived by `prose_after_proof`.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event",
+        "label": "argument"
+      },
+      {
+        "text": "no field in it is specific to this residue",
+        "label": "current"
+      },
+      {
+        "text": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "label": "current"
+      },
+      {
+        "text": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "label": "current"
+      },
+      {
+        "text": "A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them",
+        "label": "argument"
+      },
+      {
+        "text": "which is a re-homing rather than a rework",
+        "label": "argument"
+      }
+    ],
+    "rep": 0,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quantities prose_after_proof derives are exactly the anchor, each claim's first-proof timestamp, the block's first-appearance timestamp and the listed/not-listed decision (checks.rs:414-557), and none of them appears in the event schema C8 specifies \u2014 that schema is block id, text, cite list, per-claim digest, reason, timestamp, all of which are inputs or authorial content. The re-homing conclusion is a statement about TET-36's unwritten ledger and was not independently checked, but nothing in the schema contradicts it."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quantities `prose_after_proof` derives are the per-claim first proof, the per-block anchor (`cited.iter().map(...).max()`), the block timestamp, and the listed/not-listed decision \u2014 none of which appears among the five fields C8 defines plus the timestamp. Every field the ack records (block id, text, cite list, digest per cited claim, reason, time) is a generic discharge record, so re-homing it needs a new consuming rule rather than an event rewrite."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C19",
+    "prop": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event, because no field in it is specific to this residue. It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp; it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed. A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them, which is a re-homing rather than a rework.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The captured record construction contains block_id, line, cited, block_timestamp, and why; it does not record the block text, the raw citation list, or a proposition digest per cited claim.; contradicts: The returned residue record carries cited claim data derived from first_proof and carries block_timestamp; its presence in out is also the captured indication that the block was listed.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.021196935,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "evidence": "out.push(ProseRevisedSinceProof { block_id: id.clone(), line: None, cited, block_timestamp, why });",
+        "why": "The captured record construction contains block_id, line, cited, block_timestamp, and why; it does not record the block text, the raw citation list, or a proposition digest per cited claim.",
+        "quote_verified": true
+      },
+      {
+        "kind": "contradicts",
+        "clause": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "evidence": "// Per claim, the earliest in-proof record: its timestamp and the\n    // pass that wrote it.\n    let mut first_proof: HashMap<&str, (u64, &str)> = HashMap::new();\n\n        if block_timestamp > anchor {\n            out.push(ProseRevisedSinceProof { block_id: id.clone(), line: None, cited, block_timestamp, why });\n        }",
+        "why": "The returned residue record carries cited claim data derived from first_proof and carries block_timestamp; its presence in out is also the captured indication that the block was listed.",
+        "quote_verified": false
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event",
+        "label": "argument"
+      },
+      {
+        "text": "no field in it is specific to this residue",
+        "label": "current"
+      },
+      {
+        "text": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "label": "current"
+      },
+      {
+        "text": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "label": "current"
+      },
+      {
+        "text": "A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them",
+        "label": "argument"
+      },
+      {
+        "text": "which is a re-homing rather than a rework",
+        "label": "argument"
+      }
+    ],
+    "rep": 1,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quantities prose_after_proof derives are exactly the anchor, each claim's first-proof timestamp, the block's first-appearance timestamp and the listed/not-listed decision (checks.rs:414-557), and none of them appears in the event schema C8 specifies \u2014 that schema is block id, text, cite list, per-claim digest, reason, timestamp, all of which are inputs or authorial content. The re-homing conclusion is a statement about TET-36's unwritten ledger and was not independently checked, but nothing in the schema contradicts it."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quantities `prose_after_proof` derives are the per-claim first proof, the per-block anchor (`cited.iter().map(...).max()`), the block timestamp, and the listed/not-listed decision \u2014 none of which appears among the five fields C8 defines plus the timestamp. Every field the ack records (block id, text, cite list, digest per cited claim, reason, time) is a generic discharge record, so re-homing it needs a new consuming rule rather than an event rewrite."
+      }
+    ]
+  },
+  {
+    "memo": "tet61-residue-scoped-acknowledgement.md",
+    "id": "C19",
+    "prop": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event, because no field in it is specific to this residue. It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp; it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed. A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them, which is a re-homing rather than a rework.",
+    "supports_only": true,
+    "refuted": false,
+    "qualified": false,
+    "verdict": null,
+    "note": "contradicts: The cited data is constructed as claim id, first-proof timestamp, and pass\u2014not a digest per cited claim. The emitted record likewise contains no block text or raw citation-list field.; contradicts: The emitted residue record explicitly includes `block_timestamp`, so the assertion that it records none of those derived quantities is false.",
+    "err": null,
+    "flagged": true,
+    "cost": 0.00843986,
+    "findings": [
+      {
+        "kind": "contradicts",
+        "clause": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "evidence": "        let mut cited: Vec<(String, u64, String)> = cur_cite\n            .iter()\n            .filter_map(|cid| first_proof.get(cid.as_str()).map(|(t, p)| (cid.clone(), *t, (*p).to_string())))\n            .collect();",
+        "why": "The cited data is constructed as claim id, first-proof timestamp, and pass\u2014not a digest per cited claim. The emitted record likewise contains no block text or raw citation-list field.",
+        "quote_verified": true
+      },
+      {
+        "kind": "contradicts",
+        "clause": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "evidence": "        if block_timestamp > anchor {\n            out.push(ProseRevisedSinceProof { block_id: id.clone(), line: None, cited, block_timestamp, why });\n        }",
+        "why": "The emitted residue record explicitly includes `block_timestamp`, so the assertion that it records none of those derived quantities is false.",
+        "quote_verified": true
+      }
+    ],
+    "assertions": [
+      {
+        "text": "The acknowledgement log is re-homeable into TET-36's obligation ledger without rewriting a single event",
+        "label": "argument"
+      },
+      {
+        "text": "no field in it is specific to this residue",
+        "label": "current"
+      },
+      {
+        "text": "It records a block id, the block's text and citation list, a digest per cited claim, a reason and a timestamp",
+        "label": "current"
+      },
+      {
+        "text": "it records none of the quantities `prose_after_proof` derives \u2014 not the anchor, not any claim's first proof, not the block timestamp, not whether the block was listed",
+        "label": "current"
+      },
+      {
+        "text": "A general ledger consuming these as discharge records for one obligation class therefore needs the events as they stand and a rule that reads them",
+        "label": "argument"
+      },
+      {
+        "text": "which is a re-homing rather than a rework",
+        "label": "argument"
+      }
+    ],
+    "rep": 2,
+    "later": [
+      {
+        "verdict": "supports",
+        "note": "The quantities prose_after_proof derives are exactly the anchor, each claim's first-proof timestamp, the block's first-appearance timestamp and the listed/not-listed decision (checks.rs:414-557), and none of them appears in the event schema C8 specifies \u2014 that schema is block id, text, cite list, per-claim digest, reason, timestamp, all of which are inputs or authorial content. The re-homing conclusion is a statement about TET-36's unwritten ledger and was not independently checked, but nothing in the schema contradicts it."
+      },
+      {
+        "verdict": "supports",
+        "note": "The quantities `prose_after_proof` derives are the per-claim first proof, the per-block anchor (`cited.iter().map(...).max()`), the block timestamp, and the listed/not-listed decision \u2014 none of which appears among the five fields C8 defines plus the timestamp. Every field the ack records (block id, text, cite list, digest per cited claim, reason, time) is a generic discharge record, so re-homing it needs a new consuming rule rather than an event rewrite."
+      }
+    ]
+  }
+]
