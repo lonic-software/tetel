@@ -1,0 +1,35 @@
+prompts          902+3429 bytes, CANDIDATE prompt_fact_v1.txt — not what ships
+subjects         123 (fact), split configuration
+  10/123  $0.0672
+  20/123  $0.1247
+  30/123  $0.1747
+  40/123  $0.2095
+  50/123  $0.2482
+  60/123  $0.2807
+  70/123  $0.3251
+  80/123  $0.3526
+  90/123  $0.4043
+  100/123  $0.4763
+  110/123  $0.5548
+  120/123  $0.6442
+  123/123  $0.6646
+wrote fact_v1.json
+verb             fact
+subjects         123   (123 ok, 0 not)
+cost             $0.6646 total, $0.00540 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          31/123   (25%)
+  findings         37
+    contradicts   16
+    overreaches   21
+  quoted verbatim  14/37
+  clause verbatim  37/37
+
+AGAINST THE DETERMINISTIC CHECK THAT ALREADY SHIPS (`scope`'s attention)
+  attention flags  12/123 of the same facts
+  both agree       6
+  attention only   6   <- semantic check missed what a substring test caught
+  verifier only    25   <- THE RESIDUE: what a model adds over `scope`
+  The residue is the whole argument for turning `fact` on. Every
+  one of those is worth reading by hand before it becomes a number.
