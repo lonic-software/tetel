@@ -98,6 +98,10 @@ pub const KEY_VERIFY_VERBS: &str = "verify.verbs";
 /// capture does not carry. Off unless set — see [`KEYS`] for why the
 /// default differs from the other four.
 pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
+/// Which model is asked to refute each finding before it reaches the
+/// author, as `vendor/model`. Unset means no refutation leg. It must not be
+/// [`KEY_VERIFY_MODEL`]'s value — see `verify::refute`.
+pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
 
 /// The approaches [`KEY_VERIFY_APPROACH`] accepts, in one place so the
 /// validator, the error message and [`crate::verify`] cannot disagree.
@@ -235,6 +239,17 @@ sit in front of a reply, so it can be generous",
         summary: "which authoring verbs are verified, comma-separated from fact, claim, prose \
 (default: claim alone — see the design memo for why the other two are off)",
         accepts: Accepts::SubsetOf(VERIFY_VERBS),
+    },
+    KeyDef {
+        name: KEY_VERIFY_REFUTER,
+        summary: "which model is asked to refute each finding before you see it, as vendor/model \
+(unset: no refutation, every finding reaches you). A second call per finding — not per mint — and \
+findings are rare, so it costs about a third more per mint than it saves you in wrong warnings. \
+Measured 2026-08-16 with anthropic/claude-sonnet-4.5: fact 63% -> 88% precision, prose 36% -> 80%, \
+at the price of roughly one true finding in five. Must name a DIFFERENT model from verify.model: \
+the same model refuting itself scored 17%, near-random, because finding and checking are only \
+different questions when someone else asks the second one",
+        accepts: Accepts::ModelName,
     },
     KeyDef {
         name: KEY_VERIFY_LITERALS,
@@ -389,6 +404,11 @@ pub fn verify_enabled(workspace_dir: Option<&Path>) -> bool {
 /// [`resolve`] for [`KEY_VERIFY_MODEL`].
 pub fn verify_model(workspace_dir: Option<&Path>) -> Option<String> {
     resolve(KEY_VERIFY_MODEL, workspace_dir).0
+}
+
+/// [`resolve`] for [`KEY_VERIFY_REFUTER`]. Absent means no refutation leg.
+pub fn verify_refuter(workspace_dir: Option<&Path>) -> Option<String> {
+    resolve(KEY_VERIFY_REFUTER, workspace_dir).0
 }
 
 /// [`resolve`] for [`KEY_VERIFY_LITERALS`], parsed. Absent means off.

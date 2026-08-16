@@ -34,16 +34,41 @@ Nothing else counts. Evidence that fails to fully *establish* your claim is not 
 evidence shows is not a disagreement. Those rules are in the prompt because without them the thing
 reports insufficiency all day, which is noise.
 
-**On a `fact`, only `contradicts` is reported.** The rules above are in the prompt and the model
-broke them anyway: of 40 `overreaches` raised over 123 real notes, every one was insufficiency in
-another costume — *the search excluded paths*, *the capture covers only this range*. A note is a
-record of one capture, so "the capture does not cover the population" is always true of it and
-never news. The rule is therefore enforced in code rather than asked for, and the count of what it
-drops is reported. On a `claim`, which ranges over a whole design's argument, the kind stays on and
-carries 83% precision.
+**On a `fact` and a `prose` block, only `contradicts` is reported.** The rules above are in the
+prompt and the model broke them anyway: every `overreaches` those two verbs raised over the corpus
+was insufficiency in another costume — *the search excluded paths*, *the capture covers only this
+range*. A note records one capture and a paragraph rests on facts it did not choose, so "the
+capture does not cover the population" is always true of both and never news. The rule is enforced
+in code rather than asked for, and the count of what it drops is reported. On a `claim`, which
+ranges over a whole design's argument, the kind stays on and carries 83% precision.
 
-A `fact` is also checked with its own prompt, because a note is not a claim and the prompt that
-grades one should not open by saying it is. That took precision from 39% to 63%.
+Each verb is also **announced as what it is**. A `fact` is checked with its own prompt rather than
+one addressing "a claim from a design memo", which took its precision from 39% to 63%. A `prose`
+paragraph is headed `PARAGRAPH:` and split by its own classify prompt, because a paragraph of
+design argument presented as an assertion about today gets objected to for proposing things that do
+not exist yet — 11 of 38 wrong findings, reduced to none.
+
+## The second opinion
+
+Set `verify.refuter_model` to a **different** model and every finding is put to it before you see
+it: here is the text, here is the evidence, here is the proposed disagreement — is it correct? Only
+a clear *wrong* drops the finding. An unreadable answer, an expired budget or a provider failure
+all keep it, so a warning is never deleted by something going wrong.
+
+Measured 2026-08-16 with `anthropic/claude-sonnet-4.5` against findings adjudicated one by one:
+
+| | without | with |
+|---|---|---|
+| `fact` | 63% precision, 12% of notes flagged | **88%**, 7% flagged |
+| `prose` | 36% precision, 11% flagged | **80%**, 4% flagged |
+
+It costs about one true finding in five, and one extra call per *finding* — not per mint, and
+findings are rare. It is off unless set, and it is worth setting: this tool's own rule is that a
+wrong warning costs more than a missed one.
+
+It must not name the same model as `verify.model`. Asked to refute itself that model scored 17%,
+near-random — finding and checking are only different questions when someone else asks the second
+one. Configuring it that way is refused, with the reason in the record.
 
 ### Why the overlap set is in there
 
