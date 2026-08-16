@@ -188,6 +188,33 @@ def containing(case, span):
 
 LABELS = ("current", "proposed", "argument")
 
+# Two of eleven wrong findings in the adjudicated sample stated a reason that
+# reasoned its way to "therefore there is no disagreement" and were reported
+# anyway. That is mechanically detectable, so it is caught mechanically rather
+# than asked for in a prompt.
+SELF_DEFEATING = re.compile(
+    r"(?:so|thus|therefore|hence)[^.]{0,80}\b(?:no|not a|is no|isn't a)\b[^.]{0,40}"
+    r"\b(?:disagreement|contradiction|conflict|overreach)\b|"
+    r"\b(?:there is|there's) no (?:disagreement|contradiction|conflict)\b", re.I)
+
+
+def kind_reported_for(verb, kind):
+    """Mirror of `kind_reported_for` in src/verify.rs — the same bound.
+
+    Over the 123 corpus facts the refined prompt returned 16 `contradicts`
+    and 21 `overreaches`, and all 21 were the same objection: the search
+    excluded paths, the capture covers only this range. That is
+    insufficiency, which the prompt already forbids in as many words and
+    the model produces anyway — so it is bounded here rather than asked for
+    again. Adjudicated against the full capture, the 16 that remain are 10
+    correct (63%), against 21% for a sample drawn from both kinds.
+
+    A fact note records one capture, so "the capture does not cover the
+    population" is always true of it and never news. A claim ranges over a
+    design's whole argument, where the kind carries 83% and stays on.
+    """
+    return not (verb == "fact" and kind == "overreaches")
+
 
 def parse_assertions(body, text):
     v = json_object(body)
@@ -232,21 +259,33 @@ def run_case(url, model, prompts, case, timeout, max_tokens, effort):
     if not isinstance(rows, list):
         return dict(memo=case["memo"], id=case["id"], verb=case["verb"],
                     status="unparsable", detail=(body or "")[:200], cost=cost)
-    findings = []
+    findings, self_defeating, kind_off_verb = [], 0, 0
     for r in rows:
         if not isinstance(r, dict) or r.get("kind") not in ("contradicts", "overreaches"):
             return dict(memo=case["memo"], id=case["id"], verb=case["verb"],
                         status="unparsable", detail=f"kind={r!r}"[:200], cost=cost)
+        # Mirrors `kind_reported_for` in src/verify.rs. The harness must not
+        # measure a configuration nobody ships: every `overreaches` the 123
+        # corpus facts drew was an insufficiency objection, so the shipped
+        # code drops the kind on this verb and so does this.
+        if not kind_reported_for(case["verb"], r["kind"]):
+            kind_off_verb += 1
+            continue
         span = r.get("evidence") or ""
         clause = r.get("clause") or ""
         where = containing(case, span)
-        findings.append(dict(kind=r["kind"], clause=clause, why=r.get("why") or "",
+        why = r.get("why") or ""
+        if SELF_DEFEATING.search(why):
+            self_defeating += 1
+            continue
+        findings.append(dict(kind=r["kind"], clause=clause, why=why,
                              facts=where, quoted=bool(where),
                              clause_quoted=bool(clause) and clause in case["text"],
                              span=span if where else None,
                              rejected=None if where else (span or None)))
     return dict(memo=case["memo"], id=case["id"], verb=case["verb"], status="ok",
-                text=case["text"], findings=findings, cost=cost,
+                text=case["text"], findings=findings, self_defeating=self_defeating,
+                kind_off_verb=kind_off_verb, cost=cost,
                 elapsed=round(time.time() - t0, 2))
 
 
@@ -324,6 +363,11 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--populations", action="store_true")
     ap.add_argument("--summarise")
+    ap.add_argument("--prompt-file", help="a candidate check prompt to measure instead of the "
+                                          "shipped CHECK_SYSTEM. The shipped one stays the "
+                                          "default so a run with no flags measures what ships.")
+    ap.add_argument("--drop-self-defeating", action="store_true",
+                    help="drop findings whose own reason concludes there is no disagreement")
     ap.add_argument("--url", default=DEFAULT_URL)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--reasoning-effort", default="high")
@@ -353,9 +397,17 @@ def main():
                   f"evidence bytes: median {sorted(ev)[len(ev)//2]}, max {max(ev)}")
         return
 
-    prompts = (shipped("CLASSIFY_SYSTEM"), shipped("CHECK_SYSTEM"))
-    print(f"prompts          {len(prompts[0])}+{len(prompts[1])} bytes, "
-          f"shipped, read from src/verify.rs", file=sys.stderr)
+    if a.prompt_file:
+        check = Path(a.prompt_file).read_text().rstrip("\n")
+        origin = f"CANDIDATE {os.path.basename(a.prompt_file)} — not what ships"
+    else:
+        # Mirrors `check_system_for` in src/verify.rs. A note is not a claim
+        # and is no longer graded as one; measuring `fact` against
+        # CHECK_SYSTEM would now measure a configuration nobody runs.
+        const = "FACT_SYSTEM" if a.verb == "fact" else "CHECK_SYSTEM"
+        check, origin = shipped(const), f"shipped {const}, read from src/verify.rs"
+    prompts = (shipped("CLASSIFY_SYSTEM"), check)
+    print(f"prompts          {len(prompts[0])}+{len(prompts[1])} bytes, {origin}", file=sys.stderr)
     print(f"subjects         {len(cases)} ({a.verb}), split configuration", file=sys.stderr)
 
     records = []
