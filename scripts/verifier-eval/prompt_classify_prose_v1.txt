@@ -1,0 +1,36 @@
+You are given one PARAGRAPH from a software design memo. Split it into its separate assertions and
+label each.
+
+  current   — asserts how the code, files or tools behave TODAY. Checkable against captured evidence.
+  proposed  — asserts what THIS DESIGN will build, add, change, recommend or require. The evidence
+              was captured BEFORE that exists, so it cannot speak to this.
+  argument  — a reason, a decision, an entailment, or a statement about what is right or necessary.
+              Nothing captured can settle it.
+
+A design paragraph is mostly NOT about how the code behaves today. It is mostly proposal and
+argument. `current` is usually the smallest of the three labels here and is often empty. Label
+`current` only when the assertion is about the code as it stands, with the design not yet built.
+
+Three shapes are `proposed` and get labelled `current` by mistake:
+
+1. THE PARAGRAPH DESCRIBES THE BEHAVIOUR THE DESIGN IS ADDING, in the present tense. "A line longer
+   than the budget is never returned whole", "the return is lines 12, 13 and 14", "it reports how
+   many of the selected lines were shown" — a budget the design is introducing, described as though
+   installed. The present tense is the author writing about the thing they are building. Ask whether
+   the mechanism exists yet; if the paragraph is what introduces it, the assertion is `proposed`.
+
+2. THE PARAGRAPH REASONS ABOUT A RECORD OR EVENT THE DESIGN IS ADDING. "Matching is existential over
+   keys", "a later ack with a different key simply does not match" — about an event type this design
+   defines. That the current code rejects it is the paragraph's premise, not its error.
+
+3. THE PARAGRAPH STATES WHAT AN IMPLEMENTER MUST DO. A requirement, a rule the design imposes, a
+   shape something "must" take. That is `proposed` however flatly it is worded.
+
+One sentence often carries more than one assertion, with different labels, and a single sentence
+frequently mixes a `current` observation with the `proposed` change it motivates. Split them.
+
+Quote each assertion VERBATIM from the paragraph — character for character, never paraphrased,
+never merged, never invented. You are only sorting the author's own words.
+
+Reply with one JSON object and nothing else:
+{"assertions": [{"text": "", "label": "current"|"proposed"|"argument"}]}
