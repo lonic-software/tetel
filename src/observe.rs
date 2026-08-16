@@ -88,11 +88,12 @@ fn names_tetel_output(root: &Path) -> bool {
 /// hardcoding, and it stays correct wherever someone renders a memo.
 ///
 /// The spelling matters and is the reason this walks from `root` as given
-/// rather than canonicalizing: grep matches an `--exclude` pattern against
-/// the name it constructs for a file from the root it was handed, so an
-/// absolute pattern against a relative root excludes **nothing** and the
-/// search silently returns everything. Walking from `root` yields paths
-/// already carrying its spelling.
+/// rather than canonicalizing: the paths must line up with the ones grep
+/// prints, both for the `--exclude` patterns (on the greps where those
+/// anchor at all) and for [`drop_excluded`], which compares against
+/// grep's own output. An absolute pattern against a relative root matches
+/// neither. Walking from `root` yields paths already carrying its
+/// spelling.
 ///
 /// Two bounds, stated rather than engineered around. An unreadable
 /// directory is skipped, which matches what the platform's grep does with
@@ -145,10 +146,16 @@ fn rendered_memos(root: &Path) -> Vec<String> {
 /// The trailing slash git emits on a directory is **stripped**, because
 /// `--exclude-dir=build/` matches nothing at all on the grep this feeds —
 /// silently, which is the worst way for an exclusion to fail. Measured on
-/// BSD grep 2.6.0-FreeBSD alongside the two forms that do work: a
+/// BSD grep 2.6.0-FreeBSD alongside the two forms that do work *there*: a
 /// root-spelled path excludes exactly its own directory, and a bare
 /// basename over-excludes every directory of that name anywhere in the
 /// tree, which is the same trap [`rendered_memos`] documents.
+///
+/// That measurement covered one grep. GNU grep matches these patterns
+/// against a base name when recursing, so the root-spelled form excludes
+/// nothing there at all — see [`drop_excluded`], which is what now makes
+/// the exclusion hold regardless. The spelling is kept because it is the
+/// form that lets a grep skip the tree instead of reading it.
 ///
 /// A root outside any repository, or a machine with no `git`, yields
 /// nothing and the search is simply unfiltered by this rule. That is
@@ -257,6 +264,62 @@ impl Exclusions {
             Exclusions::Applied { memos: rendered_memos(root), ignored: ignored_paths(root) }
         }
     }
+
+    /// Whether a path grep reported is one this search excluded.
+    ///
+    /// A directory excludes itself and everything beneath it, tested on a
+    /// `/` boundary so `./build` never takes `./keep/build` — the whole
+    /// point of spelling exclusions from the root rather than by basename.
+    fn covers(&self, file: &str) -> bool {
+        let Exclusions::Applied { memos, ignored } = self else {
+            return false;
+        };
+        let under = |dir: &str| file == dir || file.starts_with(&format!("{dir}/"));
+        memos.iter().any(|m| m == file)
+            || ignored.iter().any(|(is_dir, p)| if *is_dir { under(p) } else { p == file })
+    }
+}
+
+/// Drop the lines naming a path the search excluded.
+///
+/// **This is what makes an exclusion true; the flags are only an
+/// optimisation.** `--exclude`/`--exclude-dir` do not mean the same thing
+/// on every grep. BSD grep 2.6.0-FreeBSD and ugrep match a root-spelled
+/// pattern against the path, which is what this tool emits and what its
+/// exclusions were originally measured against. GNU grep matches the
+/// pattern against a **base name** when recursing, so every root-spelled
+/// pattern matches nothing there, silently — a Linux census returned
+/// tetel's own memos and the whole of a git-ignored `target/` while the
+/// label went on saying they were skipped.
+///
+/// Both bare-basename spellings that GNU *does* honour are wrong for a
+/// different reason: `--exclude-dir=build` takes `keep/build` too, hiding
+/// source under the banner of hiding generated output. There is no flag
+/// spelling that anchors on both implementations, so the anchoring is done
+/// here, once, over the one thing every grep agrees on — the paths it
+/// printed.
+///
+/// The flags are still passed. Where they work they keep grep from reading
+/// the excluded tree at all, which on a repository with a large `target/`
+/// is the difference this filter cannot recover; where they do not, they
+/// match nothing and cost nothing. Correctness no longer depends on which.
+fn drop_excluded(stdout: &str, exclusions: &Exclusions) -> String {
+    if !matches!(exclusions, Exclusions::Applied { .. }) {
+        return stdout.to_string();
+    }
+    let mut out = String::new();
+    for line in stdout.lines() {
+        // The same split the per-file records are built from, so the
+        // returned bytes and the captured ones can never disagree about
+        // which files this search covered.
+        let file = line.split_once(':').map(|(f, _)| f).unwrap_or(line);
+        if exclusions.covers(file) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// `tetel look <path> [--lines A:B]`.
@@ -381,6 +444,11 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     // and see [`rendered_memos`] for why the patterns must carry `root`'s
     // own spelling.
     //
+    // The flags are a fast path, not the guarantee. Only the two basename
+    // globs below mean the same thing on every grep; the root-spelled
+    // patterns anchor on some and match nothing on others. What actually
+    // holds the exclusion is [`drop_excluded`], over the output.
+    //
     // The exception the ticket wanted — "an explicitly named path is still
     // read, only traversal skips" — is **not** something grep provides.
     // Measured: `--exclude` skips a file named on the command line, and
@@ -413,6 +481,10 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
         .output()
         .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // Before anything reads it. `printed` and the per-file entries are both
+    // built from this string, so filtering once here is what keeps the
+    // return and the capture describing the same search.
+    let stdout = drop_excluded(&stdout, &exclusions);
 
     let note = exclusion_note(&exclusions);
     let mut printed = String::new();
@@ -670,5 +742,68 @@ mod tests {
         assert_eq!(search_key(&real, ""), fs::canonicalize(&real).unwrap().display().to_string());
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    /// The grep flags cannot be trusted to have done this, so the filter is
+    /// tested against output that still contains everything they were meant
+    /// to remove — which is exactly what GNU grep hands back.
+    fn applied() -> Exclusions {
+        Exclusions::Applied {
+            memos: vec!["./docs/memo.md".to_string()],
+            ignored: vec![(true, "./build".to_string()), (false, "./gen.log".to_string())],
+        }
+    }
+
+    #[test]
+    fn an_excluded_path_is_dropped_even_when_grep_returned_it() {
+        // Verbatim shape of the Ubuntu CI failure: every root-spelled
+        // pattern was passed and every one of them matched nothing.
+        let stdout = "./src/thing.rs:1:fn f() { T(); }\n\
+                      ./docs/memo.md:1:prose about T\n\
+                      ./other/memo.md:1:unrelated file, same basename, T\n\
+                      ./build/gen.txt:1:T generated\n\
+                      ./build/sub/deep.txt:1:T nested\n\
+                      ./keep/build/real.txt:1:T legitimate\n\
+                      ./gen.log:1:T logged\n";
+        let kept = drop_excluded(stdout, &applied());
+        let lines: Vec<&str> = kept.lines().collect();
+
+        assert!(lines.iter().any(|l| l.starts_with("./src/thing.rs:")), "source must survive");
+
+        assert!(!lines.iter().any(|l| l.starts_with("./docs/memo.md:")), "a rendered memo must go");
+        assert!(!lines.iter().any(|l| l.starts_with("./build/")), "an ignored dir must go");
+        assert!(!lines.iter().any(|l| l.starts_with("./gen.log:")), "an ignored file must go");
+
+        // The two traps a bare-basename pattern falls into, and the only
+        // reason the exclusions are spelled from the root at all.
+        assert!(
+            lines.iter().any(|l| l.starts_with("./other/memo.md:")),
+            "a file sharing a memo's basename with no snapshot is not a memo"
+        );
+        assert!(
+            lines.iter().any(|l| l.starts_with("./keep/build/real.txt:")),
+            "`/build` is anchored, so keep/build is not ignored"
+        );
+    }
+
+    #[test]
+    fn a_directory_exclusion_stops_at_a_path_boundary() {
+        let e = applied();
+        assert!(e.covers("./build"), "the directory itself");
+        assert!(e.covers("./build/gen.txt"));
+        assert!(e.covers("./build/sub/deep.txt"), "and below its top level");
+        // `./buildings` shares a prefix and not a path component.
+        assert!(!e.covers("./buildings/x.txt"), "a prefix is not a parent");
+        assert!(!e.covers("./keep/build/real.txt"));
+    }
+
+    #[test]
+    fn a_search_that_excluded_nothing_is_passed_through_untouched() {
+        // `None` is forced, not chosen — a file root, or a root inside
+        // tetel's own output — and there the caller asked for what they
+        // named. Filtering it would withhold what they explicitly wanted.
+        let stdout = "./docs/memo.md:1:prose about T\n";
+        let e = Exclusions::None { why: "the caller named one file" };
+        assert_eq!(drop_excluded(stdout, &e), stdout);
     }
 }
