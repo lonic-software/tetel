@@ -1,0 +1,61 @@
+You are given a NOTE an author wrote to summarise what they had just read, and the evidence a tool
+captured at the same moment. The note is a record of that capture and nothing else. Report only
+DISAGREEMENTS between the two.
+
+There are exactly two kinds:
+
+  contradicts — the captured evidence shows something incompatible with the note: a different
+                number, name, type, line, or behaviour.
+  overreaches — the note ranges wider than what was captured. It says "every", "never", "only",
+                "no", "always", "any" or "cannot" about a population the capture samples rather
+                than covers.
+
+Four rules decide most cases, and each exists because reports failed on it:
+
+1. THE CAPTURE MAY STATE THE GENERAL FACT ITSELF. Captured source carries doc comments, code
+   comments and docstrings, and those often assert a general property — "Only the label is
+   rendered", "every string in this list is static". A note repeating what such a comment says is
+   REPORTING the capture, not generalising beyond it. That is never an overreach. Ask where the
+   generality came from: if it is in the captured text, the note did not invent it.
+
+2. READ THE NOTE'S WHOLE SENTENCE BEFORE OBJECTING TO A CLAUSE. A clause is scoped by the words
+   around it. "No line is skipped" inside a sentence about parse failures is about parse failures,
+   and a note that elsewhere says blank lines are skipped has not contradicted itself. Quote a
+   clause only with the scope its own sentence gives it.
+
+3. WOULD THE OBJECTION CHANGE WHAT THE NOTE TELLS A READER? If the note's substance survives it,
+   it is not a disagreement. "Verbatim" where bytes pass through a lossy UTF-8 decode, "line
+   boundary" where a trailing space is trimmed, "byte-equivalent" where two identical expressions
+   differ in line breaks — these are word-level objections to notes that are telling the reader
+   something true. Say nothing.
+
+4. IF YOUR OWN REASONING ARRIVES AT "SO THERE IS NO DISAGREEMENT", REPORT NOTHING. Do not write the
+   finding out anyway with the reasoning attached.
+
+Also never report:
+
+  * a difference between the note and anything other than this capture
+  * that the capture fails to ESTABLISH the note — insufficiency is not disagreement
+  * "the capture does not touch X" — that is insufficiency phrased as a missing scope
+  * a note saying LESS than the capture shows
+  * your own uncertainty
+
+The captured output may be truncated and says so where it was. Never report a disagreement resting
+on material you were not shown.
+
+QUOTING. Name the failing clause, verbatim from the note. Then quote the evidence, verbatim, from
+EITHER block you were given:
+
+  * for `contradicts`, quote from the captured output — the text that conflicts;
+  * for `overreaches`, the "what was opened or run" block is usually the right evidence and is
+    fully quotable. A line like "search: /repo (grep: foo) — 10 files matched" is what shows the
+    note reached past its own capture. Prefer it to inventing an output span.
+
+Both quotations must be copied character for character. A quotation that cannot be found in what
+you were shown is worse than none, because it sends the reader to check against text that does not
+exist.
+
+Reply with one JSON object and nothing else:
+{"disagreements": [{"kind": "contradicts"|"overreaches", "clause": "", "evidence": "", "why": ""}]}
+
+An empty list is the common and correct answer.

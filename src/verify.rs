@@ -214,6 +214,16 @@ pub struct Finding {
     /// span, which is exactly [`quoted`](Self::quoted) being false.
     #[serde(default)]
     pub facts: Vec<String>,
+    /// Which half of the captured record the verified span came from —
+    /// `output` or `extent`. Absent when nothing verified.
+    ///
+    /// Worth reporting rather than flattening, because the two mean
+    /// different things to whoever reads the finding: an `output` span is
+    /// the capture disagreeing with the text, an `extent` span is the
+    /// capture's *reach* disagreeing with it — which is usually what an
+    /// `overreaches` finding is actually about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quoted_from: Option<String>,
     /// The pre-set-valued spelling of [`facts`](Self::facts), read from
     /// logs written before it and never written again. Folded in by
     /// [`read_log`] so an existing log keeps its history instead of
@@ -273,6 +283,9 @@ impl Finding {
         if let Some(e) = &self.evidence {
             out["evidence"] = json!(e);
         }
+        if let Some(w) = &self.quoted_from {
+            out["quoted_from"] = json!(w);
+        }
         if let Some(l) = &self.literal {
             out["literal"] = json!(l);
         }
@@ -292,6 +305,30 @@ impl Finding {
 const KIND_CONTRADICTS: &str = "contradicts";
 const KIND_OVERREACHES: &str = "overreaches";
 const KIND_UNEVIDENCED: &str = "unevidenced";
+
+/// Whether a kind is reported at all for this verb.
+///
+/// `overreaches` is not, on a `fact`. Measured over 123 corpus facts: the
+/// refined prompt returned 16 `contradicts` and 21 `overreaches`, and every
+/// one of the 21 was the same objection — *the search excluded paths*, *the
+/// capture covers only this range* — which is insufficiency, not
+/// disagreement. The prompt already forbids it in as many words
+/// (`insufficiency is not disagreement`) and the model does it anyway, so
+/// this is a bound rather than a third round of wording, exactly as
+/// [`is_checkable`] became one after the same lesson.
+///
+/// Adjudicated one by one against the full capture, the 16 that remain are
+/// 10 correct — 63%, against 21% for a sample drawn from both kinds — and
+/// not one of the 6 wrong ones is an insufficiency objection. The failure
+/// mode lives entirely in the kind this drops.
+///
+/// Why the verb and not the prompt: a `fact` note is a record of one
+/// capture, so "the capture does not cover the population" is always true
+/// of it and never news. A `claim` ranges over a design's whole argument,
+/// where the same kind carries 83% precision and stays on.
+fn kind_reported_for(verb: &str, kind: &str) -> bool {
+    !(verb == "fact" && kind == KIND_OVERREACHES)
+}
 
 /// Why this reply has no verification of its own to report.
 ///
@@ -432,6 +469,12 @@ pub struct Record {
     /// [`Telemetry::not_a_quantity`], persisted.
     #[serde(default)]
     pub not_a_quantity: u32,
+    /// [`Telemetry::kind_off_verb`], persisted — how many findings this
+    /// verb declined to report on account of their kind. A drop nobody can
+    /// see is the silence `rejected_span` exists to break, and this one
+    /// removes whole findings rather than a quotation.
+    #[serde(default)]
+    pub kind_off_verb: u32,
     /// The status of the literal leg when it ran and did **not** complete.
     ///
     /// `None` means either that the leg was off or that it finished, and
@@ -688,25 +731,99 @@ pub struct Subject {
     pub evidence: Vec<(String, Vec<String>, Vec<String>)>,
 }
 
+/// Where in the captured record a verified span was found.
+///
+/// Both halves are shown to the model by [`evidence_text`] and both are the
+/// tool's own record rather than the author's text — an extent label is
+/// generated from the designator `look`/`run` resolved, not typed — so a
+/// span from either is an honest quotation. They answer different questions
+/// and the payload says which: an output span shows what the capture
+/// *contains*, an extent span shows what it *covers*, which is the natural
+/// thing to point at when the disagreement is that a claim ranges wider
+/// than the capture does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QuotedFrom {
+    Output,
+    Extent,
+}
+
+impl QuotedFrom {
+    fn as_str(self) -> &'static str {
+        match self {
+            QuotedFrom::Output => "output",
+            QuotedFrom::Extent => "extent",
+        }
+    }
+}
+
 impl Subject {
-    /// Every fact whose captured output contains `span`.
+    /// Every fact whose captured record contains `span`, and where.
     ///
-    /// The same relation [`crate::facts::Fact::quotes`] applies — per
-    /// observation, no normalisation — but over the observations actually
-    /// put in front of the model rather than over the whole workspace. The
-    /// distinction is small and real: a span occurring only in some fact
-    /// this comparison never showed is not a quotation of the evidence, and
-    /// treating it as one would credit the model for text it could not have
-    /// read.
-    fn containing(&self, span: &str) -> Vec<String> {
+    /// Per observation and unnormalised, the relation
+    /// [`crate::facts::Fact::quotes`] applies, over the material actually
+    /// put in front of the model rather than the whole workspace: a span
+    /// occurring only in some fact this comparison never showed is not a
+    /// quotation of the evidence, and crediting it would credit the model
+    /// for text it could not have read.
+    ///
+    /// # Why the extent labels count
+    ///
+    /// They used to not, and that was a bug of exactly the kind
+    /// [`evidence_text`] documents itself against — "The two have to agree
+    /// or the quote check punishes honesty." That doc comment fixed the
+    /// joined-versus-per-observation half and missed this one: the labels
+    /// block is shown to the model under the heading "what was opened or
+    /// run", the model is told to quote the captured evidence, and a span it
+    /// copied from that block was then stripped as a fabrication.
+    ///
+    /// Measured over 123 real fact notes, **15 of the 25 rejected spans were
+    /// verbatim in the labels block** — so the fabrication rate the tool
+    /// reported was more than twice the real one, and two thirds of what it
+    /// called invention was the model quoting what it was shown. A rate that
+    /// wrong is worse than no rate, because `rejected_span` exists to be
+    /// tuned on.
+    ///
+    /// This does not touch [`crate::facts::Fact::quotes`], which stays the
+    /// output-only relation `transplant` refuses premises with. A premise is
+    /// a donor's own words and an extent label is not; the two checks want
+    /// different answers and now give them.
+    ///
+    /// Nor does it touch the literal check, which asks a third question and
+    /// gets [`Self::in_captured_output`] instead. Output matches are ordered
+    /// first so a span present in one fact's capture is never attributed to
+    /// another fact's label.
+    fn containing(&self, span: &str) -> Vec<(String, QuotedFrom)> {
         if span.is_empty() {
             return Vec::new();
         }
-        self.evidence
-            .iter()
-            .filter(|(_, _, obs)| obs.iter().any(|o| o.contains(span)))
-            .map(|(id, _, _)| id.clone())
-            .collect()
+        let mut out: Vec<(String, QuotedFrom)> = Vec::new();
+        let mut labelled: Vec<(String, QuotedFrom)> = Vec::new();
+        for (id, extent, obs) in &self.evidence {
+            if obs.iter().any(|o| o.contains(span)) {
+                out.push((id.clone(), QuotedFrom::Output));
+            } else if extent.iter().any(|e| e.contains(span)) {
+                labelled.push((id.clone(), QuotedFrom::Extent));
+            }
+        }
+        out.append(&mut labelled);
+        out
+    }
+
+    /// Whether the span is in captured output — the observations alone.
+    ///
+    /// The literal check needs this and [`Self::containing`] cannot serve
+    /// it. That one answers "did the model quote something it was shown",
+    /// where a label is a legitimate source. This answers "does the capture
+    /// carry this value", where a label is not: labels are generated by the
+    /// tool, not captured by it, and they are full of exactly the tokens
+    /// [`is_checkable`] admits — `lines 4000-4096`, `(grep: 2)`, `(exit 0)`.
+    /// Sharing the wider predicate machine-refuted a note's "4096 bytes"
+    /// against a line range that merely mentioned 4096, and counted the
+    /// suppression as [`Telemetry::literals_refuted`] — the one accuracy
+    /// signal that kind has, so the error was self-concealing.
+    fn in_captured_output(&self, span: &str) -> bool {
+        !span.is_empty()
+            && self.evidence.iter().any(|(_, _, obs)| obs.iter().any(|o| o.contains(span)))
     }
 }
 
@@ -752,6 +869,7 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             not_verbatim: tel.not_verbatim,
             literals_refuted: tel.literals_refuted,
             not_a_quantity: tel.not_a_quantity,
+            kind_off_verb: tel.kind_off_verb,
             literals_status: literals_status.map(|s| s.as_str().to_string()),
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
@@ -793,6 +911,14 @@ pub struct Telemetry {
     /// rather than silently discarded: this is the rate that says whether
     /// [`is_checkable`] is carrying the check or fighting it.
     pub not_a_quantity: u32,
+    /// Findings dropped because [`kind_reported_for`] does not report that
+    /// kind on this verb — today, `overreaches` on a `fact`. Counted for
+    /// the same reason as the field above: this is the rate that says
+    /// whether the bound is still describing the model's behaviour. If it
+    /// falls to zero the model has stopped reaching for the kind and the
+    /// bound is dead weight; if it climbs, the prompt is drifting toward
+    /// the thing the bound exists to catch.
+    pub kind_off_verb: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -842,8 +968,8 @@ fn run(
         None
     };
     let prompt = check_prompt(subject, labelled.as_deref());
-    match call(key, model, CHECK_SYSTEM, &prompt, started, budget, tel) {
-        Ok(body) => match parse_findings(&body, subject) {
+    match call(key, model, check_system_for(&subject.verb), &prompt, started, budget, tel) {
+        Ok(body) => match parse_findings(&body, subject, tel) {
             Some(mut f) => {
                 // A failing literal leg no longer takes the disagreement
                 // findings down with it. It used to, on the argument that
@@ -982,14 +1108,26 @@ fn call(
 /// parse, and a decoded object whose `kind` is outside the two permitted
 /// values. `None` here becomes [`Status::Unparsable`], which is what keeps
 /// an unreadable answer from arriving as a clean bill.
-fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
+fn parse_findings(body: &str, subject: &Subject, tel: &mut Telemetry) -> Option<Vec<Finding>> {
     let v = json_object(body)?;
     let rows = v.get("disagreements")?.as_array()?;
     let mut out = Vec::new();
+    // Counted locally and committed only if the whole reply parses. A later
+    // row can still take the answer to `Unparsable`, and a drop attributed
+    // to a verification that delivered nothing is a drop no reader can
+    // account for.
+    let mut off_verb = 0;
     for row in rows {
         let kind = str_field(row, "kind");
         if kind != KIND_CONTRADICTS && kind != KIND_OVERREACHES {
             return None;
+        }
+        // Dropped, not refused. The kind is a real one and the reply is a
+        // good reply; it is this verb that has no use for it, so the row
+        // goes and the rest of the answer stands.
+        if !kind_reported_for(&subject.verb, &kind) {
+            off_verb += 1;
+            continue;
         }
         let span = str_field(row, "evidence");
         // One containment search, not two. It used to run here to pick an
@@ -999,14 +1137,20 @@ fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
         // the fidelity number it produced measured nothing the first had
         // not already decided. Computing both from one pass makes them
         // agree by construction and states the relation once.
-        let facts = subject.containing(&span);
-        let quoted = !facts.is_empty();
+        let found = subject.containing(&span);
+        let quoted = !found.is_empty();
+        // Named once, from the first match, because a span in two facts'
+        // records is in the same kind of place in both often enough that a
+        // per-fact answer would be noise. `facts` already carries the set.
+        let quoted_from = found.first().map(|(_, w)| *w);
+        let facts: Vec<String> = found.into_iter().map(|(id, _)| id).collect();
         let clause = str_field(row, "clause");
         out.push(Finding {
             kind,
             clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
             clause,
             facts,
+            quoted_from: quoted_from.map(|w| w.as_str().to_string()),
             legacy_fact: None,
             evidence: quoted.then(|| span.clone()),
             literal: None,
@@ -1017,6 +1161,7 @@ fn parse_findings(body: &str, subject: &Subject) -> Option<Vec<Finding>> {
             rejected_span: (!quoted && !span.is_empty()).then_some(span),
         });
     }
+    tel.kind_off_verb += off_verb;
     Some(out)
 }
 
@@ -1141,16 +1286,25 @@ fn is_checkable(literal: &str) -> bool {
 ///   1. the literal must be verbatim in the author's own text, or the
 ///      finding points at nothing;
 ///   2. no observation shown to the model may contain it, because that is
-///      the entire assertion, and it is one [`Subject::containing`] already
-///      answers exactly.
+///      the entire assertion, and [`Subject::in_captured_output`] answers
+///      exactly that.
 ///
 /// Filter 2 is what makes this kind cheap to trust relative to the other
 /// two: a `contradicts` finding rests on the model's reading, while an
 /// `unevidenced` one rests on a substring search anyone can rerun. It also
-/// biases hard toward silence — a literal that occurs incidentally
-/// anywhere in the capture is dropped, so `40` inside a line range
-/// suppresses a genuine finding about a different `40`. Under-reporting is
-/// the right direction for an advisory that costs the author attention.
+/// biases hard toward silence — a literal occurring incidentally anywhere
+/// in the captured output is dropped, so a `40` in some unrelated line of
+/// the capture suppresses a genuine finding about a different `40`.
+/// Under-reporting is the right direction for an advisory that costs the
+/// author attention.
+///
+/// The predicate is deliberately **not** [`Subject::containing`], which
+/// this filter did share for one commit. That one also matches the extent
+/// labels, and labels are generated by the tool rather than captured by
+/// it — `lines 4000-4096` is not evidence that a note's "4096 bytes" is
+/// grounded in anything. Sharing it turned the incidental-match bias above
+/// from a bounded conservatism into a silent one, since the suppression
+/// was counted as a machine refutation.
 fn literal_findings(
     key: &str,
     model: &str,
@@ -1191,7 +1345,7 @@ fn literal_findings(
             tel.not_verbatim += 1;
             continue;
         }
-        if !subject.containing(&literal).is_empty() {
+        if subject.in_captured_output(&literal) {
             tel.literals_refuted += 1;
             continue;
         }
@@ -1205,6 +1359,7 @@ fn literal_findings(
             clause_quoted: !clause.is_empty() && subject.text.contains(&clause),
             clause,
             facts: Vec::new(),
+            quoted_from: None,
             legacy_fact: None,
             evidence: None,
             literal: Some(literal),
@@ -1376,6 +1531,108 @@ Reply with one JSON object and nothing else:
 {"disagreements": [{"kind": "contradicts"|"overreaches", "clause": "", "evidence": "", "why": ""}]}
 
 An empty list is the common and correct answer."#;
+
+/// The check prompt for a `fact`, in place of [`CHECK_SYSTEM`].
+///
+/// `CHECK_SYSTEM` addresses a *claim*, and the two failure clusters it
+/// carried on notes are exactly where a note differs from one: a note is a
+/// record of a single capture, so its clauses are terse, scope-bound, and
+/// quote code loosely. Adjudicated against the full capture, its 28
+/// surviving findings over the corpus were 11 right and 17 wrong — 6 of
+/// them objecting to a clause read wider than its own sentence, 3 to
+/// "verbatim" against a lossy UTF-8 decode. This prompt's numbered rules
+/// are written from those cases and answer 11 of the 17, at a cost of 2 of
+/// the 11 catches: 10 right of 16, 63% against 39%.
+///
+/// **It still describes `overreaches`, and that is deliberate.** The
+/// measured configuration is this prompt with the kind dropped afterwards
+/// by [`kind_reported_for`], not a prompt with the kind written out of it.
+/// Instructing a model away from a move relocates it — measured twice on
+/// the literal check and twice here — so the bound stays mechanical and
+/// this text stays as it was measured. Removing these paragraphs would
+/// ship something no run has scored.
+const FACT_SYSTEM: &str = r#"You are given a NOTE an author wrote to summarise what they had just read, and the evidence a tool
+captured at the same moment. The note is a record of that capture and nothing else. Report only
+DISAGREEMENTS between the two.
+
+There are exactly two kinds:
+
+  contradicts — the captured evidence shows something incompatible with the note: a different
+                number, name, type, line, or behaviour.
+  overreaches — the note ranges wider than what was captured. It says "every", "never", "only",
+                "no", "always", "any" or "cannot" about a population the capture samples rather
+                than covers.
+
+Four rules decide most cases, and each exists because reports failed on it:
+
+1. THE CAPTURE MAY STATE THE GENERAL FACT ITSELF. Captured source carries doc comments, code
+   comments and docstrings, and those often assert a general property — "Only the label is
+   rendered", "every string in this list is static". A note repeating what such a comment says is
+   REPORTING the capture, not generalising beyond it. That is never an overreach. Ask where the
+   generality came from: if it is in the captured text, the note did not invent it.
+
+2. READ THE NOTE'S WHOLE SENTENCE BEFORE OBJECTING TO A CLAUSE. A clause is scoped by the words
+   around it. "No line is skipped" inside a sentence about parse failures is about parse failures,
+   and a note that elsewhere says blank lines are skipped has not contradicted itself. Quote a
+   clause only with the scope its own sentence gives it.
+
+3. WOULD THE OBJECTION CHANGE WHAT THE NOTE TELLS A READER? If the note's substance survives it,
+   it is not a disagreement. "Verbatim" where bytes pass through a lossy UTF-8 decode, "line
+   boundary" where a trailing space is trimmed, "byte-equivalent" where two identical expressions
+   differ in line breaks — these are word-level objections to notes that are telling the reader
+   something true. Say nothing.
+
+4. IF YOUR OWN REASONING ARRIVES AT "SO THERE IS NO DISAGREEMENT", REPORT NOTHING. Do not write the
+   finding out anyway with the reasoning attached.
+
+Also never report:
+
+  * a difference between the note and anything other than this capture
+  * that the capture fails to ESTABLISH the note — insufficiency is not disagreement
+  * "the capture does not touch X" — that is insufficiency phrased as a missing scope
+  * a note saying LESS than the capture shows
+  * your own uncertainty
+
+The captured output may be truncated and says so where it was. Never report a disagreement resting
+on material you were not shown.
+
+QUOTING. Name the failing clause, verbatim from the note. Then quote the evidence, verbatim, from
+EITHER block you were given:
+
+  * for `contradicts`, quote from the captured output — the text that conflicts;
+  * for `overreaches`, the "what was opened or run" block is usually the right evidence and is
+    fully quotable. A line like "search: /repo (grep: foo) — 10 files matched" is what shows the
+    note reached past its own capture. Prefer it to inventing an output span.
+
+Both quotations must be copied character for character. A quotation that cannot be found in what
+you were shown is worse than none, because it sends the reader to check against text that does not
+exist.
+
+Reply with one JSON object and nothing else:
+{"disagreements": [{"kind": "contradicts"|"overreaches", "clause": "", "evidence": "", "why": ""}]}
+
+An empty list is the common and correct answer."#;
+
+/// Which check prompt this verb is graded with.
+///
+/// Only the check call varies. [`CLASSIFY_SYSTEM`] and the `CLAIM:` header
+/// in [`check_prompt`] are the same for every verb, because that is the
+/// shape both the retrodiction and the fact runs measured — `--prompt-file`
+/// in the harness swaps this one prompt and nothing else. The header is
+/// plainly wrong on a note and changing it is an untested improvement, so
+/// it is left alone and written down here instead.
+fn check_system_for(verb: &str) -> &'static str {
+    match verb {
+        "fact" => FACT_SYSTEM,
+        // `prose` stays on `CHECK_SYSTEM`. A candidate exists and cuts its
+        // flag rate from 35% to 23%, but no adjudication has scored what
+        // survives, and the shipped prompt's own prose precision is the
+        // worst number in this module (0 of 12). Shipping an unmeasured
+        // prompt over a measured-bad one is still shipping an unmeasured
+        // prompt.
+        _ => CHECK_SYSTEM,
+    }
+}
 
 // The literal check is a separate call with a separate prompt, and that is
 // not an accident of layering. `CHECK_SYSTEM` above is the eval's prompt,
@@ -1817,6 +2074,12 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
         ));
     }
+    let off_verb: u32 = records.iter().map(|r| r.kind_off_verb).sum();
+    if off_verb > 0 {
+        out.push_str(&format!(
+            "  dropped, kind off this verb      {off_verb}   <- `overreaches` on a fact: insufficiency, not disagreement\n"
+        ));
+    }
     let not_quantity: u32 = records.iter().map(|r| r.not_a_quantity).sum();
     let raised = unevidenced + refuted as usize + not_quantity as usize;
     if raised > 0 {
@@ -1881,6 +2144,7 @@ mod tests {
             clause: "the function returns early".into(),
             clause_quoted: true,
             facts: vec!["F1".into()],
+            quoted_from: Some("output".into()),
             legacy_fact: None,
             evidence: Some("return".into()),
             literal: None,
@@ -1967,6 +2231,7 @@ mod tests {
             not_verbatim: 0,
             literals_refuted: 0,
             not_a_quantity: 0,
+            kind_off_verb: 0,
             findings: Vec::new(),
             at: 0,
             cost: 0.0,
@@ -2027,6 +2292,7 @@ mod tests {
         let f = Finding {
             evidence: None,
             facts: Vec::new(),
+            quoted_from: None,
             why: "invented".into(),
             quoted: false,
             rejected_span: Some("text that is in no captured output".into()),
@@ -2129,18 +2395,19 @@ mod tests {
             text: "x".into(),
             evidence: vec![("F1".into(), vec![], vec!["captured".to_string()])],
         };
-        assert!(parse_findings("no braces here", &subject).is_none());
-        assert!(parse_findings("{not json}", &subject).is_none());
-        assert!(parse_findings(r#"{"other": []}"#, &subject).is_none());
+        assert!(parse_findings("no braces here", &subject, &mut Telemetry::default()).is_none());
+        assert!(parse_findings("{not json}", &subject, &mut Telemetry::default()).is_none());
+        assert!(parse_findings(r#"{"other": []}"#, &subject, &mut Telemetry::default()).is_none());
         // A verdict outside the vocabulary fails the whole reply rather
         // than being dropped to an empty list.
         assert!(parse_findings(
             r#"{"disagreements":[{"kind":"unsure","clause":"c","evidence":"e","why":"w"}]}"#,
-            &subject
+            &subject,
+            &mut Telemetry::default(),
         )
         .is_none());
         // The common, correct answer.
-        let empty = parse_findings(r#"{"disagreements": []}"#, &subject).expect("parsed");
+        let empty = parse_findings(r#"{"disagreements": []}"#, &subject, &mut Telemetry::default()).expect("parsed");
         assert!(empty.is_empty());
     }
 
@@ -2185,10 +2452,152 @@ mod tests {
         let f = parse_findings(
             r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"beta","why":"w"}]}"#,
             &subject,
+            &mut Telemetry::default(),
         )
         .expect("parsed");
         assert_eq!(f[0].facts, vec!["F2".to_string()]);
         assert!(f[0].quoted);
+    }
+
+    #[test]
+    fn a_literal_the_capture_never_carried_survives_a_label_that_mentions_it() {
+        // The label block is full of the tokens `is_checkable` admits —
+        // line ranges, grep patterns, exit codes. Sharing `containing` with
+        // the quotation check machine-refuted a note's own number against a
+        // line range that merely contained the digits, and counted the
+        // suppression as an accuracy signal for the kind it suppressed.
+        let subject = Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: "the buffer is 4096 bytes".into(),
+            evidence: vec![(
+                "F1".into(),
+                vec!["src/buf.rs lines 4000-4096".into()],
+                vec!["fn fill(buf: &mut [u8]) {}".into()],
+            )],
+        };
+        assert!(!subject.in_captured_output("4096"), "a label is not the capture");
+        assert!(subject.in_captured_output("fn fill"), "captured output still counts");
+
+        // And the quotation check is unchanged: the same span is still a
+        // quotation, because the model was shown the label.
+        assert_eq!(subject.containing("4096").first().map(|(_, w)| *w), Some(QuotedFrom::Extent));
+    }
+
+    #[test]
+    fn a_span_in_one_facts_output_is_not_attributed_to_anothers_label() {
+        // `found.first()` decides `quoted_from`, so evidence order used to
+        // decide it: F1's label matched, F2's captured output matched, and
+        // the reader was sent to the label block for a span that really is
+        // in the capture.
+        let subject = Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: "x".into(),
+            evidence: vec![
+                ("F1".into(), vec!["src/a.rs lines 1-40".into()], vec!["nothing here".into()]),
+                ("F2".into(), vec![], vec!["lines 1-40 of the table".into()]),
+            ],
+        };
+        let found = subject.containing("lines 1-40");
+        assert_eq!(found.len(), 2, "both facts still match");
+        assert_eq!(found[0], ("F2".to_string(), QuotedFrom::Output), "output is named first");
+    }
+
+    #[test]
+    fn an_overreach_is_dropped_on_a_fact_and_kept_on_a_claim() {
+        // The same reply, twice, differing only in the verb. Measured over
+        // 123 corpus facts every `overreaches` a fact drew was an
+        // insufficiency objection — "the search excluded paths" — while the
+        // kind carries 83% precision on a claim. So the drop is per verb
+        // and the rest of the reply survives it.
+        let reply = r#"{"disagreements":[
+            {"kind":"overreaches","clause":"every","evidence":"alpha","why":"the search excluded paths"},
+            {"kind":"contradicts","clause":"c","evidence":"alpha","why":"w"}]}"#;
+
+        let mut tel = Telemetry::default();
+        let mut fact = subject_fixture("every x", &[("F1", &["alpha"])]);
+        fact.verb = "fact".into();
+        let f = parse_findings(reply, &fact, &mut tel).expect("parsed");
+        assert_eq!(f.len(), 1, "the overreach should be gone");
+        assert_eq!(f[0].kind, KIND_CONTRADICTS, "and the other finding should not be");
+        assert_eq!(tel.kind_off_verb, 1, "the drop must be counted, not silent");
+
+        // But not counted for a reply that is then thrown away: the second
+        // row takes this to `Unparsable`, and a drop attributed to a
+        // verification that delivered nothing cannot be accounted for.
+        let mut tel = Telemetry::default();
+        let discarded = r#"{"disagreements":[
+            {"kind":"overreaches","clause":"every","evidence":"alpha","why":"w"},
+            {"kind":"unsure","clause":"c","evidence":"alpha","why":"w"}]}"#;
+        assert!(parse_findings(discarded, &fact, &mut tel).is_none());
+        assert_eq!(tel.kind_off_verb, 0, "a discarded reply must leave no drops behind");
+
+        let mut tel = Telemetry::default();
+        let claim = subject_fixture("every x", &[("F1", &["alpha"])]);
+        assert_eq!(claim.verb, "claim");
+        let f = parse_findings(reply, &claim, &mut tel).expect("parsed");
+        assert_eq!(f.len(), 2, "a claim still reports both kinds");
+        assert_eq!(tel.kind_off_verb, 0);
+    }
+
+    #[test]
+    fn a_span_copied_from_the_extent_block_is_a_quotation_and_not_a_fabrication() {
+        // The model is shown the extent labels under "what was opened or
+        // run" and told to quote the captured evidence. Searching only the
+        // observations then stripped what it had honestly copied: measured
+        // over 123 real fact notes, 15 of the 25 spans called fabrications
+        // were verbatim in that block. A fabrication rate more than twice
+        // the real one is worse than none, because it is the number
+        // `rejected_span` exists to be tuned on.
+        // Graded on a claim: the measurement was taken over fact notes, but
+        // `overreaches` is no longer reported on that verb
+        // ([`kind_reported_for`]), and the attribution under test is the
+        // same predicate for every verb that does report it.
+        let subject = Subject {
+            mint: "C1".into(),
+            verb: "claim".into(),
+            text: "the search covered every file".into(),
+            evidence: vec![(
+                "F1".into(),
+                vec!["search: /repo (grep: look_grep) — 10 files matched".into()],
+                vec!["fn look_grep() {}".into()],
+            )],
+        };
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"overreaches","clause":"every file","evidence":"10 files matched","why":"w"}]}"#,
+            &subject,
+            &mut Telemetry::default(),
+        )
+        .expect("parsed");
+        assert!(f[0].quoted, "a span copied from the extent block was called a fabrication");
+        assert_eq!(f[0].facts, vec!["F1".to_string()]);
+        assert_eq!(f[0].quoted_from.as_deref(), Some("extent"));
+        assert_eq!(f[0].payload()["quoted_from"], "extent");
+
+        // An output span still reports as one, so the two are told apart
+        // rather than merged — `overreaches` usually wants the extent and
+        // `contradicts` usually wants the output.
+        let f = parse_findings(
+            r#"{"disagreements":[{"kind":"contradicts","clause":"every file","evidence":"fn look_grep","why":"w"}]}"#,
+            &subject,
+            &mut Telemetry::default(),
+        )
+        .expect("parsed");
+        assert_eq!(f[0].quoted_from.as_deref(), Some("output"));
+
+        // And `Fact::quotes` is untouched: it stays the output-only
+        // relation `transplant` refuses premises with, because a premise is
+        // the donor's own words and an extent label is not.
+        let fact = crate::facts::Fact {
+            id: "F1".into(),
+            note: String::new(),
+            extent: Vec::new(),
+            output: "fn look_grep() {}".into(),
+            pin: String::new(),
+            revisions: 0,
+        };
+        assert!(!fact.quotes("10 files matched"));
     }
 
     #[test]
@@ -2201,6 +2610,7 @@ mod tests {
         let f = parse_findings(
             r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"shared","why":"w"}]}"#,
             &subject,
+            &mut Telemetry::default(),
         )
         .expect("parsed");
         assert_eq!(f[0].facts, vec!["F1".to_string(), "F2".to_string()]);
@@ -2215,6 +2625,7 @@ mod tests {
         let f = parse_findings(
             r#"{"disagreements":[{"kind":"contradicts","clause":"c","evidence":"gamma","why":"w"}]}"#,
             &subject,
+            &mut Telemetry::default(),
         )
         .expect("parsed");
         assert!(f[0].facts.is_empty(), "{:?}", f[0].facts);
@@ -2234,6 +2645,7 @@ mod tests {
                  {"kind":"contradicts","clause":"the parser is recursive","evidence":"alpha","why":"w"},
                  {"kind":"contradicts","clause":"the parser uses recursion","evidence":"alpha","why":"w"}]}"#,
             &subject,
+            &mut Telemetry::default(),
         )
         .expect("parsed");
         assert!(f[0].clause_quoted, "a verbatim clause was marked as a paraphrase");
@@ -2295,6 +2707,7 @@ mod tests {
             kind: KIND_UNEVIDENCED.into(),
             clause: "the buffer is 4096 bytes".into(),
             facts: Vec::new(),
+            quoted_from: None,
             evidence: None,
             literal: Some("4096".into()),
             quoted: false,
@@ -2427,6 +2840,36 @@ mod tests {
         // that produced them.
         assert!(!CHECK_SYSTEM.contains(KIND_UNEVIDENCED), "the measured prompt grew a third kind");
         assert!(!CLASSIFY_SYSTEM.contains(KIND_UNEVIDENCED));
+        assert!(!FACT_SYSTEM.contains(KIND_UNEVIDENCED));
         assert!(LITERALS_SYSTEM.contains("unevidenced"));
+    }
+
+    #[test]
+    fn each_verb_is_checked_with_the_prompt_its_numbers_were_measured_on() {
+        // A note is not a claim, and the prompt that grades it says so in
+        // its first line. `claim` keeps the prompt the 125-claim
+        // retrodiction ran on, or its 83%/30% stops describing anything.
+        assert!(CHECK_SYSTEM.starts_with("You are given a claim"));
+        assert!(FACT_SYSTEM.starts_with("You are given a NOTE"));
+
+        assert_eq!(check_system_for("fact"), FACT_SYSTEM);
+        assert_eq!(check_system_for("claim"), CHECK_SYSTEM);
+        // Measured at 35% -> 23% on flag rate, never adjudicated. Until it
+        // is, prose is graded by the prompt whose failures are at least
+        // known.
+        assert_eq!(check_system_for("prose"), CHECK_SYSTEM);
+    }
+
+    #[test]
+    fn the_fact_prompt_still_asks_for_the_kind_the_code_drops() {
+        // This looks like an inconsistency and is the measured
+        // configuration: `fact_v1.json` was drawn from a prompt that names
+        // both kinds, and `kind_reported_for` removes one afterwards.
+        // Writing the kind out of the prompt has never been scored, and the
+        // twice-measured result of instructing a model away from a move is
+        // that it relocates rather than stops. Delete these paragraphs and
+        // the 63% describes a run nobody made.
+        assert!(FACT_SYSTEM.contains(KIND_OVERREACHES), "the bound is mechanical, not prompted");
+        assert!(!kind_reported_for("fact", KIND_OVERREACHES));
     }
 }

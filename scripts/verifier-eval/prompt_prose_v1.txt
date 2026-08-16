@@ -1,0 +1,64 @@
+You are given a PARAGRAPH from a software design document and the evidence a tool captured from the
+codebase it is about. Report only DISAGREEMENTS between the two.
+
+START FROM THIS. A design paragraph is mostly NOT about how the code behaves today. It is mostly
+proposal and argument — what the design will build, and why. The assertions you may report against
+are usually a small minority of the paragraph, and often there are none at all. Sort every clause
+before judging any:
+
+  current   — asserts how the code behaves TODAY. THE ONLY KIND YOU MAY REPORT AGAINST.
+  proposed  — asserts what this design will build, add, change or recommend. The evidence was
+              captured BEFORE that exists, so its absence from the code is expected and is NEVER a
+              disagreement. "Most ranges return none of it" under a budget the design is proposing
+              describes the proposal, not today.
+  argument  — a reason, a decision, an entailment, a statement about what is right or necessary.
+              Nothing captured can settle it.
+
+Reporting against a `proposed` or `argument` clause is the most common way to be wrong here. If the
+code lacks a mechanism and the paragraph is explaining the mechanism it intends to add, the lack is
+the paragraph's premise, not its error.
+
+There are exactly two kinds of disagreement:
+
+  contradicts — the captured evidence shows something incompatible with a `current` clause: a
+                different number, name, type, line, or behaviour.
+  overreaches — a `current` clause ranges wider than what was captured. It says "every", "never",
+                "only", "no", "always", "any" or "cannot" about a population the evidence samples
+                rather than covers.
+
+Four rules decide most of the rest, and each exists because a report failed on it:
+
+1. READ THE CLAUSE WITH THE SCOPE ITS OWN SENTENCE GIVES IT. "Writes the text and nothing else" in a
+   sentence about what a prose block renders is about prose blocks. "No filtering of any kind" in a
+   sentence about an exclusion set is about exclusions. Re-reading a phrase at its widest possible
+   literal breadth and reporting the mismatch that reading creates is the single most common error.
+   The scope is in the sentence; use it.
+
+2. THE CAPTURE MAY STATE THE GENERAL FACT ITSELF. Captured source carries doc comments and code
+   comments that assert general properties. A paragraph repeating what such a comment says is
+   reporting the capture, not generalising past it. Ask where the generality came from.
+
+3. THE PARAGRAPH MAY HAVE ALREADY SAID IT. Authors state their own bounds — "nothing here was run on
+   Linux", "this is a bound, stated". Reporting a limitation the paragraph itself declares is not a
+   finding.
+
+4. WOULD THE OBJECTION CHANGE WHAT THE PARAGRAPH TELLS A READER? If its substance survives, say
+   nothing. Word-level objections to paragraphs that are telling the reader something true are noise.
+
+Also never report: that the capture fails to ESTABLISH the paragraph; "the capture does not touch X";
+a paragraph saying LESS than the capture shows; or your own uncertainty.
+
+The captured output may be truncated and says so where it was. Never report a disagreement resting on
+material you were not shown, and never quote the truncation notice itself — "[N bytes of captured
+output not shown]" is this tool's own note about what it withheld, not evidence of anything.
+
+QUOTING. Name the failing clause verbatim from the paragraph, then quote the evidence verbatim. For
+`contradicts` quote the conflicting captured output. For `overreaches` the "what was opened or run"
+block is usually the right evidence and is fully quotable — a line naming what was searched is what
+shows the paragraph reached past it. Never assemble a quotation from two separate places in the
+evidence; a span must appear contiguously where you found it.
+
+Reply with one JSON object and nothing else:
+{"disagreements": [{"kind": "contradicts"|"overreaches", "clause": "", "evidence": "", "why": ""}]}
+
+An empty list is the common and correct answer, and on a design paragraph it is usually the right one.

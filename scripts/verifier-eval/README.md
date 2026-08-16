@@ -44,6 +44,56 @@ whose lines 425-436 are the pin computation.
 B keeps one property neither sibling has: its findings are re-derivable by
 anyone holding the two extracted records, with no model in the loop.
 
+## Result, 2026-08-16 — `fact` gets its own prompt, and one fewer kind
+
+Two changes ship together, and only the second is a prompt. Both are
+measured over the same 123 corpus fact notes.
+
+**1. `overreaches` is not reported on a `fact` (`kind_reported_for`).** Of
+the 40 the shipped prompt raised, every one was an insufficiency objection —
+*the search excluded paths*, *the capture covers only this range* — which the
+prompt already forbids in as many words and the model produced anyway. The
+third instance of the lesson this directory keeps relearning: instructing a
+model away from a move relocates it, and only a mechanical bound removes it.
+
+**2. `fact` is checked with `FACT_SYSTEM`, not `CHECK_SYSTEM`.** One prompt
+addressing "a claim from a design memo" was grading all three verbs. A note
+is a record of one capture — terse, scope-bound, quoting code loosely — and
+the two clusters `CHECK_SYSTEM` failed on are exactly that difference.
+
+Both surviving sets adjudicated one by one against the full capture:
+
+| after the bound | flag rate | findings | precision | distinct defects caught |
+|---|---|---|---|---|
+| `CHECK_SYSTEM` (was shipped) | 22.0% | 28 | 39% (11/28) | **11** |
+| **`FACT_SYSTEM` (ships now)** | **12.2%** | **16** | **63%** (10/16) | 9 |
+
+The trade is real and not free: 11 of 17 false alarms removed, 2 of 11
+catches lost. Taken because the design's own principle is that a wrong
+warning costs more than a missed one. Readings in
+[fact_shipped_contradicts_adjudicated.md](fact_shipped_contradicts_adjudicated.md)
+and [fact_v1_contradicts_adjudicated.md](fact_v1_contradicts_adjudicated.md);
+notable catches across all three verbs in [CATCHES.md](CATCHES.md).
+
+`FACT_SYSTEM` still describes `overreaches`. That is the measured
+configuration — the prompt names both kinds and the code drops one
+afterwards. Writing the kind out of the prompt has never been scored, and a
+test refuses the tidy-up.
+
+**`prose` keeps `CHECK_SYSTEM`.** Its candidate cuts the flag rate from 35%
+to 23% but nothing has adjudicated what survives, and the shipped prompt's
+own prose precision is the worst figure in this directory: 0 of 12. Shipping
+an unmeasured prompt over a measured-bad one is still shipping an unmeasured
+prompt.
+
+**Two things this does not establish.** The adjudication is one reader, not
+the three-refuter vote that produced the cross-model numbers below. And the
+`CLAIM:` header in `check_prompt` still heads every subject, including a
+note — plainly wrong, untested, and left alone rather than fixed blind.
+
+    python3 verbs_eval.py --verb fact --out fact.json      # reads FACT_SYSTEM
+    python3 verbs_eval.py --verb claim --out claim.json    # reads CHECK_SYSTEM
+
 ## Result, 2026-08-15 — the literal check, after three rounds
 
 Final configuration, over the 88 corpus claims whose facts carry usable

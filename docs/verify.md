@@ -34,6 +34,17 @@ Nothing else counts. Evidence that fails to fully *establish* your claim is not 
 evidence shows is not a disagreement. Those rules are in the prompt because without them the thing
 reports insufficiency all day, which is noise.
 
+**On a `fact`, only `contradicts` is reported.** The rules above are in the prompt and the model
+broke them anyway: of 40 `overreaches` raised over 123 real notes, every one was insufficiency in
+another costume — *the search excluded paths*, *the capture covers only this range*. A note is a
+record of one capture, so "the capture does not cover the population" is always true of it and
+never news. The rule is therefore enforced in code rather than asked for, and the count of what it
+drops is reported. On a `claim`, which ranges over a whole design's argument, the kind stays on and
+carries 83% precision.
+
+A `fact` is also checked with its own prompt, because a note is not a claim and the prompt that
+grades one should not open by saying it is. That took precision from 39% to 63%.
+
 ### Why the overlap set is in there
 
 For a `claim`, the captured side is deliberately **not** just the facts you cited. It is those facts
@@ -217,7 +228,10 @@ fractions knowing which part of them has an evaluation behind it.
   note against its own extent; `overlap` reports ids and shared file paths, never notes. No existing
   check reads a proposition against the *content* of the evidence cited for it.
 - **`fact` is off** because half its work is already done, deterministically and for free, by the
-  `attention` array — and nothing has measured how large the remaining semantic residue is.
+  `attention` array. The residue has since been measured: over 123 real notes it flags 12% of them
+  and is right 63% of the time, catching arithmetic a note contradicts inside its own sentence and
+  readings of code the note describes. That is a real check and a defensible thing to turn on; it
+  stays off by default because it costs about a claim check per fact and most facts are fine.
 - **`prose` is off** because it is the highest-volume verb of the three and prose-against-propositions
   is the comparison with the least evidence behind it. Turning it on spends the largest share of the
   budget on the least-evidenced check.
