@@ -98,6 +98,34 @@ pub const KEY_VERIFY_VERBS: &str = "verify.verbs";
 /// capture does not carry. Off unless set — see [`KEYS`] for why the
 /// default differs from the other four.
 pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
+/// Which model is asked to refute each finding before it reaches the
+/// author, as `vendor/model`. Unset means [`DEFAULT_REFUTER`];
+/// [`REFUTER_OFF`] means no refutation leg at all. It must not be
+/// [`KEY_VERIFY_MODEL`]'s value — see `verify::refute`.
+pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
+
+/// The refuter in force when [`KEY_VERIFY_REFUTER`] is unset.
+///
+/// A default rather than an opt-in because an unrefuted finding is an
+/// assertion nobody checked: measured on real memos, refutation took
+/// `fact` from 63% to 88% precision and `prose` from 36% to 80%, and
+/// `prose` does not clear this tool's own bar for a printed warning
+/// without it. It is a different vendor from [`KEY_VERIFY_MODEL`]'s own
+/// default on purpose — the same model refuting itself scored 17%, near
+/// random — but it is the same endpoint and the same key, so defaulting
+/// it on adds no second credential and no second dependency.
+///
+/// Named here rather than in `verify` because a default that spends money
+/// belongs beside the setting that turns it off, where `tetel config`
+/// prints it.
+pub const DEFAULT_REFUTER: &str = "anthropic/claude-sonnet-4.5";
+
+/// The [`KEY_VERIFY_REFUTER`] value that turns refutation off.
+///
+/// A sentinel exists because `--unset` restores the default, so without a
+/// word for "off" a default-on leg would have no off switch that survives
+/// the obvious way of trying to remove it.
+pub const REFUTER_OFF: &str = "off";
 
 /// The approaches [`KEY_VERIFY_APPROACH`] accepts, in one place so the
 /// validator, the error message and [`crate::verify`] cannot disagree.
@@ -184,6 +212,10 @@ enum Accepts {
     /// on value shape, and a refusal at `config set` can never suppress a
     /// mint.
     ModelName,
+    /// A model identifier as [`Accepts::ModelName`], or the word
+    /// [`REFUTER_OFF`]. The credential rule holds unchanged: `off` is not
+    /// a shape any key resembles.
+    ModelNameOrOff,
 }
 
 struct KeyDef {
@@ -226,8 +258,9 @@ carries the claim alone while the one it keeps carries the evidence",
         name: KEY_VERIFY_TIMEOUT_MS,
         summary: "how long one mint's verification may take end to end, across every retry \
 (milliseconds, at least 1000). Unset, the default is 60000 per provider call the configured \
-approach makes — 60s for `direct`, 120s for `split`, 180s with `verify.literals` on. It does not \
-sit in front of a reply, so it can be generous",
+approach makes — 60s for `direct` and 120s for `split`, plus 60s for `verify.literals` and 120s \
+for a refuter, so 240s at the shipped defaults. It does not sit in front of a reply, so it can be \
+generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
@@ -235,6 +268,19 @@ sit in front of a reply, so it can be generous",
         summary: "which authoring verbs are verified, comma-separated from fact, claim, prose \
 (default: claim alone — see the design memo for why the other two are off)",
         accepts: Accepts::SubsetOf(VERIFY_VERBS),
+    },
+    KeyDef {
+        name: KEY_VERIFY_REFUTER,
+        summary: "which model is asked to refute each finding before you see it, as vendor/model \
+(unset: anthropic/claude-sonnet-4.5; `off` for no refutation, every finding reaching you \
+unchecked). A second call per finding — not per mint — and findings are rare, so it costs about a \
+third more per mint than it saves you in wrong warnings. Measured 2026-08-16 with the default: \
+fact 63% -> 88% precision, prose 36% -> 80%, at the price of roughly one true finding in five — \
+that price is this refuter's, not refutation's: google/gemini-2.5-pro over the same findings kept \
+10 of 10 true fact catches at 76% precision. Must name a DIFFERENT model from verify.model: the \
+same model refuting itself scored 17%, near-random, because finding and checking are only \
+different questions when someone else asks the second one",
+        accepts: Accepts::ModelNameOrOff,
     },
     KeyDef {
         name: KEY_VERIFY_LITERALS,
@@ -262,7 +308,10 @@ fn key_def(name: &str) -> Option<&'static KeyDef> {
 /// refusal on *read*, not on write, and that is the path most likely to
 /// end up in a terminal capture or a bug report.
 pub fn hides_rejected_value(key: &str) -> bool {
-    matches!(key_def(key).map(|d| &d.accepts), Some(Accepts::ModelName))
+    matches!(
+        key_def(key).map(|d| &d.accepts),
+        Some(Accepts::ModelName | Accepts::ModelNameOrOff)
+    )
 }
 
 /// The names of every settable key, for an error message that tells the
@@ -391,6 +440,25 @@ pub fn verify_model(workspace_dir: Option<&Path>) -> Option<String> {
     resolve(KEY_VERIFY_MODEL, workspace_dir).0
 }
 
+/// [`resolve`] for [`KEY_VERIFY_REFUTER`]. Absent means [`DEFAULT_REFUTER`];
+/// [`REFUTER_OFF`] means no refutation leg.
+///
+/// The one verify key that defaults to *spending* rather than to
+/// silence, and the asymmetry is deliberate: every other default here
+/// errs towards doing less, because doing less is the safe direction when
+/// the measurement is thin. This one errs towards doing more because the
+/// thing it removes is a printed warning that nothing checked, and a
+/// wrong warning costs an author more than a missing one — the same
+/// argument `check` makes when it refuses a single document-level
+/// verdict.
+pub fn verify_refuter(workspace_dir: Option<&Path>) -> Option<String> {
+    match resolve(KEY_VERIFY_REFUTER, workspace_dir).0 {
+        None => Some(DEFAULT_REFUTER.to_string()),
+        Some(v) if v.trim().eq_ignore_ascii_case(REFUTER_OFF) => None,
+        Some(v) => Some(v),
+    }
+}
+
 /// [`resolve`] for [`KEY_VERIFY_LITERALS`], parsed. Absent means off.
 ///
 /// The one verify key whose default is off *while the feature is on*, and
@@ -465,6 +533,9 @@ fn accepted(accepts: &Accepts, raw: &str) -> bool {
             .iter()
             .all(|w| words.contains(&w.to_ascii_lowercase().as_str())),
         Accepts::ModelName => is_model_name(raw),
+        Accepts::ModelNameOrOff => {
+            raw.trim().eq_ignore_ascii_case(REFUTER_OFF) || is_model_name(raw)
+        }
     }
 }
 
@@ -542,11 +613,16 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                 // did paste a credential here, repeating it into a
                 // terminal, a log or a bug report is the harm this rule
                 // exists to prevent.
-                Accepts::ModelName => format!(
+                Accepts::ModelName | Accepts::ModelNameOrOff => format!(
                     "`{key}` takes a model identifier as vendor/model, such as \
-openai/gpt-5.6-luna. The value given is not one, and is not echoed here in case it \
+openai/gpt-5.6-luna{}. The value given is not one, and is not echoed here in case it \
 is a credential: API keys are read from the environment and never stored in a config \
-file, which is shared, committed and pasted into issues"
+file, which is shared, committed and pasted into issues",
+                    if matches!(def.accepts, Accepts::ModelNameOrOff) {
+                        format!(", or `{REFUTER_OFF}`")
+                    } else {
+                        String::new()
+                    }
                 ),
             },
         ));
@@ -833,6 +909,22 @@ fn header(scope: Scope) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_refuter_accepts_a_model_or_the_word_off_and_nothing_else() {
+        // `off` has to be a value the key accepts, not merely a value the
+        // reader special-cases, or `tetel config verify.refuter_model off`
+        // is refused at the surface and the default has no off switch.
+        assert!(accepted(&Accepts::ModelNameOrOff, REFUTER_OFF));
+        assert!(accepted(&Accepts::ModelNameOrOff, "OFF"));
+        assert!(accepted(&Accepts::ModelNameOrOff, DEFAULT_REFUTER));
+        assert!(!accepted(&Accepts::ModelNameOrOff, "none"));
+        assert!(!accepted(&Accepts::ModelNameOrOff, "sk-live-abcdef"));
+        // The credential rule reaches the read path for this key too. A
+        // second model-shaped key that echoed a pasted credential back in
+        // `tetel config` would undo the rule the first one enforces.
+        assert!(hides_rejected_value(KEY_VERIFY_REFUTER));
+    }
 
     #[test]
     fn writes_then_reads_back() {

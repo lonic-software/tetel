@@ -34,16 +34,66 @@ Nothing else counts. Evidence that fails to fully *establish* your claim is not 
 evidence shows is not a disagreement. Those rules are in the prompt because without them the thing
 reports insufficiency all day, which is noise.
 
-**On a `fact`, only `contradicts` is reported.** The rules above are in the prompt and the model
-broke them anyway: of 40 `overreaches` raised over 123 real notes, every one was insufficiency in
-another costume — *the search excluded paths*, *the capture covers only this range*. A note is a
-record of one capture, so "the capture does not cover the population" is always true of it and
-never news. The rule is therefore enforced in code rather than asked for, and the count of what it
-drops is reported. On a `claim`, which ranges over a whole design's argument, the kind stays on and
-carries 83% precision.
+**On a `fact` and a `prose` block, only `contradicts` is reported.** The rules above are in the
+prompt and the model broke them anyway: every `overreaches` those two verbs raised over the corpus
+was insufficiency in another costume — *the search excluded paths*, *the capture covers only this
+range*. A note records one capture and a paragraph rests on facts it did not choose, so "the
+capture does not cover the population" is always true of both and never news. The rule is enforced
+in code rather than asked for, and the count of what it drops is reported. On a `claim`, which
+ranges over a whole design's argument, the kind stays on and carries 83% precision.
 
-A `fact` is also checked with its own prompt, because a note is not a claim and the prompt that
-grades one should not open by saying it is. That took precision from 39% to 63%.
+Each verb is also **announced as what it is**. A `fact` is checked with its own prompt rather than
+one addressing "a claim from a design memo", which took its precision from 39% to 63%. A `prose`
+paragraph is headed `PARAGRAPH:` and split by its own classify prompt, because a paragraph of
+design argument presented as an assertion about today gets objected to for proposing things that do
+not exist yet — 11 of 38 wrong findings, reduced to none.
+
+## The second opinion
+
+Every finding is put to a **second model** before you see it: here is the text, here is the
+evidence, here is the proposed disagreement — is it correct? Only a clear *wrong* drops the finding.
+An unreadable answer, an expired budget or a provider failure all keep it, so a warning is never
+deleted by something going wrong.
+
+This is on by default, at `anthropic/claude-sonnet-4.5`, and it is the one setting here that
+defaults to spending rather than to silence. The reason is that an unrefuted finding is an assertion
+nobody checked, and `prose` does not clear this tool's own bar for printing a warning without it.
+Measured 2026-08-16 against findings adjudicated one by one:
+
+| | unrefuted | refuted |
+|---|---|---|
+| `fact` | 63% precision, 12% of notes flagged | **88%**, 7% flagged |
+| `prose` | 36% precision, 11% flagged | **80%**, 4% flagged |
+
+One extra call per *finding* — not per mint, and findings are rare, so it costs about a third more
+per mint than it saves in wrong warnings. `verify.refuter_model off` turns it off; `--unset`
+restores the default rather than removing the leg.
+
+### The refuter is a precision/recall dial, not a fixed price
+
+The Sonnet numbers cost about **one true finding in five**, and that price belongs to *this refuter*
+rather than to refutation. Running the same findings past `google/gemini-2.5-pro`:
+
+| | kept the true catches | precision |
+|---|---|---|
+| `fact` — Sonnet | 8/10 | 88% |
+| `fact` — Gemini | **10/10** | 76% |
+| `prose` — Sonnet | 4/5 | 80% |
+| `prose` — Gemini | 4/5 | 44% |
+
+Sonnet's survivors are a strict subset of Gemini's on `fact` and all but one on `prose` — the two
+never disagree about a finding being *true*, only about how aggressively to drop the false ones. So
+the two catches Sonnet loses are recoverable, at a precision cost, by naming the looser refuter.
+Sonnet is the default because a wrong warning costs an author more than a missed one, and because
+`prose` at 44% is not a warning worth printing.
+
+That comparison is also the answer to the obvious objection — that an Opus author and a Sonnet
+refuter are close enough to agree for the wrong reason. If the 88% were an artifact of family
+agreement, a third family would disagree about *which* findings are correct. It does not.
+
+The refuter must not name the same model as `verify.model`. Asked to refute itself that model scored
+17%, near-random — finding and checking are only different questions when someone else asks the
+second one. Configuring it that way is refused, with the reason in the record.
 
 ### Why the overlap set is in there
 
@@ -117,8 +167,9 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 60s `direct`, 120s `split`, 180s with `literals` |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 120s `split`, plus 120s for the refuter and 60s for `literals` — 240s at the shipped defaults |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim` | which verbs are verified |
+| `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
 ### `approach`
@@ -208,9 +259,10 @@ comparison happened. That principle is right and the trade was wrong: the disagr
 is the whole reason `verify` is an object.
 
 `verify.timeout_ms` bounds the whole verification end to end, not each call, so its **default scales
-with the number of calls**: 60s per leg, meaning 60s for `direct`, 120s for `split`, and 180s for
-`split` with literals on. Measured over the corpus a single call's median is under 10 seconds and
-its p90 around 50, so a flat budget would have left `split` no headroom and three legs none at all.
+with the number of calls**: 60s per leg, meaning 60s for `direct` and 120s for `split`, with the
+refuter charged a flat two legs and `literals` one — 240s for the shipped configuration. Measured
+over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat budget
+would have left `split` no headroom and four legs none at all.
 Set it explicitly and your number is used as-is:
 
 ```sh

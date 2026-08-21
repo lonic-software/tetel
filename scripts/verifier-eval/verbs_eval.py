@@ -240,11 +240,17 @@ def kind_reported_for(verb, kind):
     again. Adjudicated against the full capture, the 16 that remain are 10
     correct (63%), against 21% for a sample drawn from both kinds.
 
-    A fact note records one capture, so "the capture does not cover the
-    population" is always true of it and never news. A claim ranges over a
-    design's whole argument, where the kind carries 83% and stays on.
+    Prose is bounded on the same evidence, one round later: once the
+    paragraph is announced as a paragraph, its 24 findings split 10
+    `overreaches` — all wrong — against 14 `contradicts` holding all 5
+    catches.
+
+    A fact note records one capture and a prose paragraph rests on facts it
+    did not choose, so "the capture does not cover the population" is always
+    true of both and never news. A claim ranges over a design's whole
+    argument, where the kind carries 83% and stays on.
     """
-    return not (verb == "fact" and kind == "overreaches")
+    return not (verb in ("fact", "prose") and kind == "overreaches")
 
 
 def parse_assertions(body, text):
@@ -268,16 +274,21 @@ def parse_assertions(body, text):
 
 def run_case(url, model, prompts, case, timeout, max_tokens, effort, drop_self_defeating=False):
     classify, check = prompts
+    # A paragraph of design argument headed `CLAIM:` is being handed to the
+    # splitter as an assertion about today. 11 of prose_v1's 38 wrong
+    # findings objected to what the design PROPOSES as though it described
+    # current code — the exact failure the classify step exists to prevent.
+    head = 'PARAGRAPH' if case['verb'] == 'prose' else 'CLAIM'
     t0, cost = time.time(), 0.0
     try:
-        body, c = one_call(url, model, classify, f"CLAIM:\n{case['text']}",
+        body, c = one_call(url, model, classify, f"{head}:\n{case['text']}",
                            timeout, max_tokens, effort)
         cost += c
         labelled, err = parse_assertions(body, case["text"])
         if err:
             return dict(memo=case["memo"], id=case["id"], verb=case["verb"],
                         status="unparsable", detail=err, cost=cost)
-        user = (f"CLAIM:\n{case['text']}\n\nASSERTIONS:\n{labelled}\n\n"
+        user = (f"{head}:\n{case['text']}\n\nASSERTIONS:\n{labelled}\n\n"
                 f"{evidence_text(case)}")
         body, c = one_call(url, model, check, user, timeout, max_tokens, effort)
         cost += c
@@ -400,6 +411,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--populations", action="store_true")
     ap.add_argument("--summarise")
+    ap.add_argument("--classify-file", help="a candidate classify prompt to measure instead of the "
+                                            "shipped CLASSIFY_SYSTEM.")
     ap.add_argument("--prompt-file", help="a candidate check prompt to measure instead of the "
                                           "shipped CHECK_SYSTEM. The shipped one stays the "
                                           "default so a run with no flags measures what ships.")
@@ -445,7 +458,12 @@ def main():
         # CHECK_SYSTEM would now measure a configuration nobody runs.
         const = "FACT_SYSTEM" if a.verb == "fact" else "CHECK_SYSTEM"
         check, origin = shipped(const), f"shipped {const}, read from src/verify.rs"
-    prompts = (shipped("CLASSIFY_SYSTEM"), check)
+    if a.classify_file:
+        classify = Path(a.classify_file).read_text().rstrip("\n")
+        origin += f"; CANDIDATE classify {os.path.basename(a.classify_file)}"
+    else:
+        classify = shipped("CLASSIFY_SYSTEM")
+    prompts = (classify, check)
     print(f"prompts          {len(prompts[0])}+{len(prompts[1])} bytes, {origin}", file=sys.stderr)
     print(f"subjects         {len(cases)} ({a.verb}), split configuration", file=sys.stderr)
 

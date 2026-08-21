@@ -1,0 +1,26 @@
+prompts          2336+4129 bytes, CANDIDATE prompt_prose_v1.txt — not what ships; CANDIDATE classify prompt_classify_prose_v1.txt
+subjects         112 (prose), split configuration
+  10/112  $0.1175
+  20/112  $0.1781
+  30/112  $0.2339
+  40/112  $0.2709
+  50/112  $0.3371
+  60/112  $0.3978
+  70/112  $0.4565
+  80/112  $0.4979
+  90/112  $0.6183
+  100/112  $0.6849
+  110/112  $0.7684
+  112/112  $0.7779
+wrote prose_classify_v1.json
+verb             prose
+subjects         112   (112 ok, 0 not)
+cost             $0.7779 total, $0.00695 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          18/112   (16%)
+  findings         24
+    contradicts   14
+    overreaches   10
+  quoted verbatim  12/24
+  clause verbatim  24/24

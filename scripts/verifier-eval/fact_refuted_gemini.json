@@ -1,0 +1,1840 @@
+{
+ "verb": "fact",
+ "model": "openai/gpt-5.6-luna",
+ "records": [
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F1",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Design pin: tetel repo HEAD at e19a4694bedd1bd2bda91626362f9c2d05f35274, 2026-08-08, \"transplant: select the donor's premises, and answer each one\". All facts in this workspace are taken against this tree unless a later fact says otherwise.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0003574,
+   "elapsed": 5.73,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F2",
+   "verb": "fact",
+   "status": "ok",
+   "text": "A rendered memo's snapshot `<memo>.tetel/` ships exactly 9 enumerated files, including `prose.jsonl` and `claims.jsonl` (SNAPSHOT_FILES). So prose-block and claim event logs \u2014 with their timestamps \u2014 travel beside the memo and are readable by `check`. Evidence records live separately in `<memo>.evidence.jsonl` (crate::evidence), not in the snapshot. Also: `render` writes prose, `*cites: \u2026*` markers and a claim ledger and nothing else \u2014 a fact's captured extent never appears in the document, which is why snapshot-dependent findings (notes_outside_extent, mint_windows) exist as a class.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "A rendered memo's snapshot `<memo>.tetel/` ships exactly 9 enumerated files",
+     "why": "The snapshot copies each enumerated file only when it exists, so a snapshot can contain fewer than nine files.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "A file absent from the workspace is skipped rather than erroring \u2014 a workspace with no refusals has no refusals log.",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text states that a snapshot \"ships exactly 9 enumerated files\". The evidence, specifically the `write` function and its documentation, shows that this is not always true. The code iterates through the 9 file names in `SNAPSHOT_FILES`, but only copies a file if it exists in the source workspace (`if src.exists()`). The function's own documentation, quoted in the assertion, confirms this: \"A file absent from the workspace is skipped rather than erroring\". Therefore, a snapshot can ship fewer than 9 files, which contradicts the claim that it ships \"exactly 9\"."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.0025053999999999996,
+   "elapsed": 27.47,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F3",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two facts about identity and ordering inside the authoring workspace. (1) compose::render emits, per prose block, the block's text and \u2014 for a paragraph with citations \u2014 a `*cites: C\u2026*` marker; the block's own id (P#) is never written into the document. The evidence ledger it appends uses the workspace claim ids verbatim (`ledger_cell(&c.id)`), so a rendered ledger id and a workspace claim id are the same string. (2) claims.rs: ClaimEvent::Create/Revise/Withdraw each carry `timestamp: u64` from workspace::now_unix(), but claims::load_all discards them, exposing only `revisions: usize`. prose.rs's ProseEvent::Create/Revise likewise each carry `timestamp: u64` and load_all discards them, exposing only `revisions: usize`. So both timestamps exist in the shipped jsonl logs and no loader currently surfaces them.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.007244115000000001,
+   "elapsed": 99.86,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F4",
+   "verb": "fact",
+   "status": "ok",
+   "text": "prose.rs lines 41-123: ProseEvent::Create carries id, heading, level, text, cite, before, timestamp: u64; ProseEvent::Revise carries id, text, why, cite: Option<Vec<String>>, timestamp: u64. A Revise with `cite: None` leaves the block's citations untouched, so a revision need not restate them. prose::load_all replays the log into Block { id, heading, level, text, cite, revisions: usize } and drops every timestamp \u2014 no caller can see when a block's current text was authored without re-reading prose.jsonl. Document order is the replayed insertion order (`before` anchors), not event order.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002992225,
+   "elapsed": 39.9,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F5",
+   "verb": "fact",
+   "status": "ok",
+   "text": "report.rs and lib.rs::check_file, first-hand. (a) The human-owed partition is one flat list of `  - ` bullets, no sub-headings; entries may be multi-line (mint_windows and tree_states each print a leader bullet then indented continuation lines). (b) The partition opens with one scope sentence enumerating what it covers, ending \"none of this is settled by a passing check\". (c) The precedent for a constant: `ledger_has_no_scope_columns` is printed \"Once, not once per claim ... repeating it per row buried the findings that are about *this* document under a constant.\" (d) NON_COVERAGE is a const &[&str] printed item by item as \"tetel does not catch: ...\"; TET-28 added five entries and TET-29 six. (e) check_file computes every snapshot-dependent finding inside one `if snapshot_dir.is_dir()` block using facts::load_all/targets::load_all/transplants::load_all/claims::load_all on the snapshot dir, and sets unverifiable_* only in the `!snapshot_dir.is_dir()` branch. (f) evidence records are loaded once via evidence::load(path) before that block and are available to it. (g) lib.rs's own module doc states check writes nothing, never executes a command a document names, and makes no network calls.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008771675,
+   "elapsed": 105.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F6",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations, folded into one mint.\n\n(1) checks.rs lines 646-760, the in-proof predicate this design reuses verbatim. `current = sha256_hex(&claim.proposition)`; `grading_current` = records for that claim whose `proposition_digest` is empty (grandfathered: \"A record with no digest at all predates the field. It is treated as grading the current text rather than dropped\") or equals `current`. A claim with at least one record but none matching `current` is `out_of_proof` \u2014 a machine failure. A claim with no record at all is `ungrounded` \u2014 human-owed. The module's stated reason for digest-scoping every one of these: \"Every check below asks what the evidence says about *what this claim says now*\", and a red that only re-grounding could not clear was rejected as \"undischargeable\". The loop is defined purely over digests and record membership; no timestamp of any record is read anywhere in it.\n\n(2) facts.rs lines 270-400, `mint_windows` \u2014 the one existing check that reasons over timestamps. It reads `FactEvent::Create` timestamps out of the snapshot's `facts.jsonl` and refusal timestamps out of `refusals.log`, both written by the same workspace, and it states its own resolution limit rather than hiding it: a refusal whose second equals a mint boundary \"cannot be placed on one side of it\", so it \"appears in both adjacent windows \u2014 the same `>=` choice the mint-time replay makes, for the same reason: showing twice is recoverable, hiding once is the incident this exists for.\" The struct carries `straddles_a_boundary` and report.rs prints the caveat. Its doc also states the standing form for a listing of this class: \"The listing is only ever as complete as the log beneath it ... That is not a completeness claim in either direction: a verbatim listing asserts only what was recorded.\" And the reason it exists at grading time at all: \"a line printed at a terminal works only if it is read in the moment, and a memo built on a bad fact otherwise renders and checks clean.\"",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.018804249999999998,
+   "elapsed": 217.67,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F7",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations, folded into one mint.\n\n(1) brief.rs: `brief::build` returns \"Every ledger claim, unconditionally \u2014 including one already grounded, and including one grounded only by ingested (attested-derived) evidence. Ingestion enrolls a claim in the independent-grounding loop; it does not excuse it, so nothing here may drop a claim from the brief on account of what its evidence ledger already holds. A claim leaves this list only by leaving the ledger itself \u2014 never by having been reported on.\" The brief also withholds domain/extent, and `BriefItem` carries id, proposition and pin only.\n\n(2) Measured over the two shipped memos' evidence logs (docs/design/tet28-*.md.evidence.jsonl and tet29-*.md.evidence.jsonl), grouping records by (claim id, proposition digest). Every multi-record group shows the SAME digest graded by two or three distinct passes. tet28 was graded by 3 passes (2a166dfe\u2026, 4789a6bc\u2026, c1fa7b44\u2026); tet29 by 2 (068c02e0\u2026, c7ccb4bc\u2026). Examples: tet28 C9 digest 7fa084e7 carries 10 records \u2014 3 from pass 4789a6bc at t=1786132279..1786132288, 4 from pass 2a166dfe at 1786133008..1786133015, 3 from pass c1fa7b44 at 1786133955..1786133969, a span of 1690 seconds on text that never changed. tet28 C13 digest 65ec3111 was graded `qualifies` by two different passes at 1786133118 and 1786134028 \u2014 910 seconds apart, again on unchanged text. (An earlier version of this note said 918 seconds; the captured output above is what settles it, and the difference is 910.) The one revision visible: tet29 C4 has two digests \u2014 058ebe23 graded `qualifies` twice by pass 068c02e0 at 1786174420/22, then 1c542cfe (the rewritten wording) graded `supports` twice by pass c7ccb4bc at 1786175367/73. So: (a) one pass writes several records per claim, one per fact; (b) a later pass re-grades a claim whose wording never changed, appending records with strictly later timestamps against the same digest; (c) a revised claim gets a new digest whose earliest record is the moment that wording first entered proof.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "Every multi-record group shows the SAME digest graded by two or three distinct passes.",
+     "why": "This multi-record group contains two records, but both were graded by the same pass, not two or three distinct passes.",
+     "facts": [
+      "F7"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "    ('C15', '118d12c4') -> [('c1fa7b4466097460', 1786134045, 'supports'), ('c1fa7b4466097460', 1786134052, 'supports')]",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's clause claims that \"Every multi-record group shows the SAME digest graded by two or three distinct passes.\" The evidence, which is the output of a script run by the author, includes the line `('C15', '118d12c4') -> [('c1fa7b4466097460', 1786134045, 'supports'), ('c1fa7b4466097460', 1786134052, 'supports')]`. This is a multi-record group where both records were graded by the same single pass ('c1fa7b4466097460'), not by two or three distinct passes. This is a direct counterexample to the author's universal claim."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.010182925,
+   "elapsed": 109.7,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F8",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The proposed rule, executed against the two shipped memos' own snapshots and evidence logs. Rule as run: a non-heading prose block with a non-empty cite list is reported iff every cited id resolves to a ledger claim, every one of those claims is in proof (some record's digest equals sha256 of its current proposition), and the block's current-text timestamp (Create, or last Revise) is strictly greater than the MAXIMUM over cited claims of that claim's EARLIEST in-proof record timestamp.\n\nResult on the real data: tet28 (20 blocks, 15 claims, all 15 in proof) reports 0; tet29 (12 blocks, 14 claims, all 14 in proof) reports 0.\n\nWhy zero, checked against the logs rather than assumed. tet28 has 15 prose revisions; the two post-grounding ones (P2 at 1786132471 \"C1 was narrowed after grounding pass k1 qualified its 'clean working tree' clause\", P18 at 1786132480 \"C13 was narrowed after grounding pass k1 qualified its universal\u2026\") each accompanied a claim revision, so the new wording's first proof (pass k2, ~1786133xxx) postdates the prose edit and the rule correctly stays silent. Its last six revisions (t=1786135098, after the last first-proof at 1786134045) are all heading blocks \u2014 a markdown-prefix fix \u2014 and headings are outside the rule. tet29's post-grounding revision (P4 at 1786174635, \"C4 was revised after k1 qualified it\") is excluded the same way: C4's new digest 1c542cfe first entered proof at 1786175367.\n\nCounterfactual on tet29, to check the rule fires on the shape it is for: moving P11's text timestamp to 600s after the last first-proof, with no claim revised, reports exactly `P11 text authored 1786176064, latest first-proof among its claims 1786174494 (+1570s) cites ['C13']` and nothing else. Then giving C13 a new in-proof timestamp after the prose edit \u2014 the honest remedy, revise the claim and have the new wording graded \u2014 clears P11 and leaves the report empty.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "every one of those claims is in proof (some record's digest equals sha256 of its current proposition)",
+     "why": "The captured rule also treats a record with an empty digest as proof, even though the note requires the digest to equal the proposition's SHA-256.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "if dg==cur or dg=='':",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text defines 'in proof' as a record's digest matching the SHA-256 hash of the current proposition. The evidence shows the script that was run also considers a record to be 'in proof' if its digest is an empty string (`if dg==cur or dg==''`). The script's logic is therefore broader than the author's description of it."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.010614025000000001,
+   "elapsed": 120.37,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F9",
+   "verb": "fact",
+   "status": "ok",
+   "text": "A whole-worktree grep of /Volumes/SSD/Documents/lonic/tetel for `fn now_unix` finds exactly two definitions: evidence.rs:288 and workspace.rs:257. Both are byte-equivalent \u2014 `SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)` \u2014 so a prose/claim event timestamp (workspace clock) and an evidence record timestamp (whatever process wrote the record) are the same unit and the same epoch, UTC seconds, with no timezone term. What they are not is the same clock: `SystemTime::now()` reads the wall clock of the process that calls it, and nothing in either function or in the record shape ties the two processes together. Note also workspace.rs's separate `ts()` used for refusals.log, which formats the same value as a decimal string.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0018902749999999999,
+   "elapsed": 22.67,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F10",
+   "verb": "fact",
+   "status": "ok",
+   "text": "evidence.rs lines 128-216, the whole record shape. A Statement is {_type, subject: Vec<Subject>, predicateType, predicate}; Subject is {name, digest: DigestSet{sha256}} \u2014 one sha256, and it is of the claim proposition; Predicate is {verdict, pass, reported_kind, source, extent, world, note, pin, timestamp}. There is no field anywhere in the record that names or digests a prose block, and RecordInput \u2014 the entire ingestion surface a reporter can fill \u2014 has no such field either. The only digest a grounding pass writes is over the proposition it was briefed on.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00384189,
+   "elapsed": 52.62,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F11",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The cost of a whole-worktree census in this repository, measured. The two shipped memos' snapshots already carry large captures: tet29's facts.jsonl is 11 lines / 116734 bytes with a longest line of 57110 bytes, tet28's 10 lines / 127314 bytes with a longest line of 34412 \u2014 a fact's captured output is one JSON line, so a snapshot holds whole file dumps on single lines. Counting, over every non-binary file in the worktree, the lines containing each symbol this design must modify: `render` 486 lines / 373271 bytes (longest line 57249); `Findings` 23 lines / 57418 bytes (longest 27190); `NON_COVERAGE` 35 lines / 95637 bytes (longest 27190); `check_file` 5 lines / 285 bytes. So the census of a common symbol in this repo costs a few hundred kilobytes of captured output, and most of that weight is the previous memos' own snapshots being re-captured. Bounded and payable, but it grows with every memo the repo accumulates.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.007034875,
+   "elapsed": 84.65,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F12",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Census of three of this design's modification targets, each a search of the whole worktree root /Volumes/SSD/Documents/lonic/tetel. `check_file` occurs on 5 lines: its definition at src/lib.rs:85, a doc reference at lib.rs:71, a comment at checks.rs:572, and its two call sites \u2014 src/main.rs:332 (the CLI `Command::Check` arm) and src/mcp.rs:848 (the MCP check tool). So the population that would have to change if `check_file`'s signature changed is those two call sites, and this design changes only its body. `prose_after_proof` has no occurrences anywhere in the worktree \u2014 green field, censused by the search that established it has none. `block_offsets` likewise has no occurrences.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001831625,
+   "elapsed": 19.87,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F13",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Census of the remaining three modification targets, each a search of the whole worktree root /Volumes/SSD/Documents/lonic/tetel. `Findings`: 23 matching lines, 59.2 KB of captured output. `NON_COVERAGE`: 35 matching lines, 98828 characters. `render`: 486 matching lines across the worktree, 405019 characters. Stated plainly about my own reading rather than implied: I did not read all 544 matched lines \u2014 the captures exceeded what the surface would return, and only the first ~2 KB of the `Findings` capture was displayed to me, which showed matches in tests/fixtures/scratch-memo-A.md and in tet29's own rendered memo. What these searches establish is the population and its rooting: every occurrence of each symbol anywhere in the worktree is inside this fact's captured output, and the weight of it is the two previous memos' snapshots quoting this crate's own source back at it (consistent with the independent measurement recorded earlier: `render` 373271 bytes of matching lines, of which the longest single line is 57249 bytes, inside a snapshot facts.jsonl). No conclusion is drawn here about what any individual matched site does.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.009586174999999999,
+   "elapsed": 106.8,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F14",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Testing the repair for the refutation of the block-timestamp definition. Replaying both shipped memos' prose.jsonl and, per block, comparing the timestamp of its LAST event against the EARLIEST event whose text equals its current text: for all 20 blocks of tet28 and all 12 of tet29 the two coincide \u2014 no block in either log was ever reverted to an earlier wording. So redefining the block's timestamp from \"the event that set its current text\" to \"the earliest event whose text equals its current text\" changes nothing about either memo's measured residue, while making a byte-exact revert restore the earlier timestamp. Under the old definition a revert appends a new Revise with a new timestamp and cannot lower it, because prose.jsonl is append-only and no event is ever rewritten.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0029125500000000003,
+   "elapsed": 35.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F15",
+   "verb": "fact",
+   "status": "ok",
+   "text": "How sensitive a census figure is to scope and to when it is taken, measured over the same worktree four ways per symbol (counting matching lines and their raw byte length across every non-binary file, with .git/ and target/ either included or skipped, and this memo's own tet30 artifacts either included or skipped).\n\n`render`: 529 lines / 1136689 bytes with everything; 486 / 373271 excluding tet30 only; 490 / 1075090 excluding .git+target only; 447 / 311672 excluding both.\n`NON_COVERAGE`: 54 / 737911 with everything; 35 / 95637 excluding tet30; unchanged by excluding .git+target.\n`Findings`: 41 / 698345 with everything; 23 / 57418 excluding tet30; unchanged by excluding .git+target.\n\nTwo things this settles. The earlier figures recorded in this workspace (render 486 lines / 373271 bytes, NON_COVERAGE 35 / 95637, Findings 23 / 57418) are reproduced exactly by the \"excluding tet30 only\" column, which is what the tree looked like when they were taken \u2014 before this memo and its snapshot existed. And the same symbol in the same tree yields 447, 486, 490 or 529 matching lines and 311672 to 1136689 bytes depending only on which directories are in scope and whether this memo's own artifacts are yet on disk. So a census byte figure is a property of an instrument and a moment, not of the symbol; the ordering \u2014 that `render` is far larger than `check_file`'s 5 lines \u2014 is what survives across all four scopings.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.007119399999999999,
+   "elapsed": 83.58,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F16",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations behind the attack findings.\n\n(1) prose.rs lines 172-202, `revise`: it refuses only on an unknown block id and an empty `--why`. It never compares `new_text` to the block's existing text, and it writes `cite` straight through \u2014 so a revision that restates byte-identical text while replacing the citation list is an ordinary, unrefused act. The doc comment says why the `cite` parameter exists: without it \"a paragraph created without a citation could never be given one ... which made `tetel review`'s own instruction ('mint the missing claim and cite it') unreachable for existing prose.\" So a citation-only revision is not merely permitted, it is the act the tool added the parameter to permit.\n\n(2) ledger.rs lines 70-140, `split_row_cells`: it `trim()`s the whole line, un-escapes `\\|` back to `|`, respects backtick spans, and `trim()`s every cell it emits. So a ledger cell round-trips a pipe but not leading or trailing whitespace, and \u2014 since a markdown row is one physical line \u2014 not an embedded newline either.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008982175,
+   "elapsed": 109.63,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F17",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations, folded into one mint.\n\n(1) lib.rs lines 85-100: `check_file` builds its claim list as `ledger::import(&doc.body)` \u2014 from the parsed rendered document \u2014 and passes exactly those claims to both `checks::analyze` and `checks::analyze_ledger`. It never opens the snapshot's `claims.jsonl`. So the propositions every `proposition_digest` on record was computed over are the ledger-derived ones, and any check reusing the in-proof predicate must take its claims from `ledger::import`, not from `claims.jsonl`.\n\n(2) Executing the attack's three constructions against tet29's real logs, under the rule as it stood and under a two-part repair. Under the old rule (block timestamp = earliest event bearing the current text; every cited claim required in proof): the baseline fix-round rewrite of P11 at 1786174700 is listed against anchor 1786174494, and all three escapes silence it \u2014 a citation-only revision adding the already-in-proof C4, a citation-only revision adding a record-less C99, and the dual (an old uncited paragraph P2 given a citation to a settled claim) all produce NOTHING LISTED. Under the repair \u2014 block timestamp = earliest event whose text AND citation list both equal the current ones, and the in-proof gate changed from \"every cited claim\" to \"at least one cited claim, with the anchor taken over the in-proof ones\" \u2014 the baseline is still listed, escape A is listed (P11, ts 1786176500, anchor 1786175367, cites C13+C4), escape B is listed (ts 1786176500, anchor 1786174494), the dual is listed (P2, ts 1786176500, anchor 1786174494), and the untouched memo still lists nothing.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0074077,
+   "elapsed": 86.03,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F18",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Re-measurement at unix 1786194242, correcting two units and demonstrating the drift.\n\nUnits. Read as raw bytes rather than as decoded text lines, tet29's longest snapshot fact line is 57249 bytes / 57109 characters, and tet28's is 34477 bytes / 34411 characters. The figures recorded earlier in this workspace (57110 and 34412) were character counts including the line's newline, not byte counts.\n\nDrift, within this memo's own review. The whole-tree count for `render`, including everything, was 529 lines / 1136689 bytes when measured earlier in this workspace and is 550 lines / 1202134 bytes now; `NON_COVERAGE` was 54 / 737911 and is 63 / 767119; `Findings` was 41 / 698345 and is 49 / 723216. Nothing in the repository's source changed between the two measurements. What changed is this memo's own artifacts: its evidence log now holds 59 records and 164392 bytes, and its snapshot's longest fact line is 574898 bytes \u2014 the captured output of the `render` census itself. So the after-figures move while a memo is being graded, and the act of grading a census-cost claim enlarges the quantity it is about. The before-figures do not move, because the trees they were taken over are frozen.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "including everything",
+     "why": "The measurement skips files whose first 8192 bytes contain a NUL, so it does not include everything in the tree.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "if b'\\x00' in d[:8192]: continue",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims the measurement for `render` was a \"whole-tree count ... including everything\". The evidence shows the script that performed this measurement contained the line `if b'\\x00' in d[:8192]: continue`, which explicitly skips any file containing a NUL byte in its first 8192 bytes. Therefore, the measurement did not include \"everything\", and the clause overreaches the scope of what was actually measured."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.01056213,
+   "elapsed": 132.21,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F1",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Worktree pin for the TET-46 design run: HEAD of /Volumes/SSD/Documents/lonic/tetel is b57bf8edb4c1eb59d8d86a8327179f43a9cb0829, dated 2026-08-08 17:56:46 +0200, subject \"design: anchor the residue at first proof, not at the last pass\". All facts in this workspace are taken against this commit unless their own extent says otherwise.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.000850975,
+   "elapsed": 12.77,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F2",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The `grep` that `look_grep`'s `Command::new(\"grep\")` resolves to on this machine is /usr/bin/grep, which self-identifies as \"grep (BSD grep, GNU compatible) 2.6.0-FreeBSD\". PATH resolution in a shell here puts /opt/homebrew/bin ahead of /usr/bin, and `command -v grep` still answers /usr/bin/grep \u2014 i.e. no GNU grep is shadowing it under the name `grep`. This is the macOS half of the ticket's assertion that \"both the macOS and Linux greps CI runs support --exclude-dir and --exclude\"; it establishes which binary is on this machine, not yet what its flags do.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0012302749999999999,
+   "elapsed": 14.23,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F3",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Measured behaviour of /usr/bin/grep (BSD grep 2.6.0-FreeBSD) on a scratch tree containing src/code.rs, docs/design/memo.md, docs/design/memo.evidence.jsonl, docs/design/memo.md.tetel/facts.jsonl, deep/a.tetel/x.jsonl and deep/plain.txt, every file containing \"NEEDLE here\", searched with the exact flags look_grep uses (-r -I -n -H -e) plus one exclusion flag at a time, root given as an absolute path.\n\n(1) --exclude-dir='*.tetel' works and prunes traversal: both docs/design/memo.md.tetel/facts.jsonl and deep/a.tetel/x.jsonl disappear, everything else remains.\n(2) --exclude='*.evidence.jsonl' works: only docs/design/memo.evidence.jsonl disappears.\n(3) --exclude accepted three different spellings of the same file and excluded it under all three: the bare basename 'memo.md', the path glob '*/docs/design/memo.md', and the full absolute path.\n(4) --exclude ALSO applies to a file named explicitly on the command line: `grep -I -n -H --exclude='*.evidence.jsonl' -e NEEDLE <abs path to memo.evidence.jsonl>` printed nothing and exited 1, while the identical command without --exclude printed the match and exited 0. So grep does NOT follow the git/rg rule that an explicitly named path is still read.\n(5) --exclude-dir ALSO applies when the excluded directory is itself the recursion root: `grep -r --exclude-dir='*.tetel' <abs path to memo.md.tetel>` printed nothing and exited 1, while the same command without the flag printed the match and exited 0.\n(6) --exclude-dir does NOT suppress a file inside an excluded directory when that file is named explicitly and non-recursively: `grep -I -n -H --exclude-dir='*.tetel' -e NEEDLE <abs path to memo.md.tetel/facts.jsonl>` printed the match and exited 0.\n\nThis is macOS/BSD grep only; nothing here was executed against GNU grep or on Linux.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.003418575,
+   "elapsed": 42.6,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F4",
+   "verb": "fact",
+   "status": "ok",
+   "text": "How grep spells the names it matches --exclude against, measured on /usr/bin/grep (BSD 2.6.0-FreeBSD) in the same scratch tree, extended with other/memo.md \u2014 a file that contains \"NEEDLE here\" and has NO sibling other/memo.md.tetel directory (`ls -d other/memo.md.tetel` reports No such file or directory), so it is not a rendered memo under the ticket's own iff test.\n\n(A) With the search root given as the relative \".\" and --exclude given as the ABSOLUTE path of docs/design/memo.md, nothing was excluded \u2014 all 7 files matched, including docs/design/memo.md. The exclusion silently did nothing.\n(B) With the same relative root \".\" and --exclude given as './docs/design/memo.md' \u2014 the same spelling grep constructs for the file when walking from \".\" \u2014 docs/design/memo.md was excluded and everything else remained.\n(C) With an absolute root and --exclude='memo.md', a bare basename, BOTH docs/design/memo.md and other/memo.md were excluded.\n\nSo the pattern must be spelled the way grep will construct the file's name from the root as given, and a bare basename over-excludes files that are not rendered memos.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.013511599999999999,
+   "elapsed": 171.0,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F5",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two existing mechanisms that an exclusion disclosure could ride on without a schema change.\n\n(1) compose.rs `render_facts` (lines 205-275 of src/compose.rs): the rendered memo's \"## Facts\" table has a column \"Extent (captured)\" whose cell is built by mapping each extent entry to `e.label` and joining with \"; \". Its doc comment states explicitly that only the label is rendered, never the `key` (an absolute machine-local path) and never the captured output. So whatever a `look` writes into an extent entry's `label` reaches every reader of the committed memo; whatever it writes anywhere else does not.\n\n(2) facts.rs `mint` (lines 413-437 of src/facts.rs): the pin is sha256 over a string built per pending entry from, in order, `label`, `world_root`, `world_state`, `output`, each newline-terminated. The label is therefore already inside the pin. So a label that names the exclusion set makes two searches with different exclusion sets pin differently even when their matched output is identical.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00175315,
+   "elapsed": 19.5,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F6",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Cost and effect of the rendered-memo enumeration, measured on the tetel worktree itself and on a scratch tree.\n\n(1) The worktree contains exactly three `*.tetel` directories \u2014 the tet28, tet29 and tet30 memo snapshots under docs/design/ \u2014 against 848 directories and 159,519 files in total.\n(2) Enumerating them (`find . -type d -name '*.tetel'`) took real 0.130s. The census grep with look_grep's own flags (`grep -r -I -n -H -e look_grep <abs root>`) took real 3.953s on the same root. The enumeration is a directory-only walk; the grep must open and read every file.\n(3) Effect on a real census. Pattern NON_COVERAGE, look_grep's flags, absolute root: baseline 87 lines / 858,096 bytes across 15 files, of which 14 are tetel's own output (3 rendered memos, 3 evidence ledgers, 8 snapshot .jsonl files) and 1 is source (src/report.rs). With `--exclude-dir='*.tetel' --exclude='*.evidence.jsonl'` plus one absolute-path `--exclude` per stripped `*.tetel` directory: 2 lines / 169 bytes, from src/report.rs alone.\n(4) An unreadable directory bounds the enumeration and the grep identically: with a chmod-000 directory containing an x.tetel subdirectory, `find -type d -name '*.tetel'` printed \"Permission denied\" and exited 1, and `grep -r` printed \"Permission denied\" for the same directory and exited 2. Neither could see inside; the enumeration's blind spot here is not larger than the grep's.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002669325,
+   "elapsed": 30.11,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F7",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Blast radius of a change confined to look_grep, established by two exhaustive greps of the whole source tree /Volumes/SSD/Documents/lonic/tetel/src.\n\n(1) `Command::new` matched in exactly two files across the whole tree: observe.rs (line 190, the grep inside look_grep; line 323, run_command's child) and worldstate.rs (line 156, git). Every other file in src/ is therefore free of `Command::new` \u2014 no other module spawns a process by that constructor.\n\n(2) `observe::` matched in exactly three files across the whole tree: main.rs (lines 453, 480, 482, 501), mcp.rs (lines 589, 591, 593, 602) \u2014 both building a LookRequest and calling observe::dispatch or observe::run_command \u2014 and facts.rs (line 87), where the only occurrence is inside a doc comment. Every other file in src/ is therefore free of `observe::` and cannot call into the observe module by that path.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.005708825000000001,
+   "elapsed": 69.93,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F8",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Baseline for the already-committed-memos experiment, taken while docs/design/ held exactly three snapshot directories (tet28, tet29, tet30). `tetel check` over each committed memo, with stdout+stderr hashed:\n  tet28-modification-target-census.md      exit=0 sha256=3cdf677b1748804ff886720658d445257772bdbc96acfd6546849fdd75c35e8b bytes=14973\n  tet29-imported-mechanism-premises.md     exit=0 sha256=5097feb5d54313cd34ae95d549aac58d12c60828c130e970fa2775e51311475b bytes=13094\n  tet30-prose-revised-since-grounding.md   exit=0 sha256=b3bca4fda56f5c3cb65eadbd20b4ed40c74224324fa6b66fea33b6d2522b0f93 bytes=68141\nAll three check clean under the current build.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0020862249999999997,
+   "elapsed": 28.8,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F9",
+   "verb": "fact",
+   "status": "ok",
+   "text": "What a whole-worktree census costs today, per candidate symbol, measured on the tetel worktree with look_grep's own flags (`grep -r -I -n -H -e <symbol> <abs worktree root>`), byte counts of stdout. The second column re-runs the identical search with `--exclude-dir='*.tetel' --exclude='*.evidence.jsonl'` only \u2014 i.e. snapshots and evidence ledgers dropped, rendered memos still included.\n\n  look_grep:     709,469 bytes  ->   7,990 bytes\n  NON_COVERAGE:  858,096 bytes  ->  34,595 bytes\n  censuses:      691,562 bytes  ->   9,212 bytes\n  look_path:     688,776 bytes  ->   8,132 bytes\n  search_key:    633,291 bytes  ->     931 bytes\n\nEvery candidate census costs between 0.63 MB and 0.86 MB today, and two static exclusions remove between 95.9% and 99.9% of it. The floor of roughly 0.63 MB is shared across all five patterns, which is what tetel's own output contributes independently of which symbol is sought.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0030180750000000003,
+   "elapsed": 36.12,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F10",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of the symbol `look_grep`, rooted at /Volumes/SSD/Documents/lonic/tetel \u2014 the TET-28 census behind this design's one declared modification target.\n\nWhat happened when it was taken is itself the observation. `look --grep look_grep /Volumes/SSD/Documents/lonic/tetel` succeeded server-side and recorded the search and its per-file hits into the pending buffer, but the agent harness refused to hand the result back, reporting \"result (707,751 characters across 38 lines) exceeds maximum allowed tokens\" and spilling it to a file instead. So the author of this memo never read the output of their own census; the 38 matched lines were captured, minted and are shipping in this fact's extent and in the snapshot regardless.\n\nThat is the return path and the retention path coming apart under measurement. tetel caps neither: observe.rs pushes the whole stdout into `printed` and the whole per-file output into the pending entries. The only cap in the chain was imposed downstream by the harness, on the return path only, and it fired.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.012758215,
+   "elapsed": 156.33,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F11",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The two code sites the exclusion mechanism has to fit between.\n\n(1) src/facts.rs lines 82-103, `ExtentEntry::censuses` \u2014 TET-28's census predicate in full. It reads exactly five things: that `kind` is Some(Search) or Some(NoMatch), that `pattern` byte-equals the symbol, that `world_root` is non-empty and not `worldstate::NO_GIT`, and that `key == world_root`. It never reads `label` and never reads `output`. Its doc comment states the predicate \"is about existence and rooting, never about what was found\".\n\n(2) src/observe.rs lines 158-195, the head of `look_grep`. It refuses a non-existent root, then builds the argument vector: `-r` ONLY when `root_path.is_dir()`, then `-I`, `-n`, `-H`, `-e`, the pattern, and finally `root` \u2014 passed through verbatim as the caller spelled it, never canonicalized. `Command::new(\"grep\")` is then invoked with that vector and the whole stdout is taken with `String::from_utf8_lossy`.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00284205,
+   "elapsed": 32.05,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F12",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/observe.rs lines 196-258, the tail of `look_grep` \u2014 the return path and the retention path, side by side, with no cap on either.\n\nReturn path: on a matching search, `printed.push_str(&stdout)` copies the grep's entire stdout into `printed`, and `printed` is what `LookOutcome` carries back to the caller at the end of the function. There is no length check, no truncation, no elision, and no configuration anywhere between the grep's stdout and that return.\n\nRetention path: separately, the same stdout is split by file and each file's matching lines are pushed into a `PendingEntry` whose `output` is `matches.join(\"\\n\")` \u2014 also uncapped. The whole-search `Search` entry carries `output: String::new()` and a `label` of the form \"search: {root} (grep: {pattern}) \u2014 {files} file(s) matched\"; the zero-match `NoMatch` entry likewise carries empty output and a \"no-match: {pattern} in {root}\" label. So the whole-search record is the one entry in a grep's fold that has a label and no output of its own.\n\nNothing in this function bounds what it returns, and nothing in it records that anything downstream did.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0022011,
+   "elapsed": 23.95,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F13",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/report.rs lines 16-38, the head of `NON_COVERAGE` and its census block. The list is a `&[&str]` of standing blind spots. The census block is introduced by a comment reading \"what a modification-target census cannot see\", and explains itself: \"The census refusal is textual and rooted, and each of these is a way a use of a symbol escapes a textual search or a way a found site still tells you nothing. Printed rather than left implicit, because a refusal that fired is easily read as coverage it never claimed.\"\n\nThe line the ticket quotes is there verbatim: \"whatever the platform's grep skipped \u2014 symlinked directories and binary files bound what a whole-worktree search physically visited\". Its two named causes are both platform accidents \u2014 symlinked directories and binary files \u2014 and its verb is \"skipped\", with no notion of anything tetel itself chose not to visit. Every entry in this list is a static string; nothing in the list is per-search or parameterised.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008519225,
+   "elapsed": 107.8,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F14",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of the symbol `NON_COVERAGE`, rooted at /Volumes/SSD/Documents/lonic/tetel \u2014 the TET-28 census behind this design's second declared modification target.\n\nThe same thing happened as with the `look_grep` census, at a larger size: the search succeeded and was recorded server-side, and the harness refused to return the result, reporting \"result (856,178 characters across 87 lines) exceeds maximum allowed tokens\" and spilling it to a file. The author again did not read the output of a census they minted. This is the second independent occurrence in this run, so the truncation is the client's standing behaviour on a whole-worktree census of this repository rather than a one-off.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001873025,
+   "elapsed": 15.55,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F15",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/observe.rs lines 86-105, the head of `look_path`. It takes a single `path`, refuses if the path does not exist, refuses if the path is a directory (with the message \"`tetel look` opens files. Use `tetel look --grep <pattern> {path}` to search it.\"), and otherwise reads exactly that one file with `fs::read_to_string`. There is no traversal of any kind in this function: it opens the file the caller named and nothing else. So every file `look_path` can ever return is a file the caller named explicitly.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0023784749999999997,
+   "elapsed": 28.73,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F16",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/observe.rs lines 302-330, `run_command` and its doc comment. It refuses only an empty argv, then spawns `Command::new(&argv[0]).args(&argv[1..])` directly \u2014 the doc comment says \"executes `argv` directly (never through a shell)\". Nothing between the refusal and the spawn inspects, parses or classifies what the command is or what paths it will touch; the entry it records is keyed on `argv.join(\" \")`, the command line as a string. So `run` has no place where a path-based exclusion could be applied even in principle, and the bound the ticket states \u2014 that the property is about `look` and not about tetel as a whole \u2014 is a property of this function's shape rather than a policy choice.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002028075,
+   "elapsed": 25.44,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F17",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two consequences of the rule, measured.\n\n(1) A search rooted at docs/design. That directory contains exactly nine entries and every one of them is tetel's own output: three rendered memos, three .evidence.jsonl ledgers, three .tetel snapshot directories. `grep -r -I -n -H -e census <abs docs/design>` returns 184 lines / 1,200,881 bytes; the same search with `--exclude-dir='*.tetel' --exclude='*.evidence.jsonl'` plus one path-spelled `--exclude` per memo returns nothing and exits 1.\n\n(2) Non-stationarity under the rule, on a scratch tree with src/a.rs containing \"fn widget() {}\", docs/m1.md and docs/m1.md.tetel/facts.jsonl each containing \"widget\". Pass 1 emitted one rendered-memo exclusion (.../docs/m1.md) and matched `src/a.rs:1:fn widget() {}`. A second memo (docs/m2.md plus docs/m2.md.tetel/) was then added, changing nothing in src/. Pass 2 emitted two rendered-memo exclusions (m1.md and m2.md) and matched exactly the same single line. Compared directly: the matched output was IDENTICAL between the two passes, and the emitted exclusion list was DIFFERENT.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00709925,
+   "elapsed": 86.71,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F18",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/facts.rs lines 1-12, the module doc for `tetel fact`. It states that a revision \"rewrites the note only, append-only: extent, output and pin are set once at mint time and never appear in a revision event at all, so there is no code path that could change them later either.\" This is the immutability an answer to \"what happens to memos already committed\" turns on: a fact minted under the old grep behaviour keeps the extent, output and pin it was minted with, and no later build can rewrite them.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002246525,
+   "elapsed": 28.17,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F19",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The second half of the already-committed-memos experiment, run after this memo was rendered into docs/design/ \u2014 so the directory now holds four snapshot directories (tet28, tet29, tet30 and tet46) where the F8 baseline was taken with three. The set of tetel artifacts under docs/design is therefore different from what it was, which is exactly the input the proposed exclusion set is computed from.\n\n`tetel check` over each of the three previously committed memos, same command as F8:\n  tet28-modification-target-census.md      exit=0 sha256=3cdf677b1748804ff886720658d445257772bdbc96acfd6546849fdd75c35e8b bytes=14973\n  tet29-imported-mechanism-premises.md     exit=0 sha256=5097feb5d54313cd34ae95d549aac58d12c60828c130e970fa2775e51311475b bytes=13094\n  tet30-prose-revised-since-grounding.md   exit=0 sha256=b3bca4fda56f5c3cb65eadbd20b4ed40c74224324fa6b66fea33b6d2522b0f93 bytes=68141\n\nAll three hashes, byte counts and exit codes are identical to the F8 baseline.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0054097500000000005,
+   "elapsed": 69.08,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F1",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Worktree pin for this design: tetel repo at HEAD 043ecb041f02a0d74b90876641eaa573d73a2738 on branch main, commit subject \"look: skip what git is told to ignore, on the same terms as tetel's output\". All facts in this workspace are taken against this tree unless a later fact says otherwise.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.000496425,
+   "elapsed": 6.49,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F2",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/brief.rs lines 1-80. `BriefItem` has exactly three fields: id, proposition, pin (Option<String>) \u2014 the module doc says scope leakage is prevented by that shape, not by care at render time. `build(claims: &[Claim]) -> Vec<BriefItem>` maps every claim 1:1 with no filtering; it takes only `&[Claim]` and no evidence records at all. Its doc comment states the invariant: \"nothing here may drop a claim from the brief on account of what its evidence ledger already holds. A claim leaves this list only by leaving the ledger itself \u2014 never by having been reported on.\" `render_text` prints id, proposition, optional pin, and \"scope: WITHHELD\" per item; `render_json` the same fields.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0024268,
+   "elapsed": 28.87,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F3",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/checks.rs lines 630-760, `analyze_ledger(claims, evidence)`. Per claim it filters `evidence` by `claim_id`, computes `current = crate::evidence::sha256_hex(&claim.proposition)` \u2014 proposition text alone \u2014 and partitions records with a NON-EMPTY `proposition_digest` into `fresh` (digest == current) and `stale`. A stale record goes to `out_of_proof` when `fresh.is_empty()`, else to `superseded` (never a failure, log is append-only). `ungrounded` is pushed only when `records.is_empty()` \u2014 i.e. no evidence record at all for the id, regardless of digest. A separate set `grading_current` = records whose digest is empty OR equals current; the comment says a record with no digest predates the field and is \"treated as grading the current text rather than dropped\", grandfathered because that direction \"fails loudly\".",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0023296750000000002,
+   "elapsed": 24.76,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F4",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/evidence.rs lines 215-310. `EvidenceRecord` (read back from `<memo>.evidence.jsonl`) carries: claim_id, verdict, pass, reported_kind, source, extent, note, `pub pin: Option<String>` marked `#[allow(dead_code)] // carried for fidelity; no check reasons over it yet`, timestamp, witnessed, and `proposition_digest` \u2014 documented as \"sha256 of the exact proposition text this record was graded against, read back from `subject.digest`\", and formerly \"read by nothing\" until analyze_ledger compared it. `sha256_hex(data: &str)` hashes a single string. `build_statement` sets `subject.digest.sha256 = sha256_hex(&claim.proposition)` \u2014 proposition text alone, pin not included.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002842575,
+   "elapsed": 33.94,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F5",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/ledger.rs lines 152-200 and 250-275. A Claim's `pin` is not a ledger-table column and is not derived from the claim's cited facts. `find_stated_pin` scans the prose window between the nearest preceding markdown heading and the ledger table's header line for the word \"pin\" followed by a backticked token, taking the LAST such match in the window; the header doc calls this \"a document-level 'at pin `<hash>`' sentence\" and notes the corpus convention \"Rows are against `path` at pin `71c0fd1` unless stated.\" A per-row pin override is explicitly NOT parsed (stated known limitation). The single parsed value is then assigned to every claim in that table (`pin: pin.clone()` at line 342).",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0009557750000000001,
+   "elapsed": 9.56,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F6",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/evidence.rs lines 165-215 and 355-410. Two write paths. Ingested (`RecordInput`): `pass`, `note` and `pin` are all caller-supplied, `pin` `#[serde(default)]` and optional; predicate_type is INGESTED. Witnessed (`record` from a captured fact): predicate_type CAPTURED, and the comment \"The pass *is* the workspace. Not a name someone chose.\" with `pass: identity.id.clone()`, `source: format!(\"proc:workspace-{}\", identity.id)`, `pin: Some(fact.pin.clone())` \u2014 i.e. the pin written is the GROUNDER's own fact's pin, the tree it stood in, not the claim's pin. The Predicate::pin doc says \"Nothing reads it yet. It is written now so the question it exists for \u2014 *was this claim graded against the same tree the memo was written against?* \u2014 becomes measurable at all\", citing a run behind TET-5 where grounding against a tree several commits past the pinned one was invisible.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.007942600000000001,
+   "elapsed": 99.01,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F7",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/checks.rs lines 940-1055. `grounding_provenance(claims, evidence, authoring_identity)` already computes per claim: all records for the id, the `witnessed` subset, the sorted deduped list of their `pass` values, and \u2014 when `AuthoringIdentity::Known(author)` \u2014 `by_author = passes.iter().filter(|p| *p == author).count()` and `by_others = passes.len() - by_author`. It emits the \"{id}: grounded, N of M record(s) witnessed in workspace(s) ... \" line (this line lives in checks.rs, not report.rs). It does NOT filter records by `proposition_digest` \u2014 it reasons over every record with the claim's id. `AuthoringIdentity` has three variants: `NoSnapshot`, `SnapshotWithoutIdentity`, `Known(String)`; for the two negative variants the code says whether the grounding workspace is also the authoring one \"cannot be determined from here\".",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00187265,
+   "elapsed": 20.33,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F8",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/report.rs lines 175-215. The human-owed partition is introduced by one fixed paragraph enumerating everything it covers (\"... ungrounded ledger claims, claims grounded only by attested (ingested) evidence, evidence sources that do not resolve, ledger claims with no declared scope at all, qualified verdicts, superseded evidence, ... and tetel's own standing non-coverage \u2014 none of this is settled by a passing check\"), then prints each finding as a \"  - {line}\" bullet. `findings.grounding_provenance` strings are printed verbatim here, one bullet each, with no further formatting \u2014 so report.rs formats but does not compose that line's text.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0018356000000000002,
+   "elapsed": 20.89,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F9",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/lib.rs lines 95-130 (the `check` driver). Every input the owed predicate would need is derived from the memo path alone: `ledger.claims` parsed from the memo, `evidence_records` from the evidence file, and the authoring identity via `snapshot::snapshot_path(path)` + `workspace::identity_of(&snapshot_dir)`, mapped to `Known` / `SnapshotWithoutIdentity` (dir exists, no readable identity) / `NoSnapshot` (no dir). No authoring workspace is opened; nothing here reads a workspace other than through the snapshot shipped beside the memo.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0012719,
+   "elapsed": 15.11,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F10",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/citations.rs lines 60-135. The crate already has one matcher for \"an id cited from free text\": `citation_ids_in(text)` / `scan_line`, which accepts either a whole-line `*cites: C1, C4*` trailer or bracketed `[ID]` / `[!ID]` occurrences, where the id chars are alphanumeric/underscore/hyphen and `is_citation_shaped(id)` requires an ASCII-uppercase first char AND at least one digit or hyphen \u2014 deliberately shape-agnostic beyond that, because \"A first attempt using only 'contains a digit' was wrong: it rejected `R-ROOT` and `CYC-A`, real ids in this crate's own fixtures.\" The doc states the error direction explicitly: \"The failure mode is a false positive \u2014 content read as a citation, surfacing as `cited but undefined` \u2014 never a missed citation, so the cost is noise a reader can dismiss, not a check that silently passes\", and names two accepted collisions (`[Some-Var]`, `[Utf8Error]`) with \"Both are accepted rather than engineered around.\" Bare unbracketed text like `C7` is not matched: `scan_line` only enters the id scan at a `[` byte.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00228285,
+   "elapsed": 24.79,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F11",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/checks.rs lines 404-480 (check 5, the dependency cascade). It builds `row_citers: HashMap<id, Vec<(citer_id, line)>>` \u2014 a reverse index of who cites an id \u2014 from `citation_ids_in` over each row's `claim`/`note` fields, skipping self-citations, then runs a BFS per unsettled root over that reverse graph with a `visited` set seeded with the root, commented: \"`visited` seeds with the root itself so a citation cycle back to the root terminates instead of looping\". Ledger claims are deliberately excluded from this graph: an id \"Defined by the ledger, not a row ... never enters `row_citers`\". So the machinery rule 5 needs (reverse index + cycle-terminating traversal) exists and is proven here, but over rows, not over ledger claims.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008441825,
+   "elapsed": 104.27,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F12",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Three observations folded into this fact.\n\n(1) /Users/kolonicsmate/.claude/agents/lonic-designer.md lines 255-275 (the designer agent's stopping section, outside the tetel repo, read only). Three rules sit together: \"Stop when `check` is machine-clean and no live claim is refuted or unexplained\"; \"Human-owed items never clear and are not failures ... Machine-checked clean is the bar; the human-owed partition is what you hand the reader, not a queue to empty\"; and \"Stop after the first round that provokes no revision. Do not run a second.\" The revision-based rule keys on whether a round provoked a claim revision. No rule in this section makes emptiness of any schedule or list a termination condition; a cap of four grounding rounds is the ceiling.\n\n(2) docs/design/tet30-prose-revised-since-grounding.md lines 17-30, section \"The anchor: first proof, not last pass\". It records that \"Every grounding pass is briefed on every claim in the ledger, whether or not it has been graded before, so a pass that finds nothing to change still appends a fresh record against the unchanged wording\", with one claim carrying ten records on a single unchanged digest from three passes; and it anchors on \"the earliest record grading a claim's current wording \u2014 the moment that wording first entered proof\", noting \"In proof\" is not a new predicate but \"the digest comparison `analyze_ledger` already performs, empty-digest grandfathering included.\"\n\n(3) docs/design/tet46-look-never-returns-tetel-content.md lines 83-90, section \"No opt-out, and what 'explicitly named' costs\". Its argument against a flag: the honest escape hatches are each \"reached by naming something rather than by setting a flag\", and \"A flag would add a fourth route with a property none of these has \u2014 it leaves no trace in what the caller named, only in how they configured the call.\"",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008802975000000001,
+   "elapsed": 107.54,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F13",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `grounding_provenance` at /Volumes/SSD/Documents/lonic/tetel: seven occurrences, in three files only \u2014 src/checks.rs (doc reference at 174, the `LedgerFindings` field at 175, its zero-init at 584, the `pub fn` at 972), src/lib.rs (120-121, the sole call site, assigning into `findings.grounding_provenance`), and src/report.rs (198, the loop that prints each line). No test, fixture or other crate names it. Tetel's own output was skipped by the traversal, as the trailer records.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0024664749999999997,
+   "elapsed": 30.51,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F15",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `render_text` at /Volumes/SSD/Documents/lonic/tetel: three occurrences \u2014 the definition at src/brief.rs:36, one unit test at src/brief.rs:232, and one production call at src/lib.rs:214 (`brief::render_text(&display_path, &items)`). No other caller anywhere.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "Whole-worktree census of `render_text` at /Volumes/SSD/Documents/lonic/tetel: three occurrences",
+     "why": "The search explicitly skipped worktree paths, so the capture does not cover a whole-worktree census.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "[F15] search: /Volumes/SSD/Documents/lonic/tetel (grep: render_text) \u2014 2 files matched \u2014 skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 4 rendered memos (/Volumes/SSD/Documents/lonic/tetel/docs/design/tet28-modification-target-census.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet29-imported-mechanism-premises.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet30-prose-revised-since-grounding.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet46-look-never-returns-tetel-content.md)",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author claims a \"Whole-worktree census\", but the evidence for the search explicitly states that it \"skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 4 rendered memos\". A search that excludes parts of the worktree cannot be described as a \"whole-worktree census\", so the clause overreaches the evidence."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.001084025,
+   "elapsed": 12.7,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F16",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Independent replay of TET-30's evidence ledger (docs/design/tet30-prose-revised-since-grounding.md.evidence.jsonl), two python3 runs over the raw JSONL. Totals: 125 records, 35 distinct (claim, digest) pairs, 90 repeat records beyond the first per pair, of which 56 are same-workspace and 34 are cross-workspace regrades; 6 distinct grading workspaces; 69 distinct (claim, digest, workspace) gradings. Exactly 7 of the 34 cross-workspace regrades gave a verdict no earlier workspace had given for that pair, and all 7 are supports -> qualifies: C9, C11, C2, C4, C8, C11, C6. Discovery ordinals (position of the discovering workspace among workspaces grading that pair): 5 at the 2nd, 1 at the 3rd, 1 at the 4th. Capping distinct workspaces per pair at N: N=1 -> 35 gradings of 69, 0 of 7 discoveries retained; N=2 -> 51 of 69, 5 of 7; N=3 -> 60 of 69, 6 of 7; N=4 -> 67 of 69, 7 of 7. This is a retroactive replay of the ledger as recorded and assumes scheduling would not have changed how the run behaved.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0073763249999999995,
+   "elapsed": 87.71,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F17",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations on the pin operands.\n\n(1) src/facts.rs lines 400-455: a fact's `pin` is `format!(\"sha256:{}\", sha256_hex(&hash_input))` where hash_input concatenates, for every pending entry, its label, world_root, world_state and output. The comment calls it \"a content fingerprint over every entry's label, output and world-tree marker\", folding the marker in so \"a fact minted against a different tree state pins differently even if its labels/output happen to coincide\" \u2014 and notes the marker \"is still carried separately in `extent`\". So a fact pin is a hash of the observation's content, not a tree identifier: two facts minted in one checkout at one commit pin differently whenever their labels or output differ.\n\n(2) Running the installed tetel binary as `brief --json` over all five rendered memos in docs/design (tet28, tet29, tet30, tet46, tet47): 15, 14, 13, 19 and 26 claims respectively \u2014 87 in total \u2014 and ZERO carry a `pin` in any of them. `render_json` omits the field when `Claim::pin` is None, so `find_stated_pin` yields None for every claim in every memo this project has written, including this one.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "`find_stated_pin` yields None for every claim in every memo this project has written, including this one",
+     "why": "The capture reports results for five named memos, but the clause universalizes the result to every memo the project has written and includes the current one.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "tet28-modification-target-census.md claims 15 with pin 0\n tet29-imported-mechanism-premises.md claims 14 with pin 0\n tet30-prose-revised-since-grounding.md claims 13 with pin 0\n tet46-look-never-returns-tetel-content.md claims 19 with pin 0\n tet47-ground-what-is-owed.md claims 26 with pin 0",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text states that a command was run on \"all five rendered memos in docs/design\", and the evidence confirms the output for those five files. The clause then generalizes this result to \"every memo this project has written\", which is a broader population than the five memos the evidence covers. The assertion correctly identifies this as an overreach."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.0034672,
+   "elapsed": 37.84,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F18",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations on where a tree state is and is not available.\n\n(1) src/evidence.rs lines 548-600, the record read-back. `EvidenceRecord` is constructed from the statement with claim_id, verdict, pass, reported_kind, source, extent, note, pin, timestamp, witnessed and proposition_digest \u2014 the predicate's `world: Vec<Marker>` field is NOT read back. So the tree markers a witnessed record carries are written into the evidence JSONL and dropped when it is loaded for `check`.\n\n(2) src/lib.rs lines 130-150: when a snapshot directory sits beside the memo, `check` loads the shipped `facts.jsonl` via `facts::load_all(&snapshot_dir)` and calls `worldstate::tree_report(&facts)`, filling `findings.tree_states` and `findings.tree_ungradable` \u2014 \"Which working trees these facts saw, and in how many states. Read from the same shipped `facts.jsonl`; nothing derived is stored, and a re-run recomputes it.\" So the authoring side's tree states ARE recoverable from artifacts shipped beside the memo.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0024644000000000003,
+   "elapsed": 26.61,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F19",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `brief_file` at /Volumes/SSD/Documents/lonic/tetel: three occurrences \u2014 the definition `pub fn brief_file(path: &Path, json: bool) -> std::io::Result<(i32, String)>` at src/lib.rs:188, a CLI call at src/main.rs:351, and an MCP-server call at src/mcp.rs:877 (`crate::brief_file(&resolved(&memo), p.json)`). Its whole signature is a path and a bool: it takes no floor parameter, and there are TWO front ends, not one \u2014 the CLI and the MCP tool \u2014 so a floor parameter would have to be threaded through both.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00137805,
+   "elapsed": 18.42,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F20",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `render_json` at /Volumes/SSD/Documents/lonic/tetel: three occurrences \u2014 the definition at src/brief.rs:62, a unit test at src/brief.rs:250, and one production call at src/lib.rs:212 (`brief::render_json(&items)`), the sibling of the `render_text` call two lines below it. So `brief` has two renderers, not one, selected by the `json` flag.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "Whole-worktree census of `render_json` at /Volumes/SSD/Documents/lonic/tetel: three occurrences",
+     "why": "The search explicitly skipped directories and files, so the capture does not cover the whole worktree.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "[F20] search: /Volumes/SSD/Documents/lonic/tetel (grep: render_json) \u2014 2 files matched \u2014 skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 5 rendered memos (/Volumes/SSD/Documents/lonic/tetel/docs/design/tet28-modification-target-census.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet29-imported-mechanism-premises.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet30-prose-revised-since-grounding.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet46-look-never-returns-tetel-content.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet47-ground-what-is-owed.md)",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author claims a \"Whole-worktree census\", but the evidence for the search [F20] explicitly states that several directories and files were skipped. Therefore, the claim to have covered the \"whole worktree\" is an overreach, as it generalizes from an incomplete search to the entire population."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.001263925,
+   "elapsed": 15.35,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F21",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `EvidenceRecord` at /Volumes/SSD/Documents/lonic/tetel: 22 occurrences in two files only. src/evidence.rs holds the definition (219), the `impl` (257), the read-back constructor in `parse_line` (535, 560), `load` (512) and four doc references. src/checks.rs holds every consumer: the import (18), `analyze_ledger` (638, 647, 674, 733, 790-795), `unresolved_evidence_sources` (880) and `grounding_provenance` (974-984). No other module, test file or fixture names the type, so adding a field touches one producer and one consumer module.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001587675,
+   "elapsed": 18.28,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F22",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/worldstate.rs lines 78-100 (module doc, \"Implementation choice\") and line 167-170. A world-state marker is `git:<sha256 of \"rev-parse HEAD\" NUL \"git diff HEAD --binary\">` \u2014 \"which together determine every tracked file's content: `HEAD` names the base, the diff names the delta from it\". It was chosen over a worktree id precisely because a worktree id \"only distinguishes *which* checkout you're in, not whether it's dirty \u2014 and the defect this fixes is exactly two facts taken against the same nominal checkout with opposite uncommitted content.\" Untracked files are excluded. Consequence carried by this definition: the marker changes on every commit and on any uncommitted edit to any tracked file, so a state observed in the past cannot be re-observed by a later pass unless that pass restores both HEAD and the exact working-tree delta.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008290225,
+   "elapsed": 105.87,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F23",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `analyze_ledger` at /Volumes/SSD/Documents/lonic/tetel: five occurrences \u2014 the definition at src/checks.rs:638, two doc references in the same file (191, 201), one doc reference in src/evidence.rs:252, and exactly one call site, src/lib.rs:93 (`checks::analyze_ledger(&ledger.claims, &evidence_records)`). One caller, so changing what it returns is a one-site change.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "Whole-worktree census of `analyze_ledger` at /Volumes/SSD/Documents/lonic/tetel: five occurrences",
+     "why": "The search explicitly skipped worktree directories and files, so the captured search does not cover the whole worktree.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "[F23] search: /Volumes/SSD/Documents/lonic/tetel (grep: analyze_ledger) \u2014 3 files matched \u2014 skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 5 rendered memos (/Volumes/SSD/Documents/lonic/tetel/docs/design/tet28-modification-target-census.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet29-imported-mechanism-premises.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet30-prose-revised-since-grounding.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet46-look-never-returns-tetel-content.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet47-ground-what-is-owed.md)",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author claims a \"Whole-worktree census\", but the evidence for the search [F23] explicitly states that several directories and files were skipped. A search with exclusions is not a census of the whole worktree, so the clause overreaches the evidence."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.0016546,
+   "elapsed": 20.2,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F24",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two measurements at HEAD 043ecb04 with a clean tree.\n\n(1) Recomputing a world marker as sha256(rev-parse HEAD + NUL + `git diff HEAD --binary`) in a later session yields git:522a148addc8de24a48b26a795dbc7ea248fe9406668d4e97df38c4329c3320c, which is byte-identical to the world_state carried by this memo's own shipped facts.jsonl (the only other value there is \"no-git-worktree\", from the one extent outside the repo). So a marker IS reproducible by a later pass standing at the same commit with no uncommitted delta: undischargeability is not a property of markers as such, it is a property of HEAD having moved on.\n\n(2) Scanning `brief --json` propositions for all five rendered memos: tet28 15 claims, tet29 14, tet30 13, tet46 19, tet47 29 \u2014 and ZERO bracketed citation-shaped ids (matching /\\[!?[A-Z][A-Za-z0-9_-]*[0-9-][A-Za-z0-9_-]*\\]/) occur inside any proposition in any of them. Bare unbracketed tokens that equal a sibling id defined in the same ledger do occur: tet30 C3 names C9 and C13, and tet47 C4 names C5.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00396305,
+   "elapsed": 48.94,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F25",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/workspace.rs lines 95-145. `Identity { id, born }` is written into a workspace's `identity.json` on first use and \"Written once and never rewritten: a workspace that already has an identity keeps it, so nothing can quietly re-date a pass.\" The doc states the design intent plainly: \"an independent grounding pass is simply *defined* as a fresh workspace\", and the checkable property is \"these grounds were captured by this pass, not inherited from the author's\" \u2014 which \"falls out of where the facts live.\" So a distinct `pass` on a witnessed record certifies a distinct workspace directory that captured its own facts; it does not certify a distinct reader, since the workspace name is chosen by whoever invokes the tool.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0053942999999999994,
+   "elapsed": 67.74,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F26",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Searching for the STRINGS `grounding_provenance` emits, rather than for the identifier, finds test dependents the identifier census could not see. `SELF-GROUNDED` occurs at tests/authoring_cli.rs:1028 (`assert!(combined.contains(\"SELF-GROUNDED\"))`) and :1045 (the negation). `cannot be determined from here` occurs at tests/authoring_cli.rs:1083 (positive assertion) and tests/mcp_cli.rs:820 (negated assertion), besides its source at src/checks.rs:1007. So end-to-end tests in two files do assert on this function's emitted wording, by substring \u2014 which an appended count would probably survive, but which the identifier-only census at F13 reported as absent.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0012763,
+   "elapsed": 16.09,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F27",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/ledger.rs lines 358-386, the importer's own well-formed-row test. The fixture row is `| X-1 | `foo` returns **4** always [X-2] | ... |` and the test asserts `c.proposition == \"`foo` returns **4** always [X-2]\"`. So on an IMPORTED, hand-authored ledger a proposition does carry a bracketed sibling id \u2014 the construction `citation_ids_in` was built to find \u2014 and the ids of that population are hyphenated (`X-1`, `X-2`). That is the mirror image of the tetel-rendered corpus measured in F24, where no proposition carries a bracketed id and the only inter-claim references are bare unhyphenated tokens. Neither matcher covers both populations: a hyphen is punctuation, so a punctuation-delimited-token rule cannot yield a token equal to a hyphenated id at all.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0047236,
+   "elapsed": 58.11,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F28",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Three verifications at HEAD 043ecb04.\n\n(1) Computing the clean-tree marker sha256(commit + NUL) for all 89 reachable commits and matching against the frozen world_state in every rendered memo's shipped facts.jsonl: all five memos carry exactly one git marker each and every one is the clean-tree marker of a still-reachable commit \u2014 tet28 -> 57bd0e29a6c8, tet29 -> 67191f58c925, tet30 -> e19a4694bedd, tet46 -> b57bf8edb4c1, tet47 -> 043ecb041f02. (tet30 and tet47 also carry \"no-git-worktree\" from an extent outside the repo.) So an authoring marker does not become unreproducible when HEAD moves: it is reproducible by anyone who checks out that commit with a clean tree, and dies only if the commit becomes unreachable.\n\n(2) `brief --json` on tests/fixtures/ledger_check.md returns 2 claims and BOTH carry \"pin\": \"abc1234\". So a claim pin is present on the imported hand-authored population, and absent only from the tetel-rendered one.\n\n(3) The same call's top-level JSON value is a list, not an object \u2014 `render_json` emits a bare array of items.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "dies only if the commit becomes unreachable.",
+     "why": "The capture verifies markers against the currently reachable commit set, but this clause makes an exclusive lifecycle claim beyond that captured set.",
+     "facts": [
+      "F28"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "reachable commits: 89",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims that a marker \"dies only if the commit becomes unreachable.\" The evidence shows that markers for currently reachable commits are valid. However, the experiment did not involve making a commit unreachable to observe what happens to its marker, nor did it test for other potential failure modes. Therefore, the evidence supports that markers are valid for reachable commits, but it does not support the exclusive claim that the *only* reason they would become invalid ('die') is if the commit becomes unreachable. This is an overreach beyond what was demonstrated."
+     }
+    },
+    {
+     "kind": "overreaches",
+     "clause": "absent only from the tetel-rendered one.",
+     "why": "The captured run covers the hand-authored fixture only, while this clause makes an exclusive claim about the rendered population as well.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "r=subprocess.run(['/Users/kolonicsmate/.cargo/bin/tetel','brief','--json',R+'/tests/fixtures/ledger_check.md'],capture_output=True,text=True)",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's clause is \"absent only from the tetel-rendered one.\" This implies that the tetel-rendered population has been checked for pins and they were found to be absent. However, the evidence for part (2) of the note only shows a run of `tetel brief --json` on a single hand-authored fixture (`ledger_check.md`), not on any tetel-rendered files. The evidence supports the first half of the sentence (that pins are present on the hand-authored file), but provides no basis for the claim about the rendered population, making it an overreach."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.009722805000000001,
+   "elapsed": 116.41,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F29",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/lib.rs lines 186-218, the whole body of `brief_file(path, json)`. It reads the memo source, parses it, imports the ledger, and calls `brief::build(&ledger.claims)` then one of the two renderers. It never calls `evidence::load`, never calls `analyze_ledger`, and never touches `snapshot::snapshot_path` or `workspace::identity_of` \u2014 so the brief path today has none of the evidence records, none of the digest comparison, and no authoring identity. Every one of those is what the owed condition needs. The `check` driver has them (F9); `brief_file` would have to acquire them, which is a second ledger-analysis driver rather than a signature change.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00209175,
+   "elapsed": 25.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F30",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations, taken after HEAD moved to 20e40ef9a5a04bcad1a94f5886f372f493807afc.\n\n(1) `git diff --stat 043ecb041f02... HEAD -- src tests` produces EMPTY output: the one commit since this design's pin touched no file under src/ or tests/, so every source path this memo reads is byte-identical at the pin and at HEAD.\n\n(2) Scanning propositions of all five rendered memos with a strict bare-token rule (?<![A-Za-z0-9_-])(C[0-9]+)(?![A-Za-z0-9_]) for tokens equal to a sibling id defined in the same ledger, with context: FOUR hits, not three, and their contexts differ in kind. tet29 C6 -> C3 in \"(per C3-C5)\", i.e. the left end of a range. tet30 C3 -> C9 in \"tet28's C9\" and tet30 C3 -> C13 in \"tet28's C13\" \u2014 both name ANOTHER memo's claims and are sibling ids only coincidentally. tet47 C4 -> C5 (this memo's own) is the one unambiguous intra-ledger reference. So the count is tokenisation- and reading-sensitive between roughly two and five, and at most one of the four is an inter-claim dependency of the kind a closure would need to follow.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "FOUR hits, not three",
+     "why": "The captured scan output lists three matching hits, not four.",
+     "facts": [
+      "F30"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "tet29-im C6 -> C3 |ctx: elections from that donor fact's output (per C3-C5), immuta\ntet30-pr C3 -> C9 |ctx:  inferred: in the two shipped memos, tet28's C9 carries ten\ntet30-pr C3 -> C13 |ctx: ee passes spanning 1690 seconds, and tet28's C13 was graded ",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims the scan produced \"FOUR hits, not three\". The captured output from the scan script, which was run as part of the evidence gathering, shows exactly three hits. The fourth hit mentioned in the text, `tet47 C4 -> C5`, is absent from the captured output."
+     }
+    },
+    {
+     "kind": "contradicts",
+     "clause": "tet47 C4 -> C5 (this memo's own) is the one unambiguous intra-ledger reference.",
+     "why": "The captured exhaustive scan output contains no tet47 C4 -> C5 hit; its only printed hits are the three shown.",
+     "facts": [
+      "F30"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "tet29-im C6 -> C3 |ctx: elections from that donor fact's output (per C3-C5), immuta\ntet30-pr C3 -> C9 |ctx:  inferred: in the two shipped memos, tet28's C9 carries ten\ntet30-pr C3 -> C13 |ctx: ee passes spanning 1690 seconds, and tet28's C13 was graded ",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims that a scan for intra-ledger references found four hits, and explicitly lists \"tet47 C4 -> C5\" as one of them. The provided evidence is the captured output of the script that performed this exact scan, and it shows only three hits, none of which is \"tet47 C4 -> C5\". The clause therefore reports a result that is directly contradicted by the captured output of the tool that was supposed to produce it."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.009500324999999999,
+   "elapsed": 109.84,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F31",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations on what the brief and the ingested record path do today.\n\n(1) src/evidence.rs lines 305-330, `build_statement` (the INGESTED path): `pass`, `source`, `extent`, `note` and `pin` are all `input.*.clone()` \u2014 caller-supplied \u2014 and `world: Vec::new()` with the comment \"Always empty on the ingested path, and there is no input field that could make it otherwise.\" So an ingested record's pin is free text a reporter types, and its world marker set is unconditionally empty.\n\n(2) tests/brief_cli.rs lines 84-104, test `brief_still_lists_a_claim_grounded_only_by_ingested_evidence`, whose comment states the contract: \"Ingestion enrolls a claim in the independent-grounding loop; it does not excuse it \u2014 `brief` must keep listing it exactly as if nothing had been recorded yet, until a witnessed grounding lands.\" The test asserts the claim's id and proposition still appear. So there IS an existing, test-asserted behaviour that the brief present a recorded-on claim as though nothing had been recorded \u2014 the brief is evidence-blind by contract, not merely by omission.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0055343499999999995,
+   "elapsed": 66.26,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F32",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `tree_report` at /Volumes/SSD/Documents/lonic/tetel: eight occurrences in two files \u2014 the definition `pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport` at src/worldstate.rs:249, six calls inside that file's own unit tests (321, 342, 353, 362, 369, 375), and exactly one production call site, src/lib.rs:139 (`let trees = worldstate::tree_report(&facts);`). That call site is the one inside the `if snapshot_dir.is_dir()` block, which F18 records as sitting at lines 130-150 \u2014 after `findings.grounding_provenance` is assigned at lines 120-121.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "Whole-worktree census of `tree_report` at /Volumes/SSD/Documents/lonic/tetel",
+     "why": "The search excluded the worktree's own output and five rendered memos, so the capture does not cover the whole worktree.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "[F32] search: /Volumes/SSD/Documents/lonic/tetel (grep: tree_report) \u2014 2 files matched \u2014 skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 5 rendered memos (/Volumes/SSD/Documents/lonic/tetel/docs/design/tet28-modification-target-census.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet29-imported-mechanism-premises.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet30-prose-revised-since-grounding.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet46-look-never-returns-tetel-content.md, /Volumes/SSD/Documents/lonic/tetel/docs/design/tet47-ground-what-is-owed.md)",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The clause claims a \"Whole-worktree census\", but the evidence [F32] explicitly states that the search \"skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and 5 rendered memos\". Because the search did not cover the whole worktree, the clause overstates the scope of the capture."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.001134325,
+   "elapsed": 12.33,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F1",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Working tree pin as captured at the start of this design's authoring: /Volumes/SSD/Documents/lonic/tetel on branch tet30-prose-revised-since-proof, HEAD 81137aa683bdced9bf01a94d34c66b7f4a1758fd, `git status --short --branch` printing only the branch line \u2014 no modified, staged or untracked entries at that moment. Note that `--short` without `-uall` and, more importantly, the passage of time both matter here: this ran before the memo, its evidence sidecar and its snapshot directory existed. F20 re-ran the same question later with `--porcelain=v1 -uall` and found the same HEAD and branch and the same absence of any tracked-file modification, plus the eleven untracked paths this design has since written. The pin claim rests on F20 rather than on this fact; this one is retained as what was observed first.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0027441,
+   "elapsed": 31.87,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F2",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`look_grep` (src/observe.rs:349-480) builds two independent things from one grep run: `printed`, the string returned to the author, which on a match is the whole of grep's stdout verbatim plus a parenthesised exclusion note; and the pending buffer, which gets one `ObservationKind::Search` entry whose `output` is the empty string and whose `label` is `search: {root} (grep: {pattern}) \u2014 {files} file{s} matched \u2014 {note}`, plus one `ObservationKind::GrepMatch` entry per matched file carrying that file's matched lines in `output`. The per-file split is by `line.split_once(':')` over `stdout.lines()`, so the buffer's content is derived from the same stdout `printed` gets. Nothing in this range bounds, truncates or measures the size of `printed`.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002221775,
+   "elapsed": 22.6,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F3",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`render_facts` (src/compose.rs:260-305) renders the Facts table's \"Extent (captured)\" column as `f.extent.iter().map(|e| e.label).join(\"; \")` \u2014 the observation labels verbatim and nothing else. Its doc comment states captured output is deliberately not rendered (unbounded; in the snapshot). `render_transplants` (compose.rs:195) renders \"Donor extent (captured)\" the same way. So an observation's `label` is the entire trace of that observation visible in a committed memo.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0014899,
+   "elapsed": 15.25,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F4",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Return sizes in bytes of `tetel look --grep <symbol> /Volumes/SSD/Documents/lonic/tetel`, measured on this HEAD by piping the release binary's stdout through `wc -c` (workspace t56probe, a throwaway): claim 162897, fact 125554, check 124540, prose 81795, ack 75394, render 62145, get 45211, target 24975. These reproduce the ticket's figures exactly plus one byte each (a trailing newline). Six of these eight exceed the 59 KB the caller returns to an author.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00166625,
+   "elapsed": 20.44,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F5",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Same nine `tetel look --grep <symbol> <worktree>` returns on this HEAD, measured three ways (bytes, matching lines, distinct matched files) plus the longest single output line: claim 162896/1189/67, fact 125553/926/42, check 124539/883/71, prose 81794/587/40, ack 75393/641/49, render 62144/457/32, get 45210/342/47, target 24974/177/23, label 8201/64/15. Bytes-per-line ranges from 118 (ack) to 141 (target). The longest single line is 1090 bytes and recurs as the maximum for six of the nine symbols, so line count alone does not bound bytes: 457 lines is 62 KB here but 457 lines at the observed maximum width would be roughly 498 KB.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.005155875000000001,
+   "elapsed": 62.47,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F6",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`describe_buffer` (src/facts.rs:230-258) is this crate's existing precedent for a number-shaped worry. Its doc comment: buffer age is \"Reported rather than refused, and without a staleness threshold: there is no age at which folding an earlier observation becomes wrong, and a number chosen here would be arbitrary. What was missing was not a rule but the fact being visible at all\". The mechanism it settles on is to print each observation's age beside its label at mint time, letting the author notice.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0021439000000000002,
+   "elapsed": 25.52,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F7",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The MCP `look` handler (src/mcp.rs:623-646) takes `LookParams` of workspace/path/lines/grep only, and returns `text_result(outcome.printed)` \u2014 the whole of `printed`, unmeasured. Neither the params struct nor `TetelServer` (mcp.rs:600-620) carries any field conveying a size limit from the caller, and the handler performs no size check before returning.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0009957,
+   "elapsed": 10.97,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F8",
+   "verb": "fact",
+   "status": "ok",
+   "text": "A grep of the whole of /Volumes/SSD/Documents/lonic/tetel/src for `truncat` returns exactly one hit, in a doc comment in src/acks.rs:25 about acknowledgements not being removable or truncatable. No code anywhere in the crate's source truncates anything, so f3 is adding a behaviour the crate does not currently have rather than relocating one it does.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00138415,
+   "elapsed": 15.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F9",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`look_path` (src/observe.rs:277-337) computes one value `shown` and uses it twice: it is pushed into `printed` after the `==> path <==` header, and it is moved into the `PendingEntry`'s `output`. Return and capture are the same bytes here, unlike `look_grep`. Its label already records a clamp against what was asked: `--lines a:b` with `b` past the end of file yields `format!(\"{path} lines {a}-{end}\")` with `end = b.min(total)`, and a range entirely past the end yields `format!(\"{path} lines {a}-{b} (file has {total} line(s); nothing in range)\")` with an empty `shown` \u2014 the doc comment calls this the same \"a bounded negative must leave a trace\" discipline as a zero-match grep.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "Return and capture are the same bytes here, unlike `look_grep`.",
+     "why": "The returned `printed` value includes the header and may add a trailing newline, while the captured entry stores only `shown`.",
+     "facts": [
+      "F9"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "    let mut printed = String::new();\n    printed.push_str(&format!(\"==> {path} <==\\n\"));\n    printed.push_str(&shown);\n    if !shown.is_empty() && !shown.ends_with('\\n') {\n        printed.push('\\n');\n    }\n\n    let entry = PendingEntry {\n        kind: ObservationKind::Path,\n        key,\n        label,\n        output: shown,\n        world_root: world.root,\n        world_state: world.state,\n        captured_at: workspace::now_unix(),\n        pattern: String::new(),\n    };\n    let mut buf = pending::load(workspace_dir)?;\n    buf.push(entry);\n    pending::save(workspace_dir, &buf)?;\n\n    Ok(LookOutcome { printed })",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text states that the returned value and the captured value are the same. The evidence shows the function returns a struct containing the `printed` string, while the captured `PendingEntry` stores the `shown` string in its `output` field. The code shows that `printed` is constructed by prepending a header (`==> {path} <==\\n`) to `shown` and potentially appending a newline, so they are not the same bytes. The assertion correctly identifies this discrepancy."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.003789425,
+   "elapsed": 39.5,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F10",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `look_grep` across /Volumes/SSD/Documents/lonic/tetel: five occurrences in two source files \u2014 its definition at src/observe.rs:349, its dispatch call site at observe.rs:506, and three doc-comment mentions (observe.rs:76, observe.rs:495, worldstate.rs:76). No test, no binary, and no other module names it. The search skipped tetel's own output (*.tetel/, *.evidence.jsonl, six rendered memos under docs/design/) and two git-ignored paths (.idea, target).",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00189865,
+   "elapsed": 22.3,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F11",
+   "verb": "fact",
+   "status": "ok",
+   "text": "TET-28's census refusal, in `targets::declare` (src/targets.rs:159-174), fires when no extent entry satisfies `ExtentEntry::censuses(symbol)`, and its own refusal text ends: \"The refusal is about the search's existence and where it was rooted, never about what it found.\" The module doc (targets.rs:26-62) states the refusal makes \"every declared target is censused\" a workspace invariant because a fact's extent is immutable once minted, and that what declaration cannot reach is under-declaration \u2014 answered \"by visibility instead\", via the rendered section that does not disappear when empty and `check`'s standing non-coverage list.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.002055875,
+   "elapsed": 23.7,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F12",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`scope.rs`'s module doc (src/scope.rs:10-50) states the check's premise: extent is captured by the tool, note is authored, \"so comparing the locations a note *names* against the extent that was *captured* cannot be made vacuous by one author writing both sides.\" It says explicitly what it is not: \"a **scope** check, never a truth check\", with correctness about the named location registered as permanently out of reach (\"insincere examination\" \u2014 capture makes the extent honest, not the interpretation); and \"human-owed, never a refusal\", because a note may legitimately name a location as context and refusing \"would make the honest case unwritable to catch the dishonest one.\" Nowhere does it assert that the author read the extent.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00690615,
+   "elapsed": 79.74,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F13",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`report.rs`'s `NON_COVERAGE` (src/report.rs:87-118) already carries TET-46's tetel-output exclusion as its own entry, with a comment stating the rule for entries of this kind: \"A deliberate exclusion earns its own line, by the same standard as every other entry here. This can only ever be the general statement \u2014 every string in this list is static and none is per-search \u2014 which is why the per-search exclusion set is also written into the search record's own label, where a reader of the Facts table sees exactly which paths a given search withheld.\" The list also already contains \"whatever the platform's grep skipped \u2014 symlinked directories and binary files bound what a whole-worktree search physically visited\", deliberately kept on a separate line because it names platform accidents and \"contemplates nothing tetel chose\". `HUMAN_OWED_CATEGORIES` (report.rs:52-71) is the eighteen-entry canonical list of the human-owed partition and includes \"tetel's own standing non-coverage\" and \"facts whose note names a location outside their own captured extent\".",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.007133850000000001,
+   "elapsed": 80.4,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F14",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `NON_COVERAGE` across /Volumes/SSD/Documents/lonic/tetel: three occurrences \u2014 the definition at src/report.rs:86, one iteration site at src/report.rs:600 (`for item in NON_COVERAGE`), and one comment mention in tests/authoring_cli.rs:1829. No test asserts the list's length or its exact membership at any of these sites, so adding an entry is a one-line edit at the definition. Same exclusions applied as the other censuses in this memo.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001732625,
+   "elapsed": 19.36,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F15",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The \"nothing derived is stored\" doctrine, as stated in src/lib.rs:136-141: the tree-state report is read \"from the same shipped `facts.jsonl`; nothing derived is stored, and a re-run recomputes it.\" The rule is scoped to values a later re-run can recompute from the shipped ledger \u2014 it is stated as a reason for recomputing rather than persisting, not as a prohibition on recording what happened.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00098775,
+   "elapsed": 11.74,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F16",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Contrary to the reading that return and capture are one value in `look_path`: at src/observe.rs:314-330 `printed` is a distinct `String::new()` that receives a COPY of `shown` via `printed.push_str(&shown)` (a borrow), and only afterwards is `shown` MOVED into `PendingEntry { output: shown, .. }`. Between the push_str and the move there are two independent strings, so a bound applied to `printed` at that point cannot reach `entry.output`, the entry's `label`, its `key`, its `world_root`/`world_state`, or anything that ships into the snapshot. Whatever `look_path` captures is byte-identical whether or not `printed` was bounded. The `label` computed at 297-312 is likewise built from `contents`/`lines`, never from `printed`.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0034702500000000002,
+   "elapsed": 40.27,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F17",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The crate does truncate author-supplied text in one place today, and it has a spelling for it. `refuse_incomplete` (src/transplants.rs:420-443) shortens each undischarged premise for its refusal message: `let first = text.lines().next().unwrap_or(\"\").trim();` then `let shown = if text.lines().count() > 1 { format!(\"{first} \u2026\") } else { first.to_string() };`. Two properties are legible from those two lines: the cut is taken at a LINE boundary (`lines().next()`, never a byte or character offset), and the shortened text carries a trailing marker \u2014 a space followed by U+2026 \u2014 applied when and only when something was actually removed, so an untruncated premise gains no marker at all. What the spelling does NOT carry is any measure of how much was withheld: neither the count of lines dropped nor any total appears in `shown` or in `msg`. This is a marker in the returned text itself, not in any label or record.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00537495,
+   "elapsed": 65.08,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F18",
+   "verb": "fact",
+   "status": "ok",
+   "text": "What an author actually sees at capture time, on both front ends. The CLI (src/main.rs:506-510) does `print!(\"{}\", outcome.printed)` on success and nothing else; the MCP handler (src/mcp.rs:643-646) does `text_result(outcome.printed)` on success and nothing else. Neither returns the observation's label, its key, or any other field of the pending entry \u2014 `printed` is the whole of what `look` hands back. The label first becomes visible to the author one act later, inside the `fact` result: `mcp.rs:670-676` loads the pending buffer, builds `folded` via `facts::describe_buffer`, and ships it in `fact_result` \u2014 and by that point the note is already a parameter of the same call (`facts::FactRequest::Mint { note: p.note }`, mcp.rs:666), i.e. the assertion over the observation was supplied before the label was ever shown. So anything written only into the label is legible to a later reader of the memo and to the author only after they have committed the note.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00233575,
+   "elapsed": 25.4,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F19",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of `look_path` across /Volumes/SSD/Documents/lonic/tetel: four occurrences in one source file \u2014 the definition at src/observe.rs:277, the single call site inside `dispatch` at src/observe.rs:516, and two doc-comment mentions (observe.rs:4, observe.rs:495). No test, no binary and no other module names it, so a change confined to the function body touches nothing else. Same exclusions as this memo's other censuses (tetel's own output and git-ignored paths), and this run skipped seven rendered memos because this memo now exists among them.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00173915,
+   "elapsed": 20.38,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F20",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Precise state of the pinned tree, replacing F1's \"clean tree\" wording. `git status --porcelain=v1 -uall --branch` at /Volumes/SSD/Documents/lonic/tetel prints the branch line `## tet30-prose-revised-since-proof` and then exactly eleven `??` entries and nothing else: no line begins with M, A, D, R, C or U, so no tracked path is modified, staged, deleted or conflicted. All eleven untracked paths are this design's own output \u2014 docs/design/tet56-bounded-grep-return.md, its .evidence.jsonl sidecar, and nine files under docs/design/tet56-bounded-grep-return.md.tetel/ (claims.jsonl, counters.json, facts.jsonl, identity.json, pending.json, prose.jsonl, refusals.log, targets.jsonl, transplants.jsonl). `git rev-parse HEAD` is 81137aa683bdced9bf01a94d34c66b7f4a1758fd. So the tree reproduces a read of any tracked file exactly, and the only things `git status` reports are files tetel wrote while authoring this memo.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.006614075,
+   "elapsed": 83.02,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F21",
+   "verb": "fact",
+   "status": "ok",
+   "text": "tetel itself, not any claim, is what carries \"which tree state each fact was taken against\". `HUMAN_OWED_CATEGORIES` in src/report.rs includes the entry \"the working-tree states this memo's facts were taken against\" (report.rs:55), and the reporting code at report.rs:490-500 emits, per root observed in more than one state, `\"{root} was observed in {n} different working-tree states by this memo's facts\"` followed by each state and the fact ids taken under it. So the per-observation quantifier is machine-recorded per fact and reported by `check`; a memo claim asserting it would be re-asserting what the tool already reports from captured data.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0054556,
+   "elapsed": 63.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F22",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two things about refusing rather than reporting a bound in `look_grep`.\n\n(1) The ordering does NOT force report-over-refuse. In the match branch (src/observe.rs:438-478) `printed.push_str(&stdout)` and the exclusion note run FIRST, before `by_file` is built and before any `PendingEntry` is constructed; the `Search` entry and the per-file `GrepMatch` entries are pushed onto the in-memory `buf` after that, and `pending::save(workspace_dir, &buf)?` is the last statement before `Ok(LookOutcome { printed })`. So an implementation that bounds while assembling `printed` reaches the bound before any entry exists and before anything is persisted, and could return `Err` there discarding nothing. Nothing in this range makes a refusal impossible.\n\n(2) What does decide it is the crate's own report-versus-refuse discriminator, stated in `targets.rs`'s module doc (targets.rs:44-49): the census refusal is a refusal because \"Here nothing is left to tell: the remedy is singular. Run the workspace-rooted grep, mint the fact, cite it \u2014 or withdraw the target\", as against `scope`, which \"stayed human-owed because only a person can tell context from conclusion\". A whole-`src` grep for `refuse` shows every `workspace::refuse` call site in the crate is of that singular-remedy kind \u2014 a missing or malformed input, or a forbidden flag combination: claims.rs (no --proposition, no such claim, --revise without --why, unknown cited fact), facts.rs (empty note, no such fact), prose.rs (--ack combined with any of --text/--revise/--heading/--level/--cites/--before, --level out of 1..=6), targets.rs (no symbol, uncensused symbol), transplants.rs (empty --text, withdrawn ids, an unanswered premise at render), observe.rs (no such path, invalid --lines range, `--grep` without a path, `lines` with `grep`). Not one refusal anywhere in src is keyed to the size or content of a result. A byte budget is not a singular-remedy condition: the author who hits it has no act that re-runs the search under the budget.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.01690598,
+   "elapsed": 191.27,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F23",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Corrected file count for the `check` census on this HEAD, and the cause of the earlier over-count. Running the release binary's `look --grep check /Volumes/SSD/Documents/lonic/tetel` and measuring four ways: the whole return is 884 lines (`wc -l` over the newline-stripped capture reports 883 separators); its last line is the parenthesised exclusion note, whose first colon-delimited field is `(skipped tetel's own output`; dropping that line leaves 883 matching lines; and the distinct first-colon fields of those 883 matching lines number 70, which is what `by_file.len()` computes. Counting distinct first-colon fields over the WHOLE return \u2014 the method used for the earlier figure \u2014 yields 71, because the exclusion-note line contributes a spurious 71st field. So this census is 70 files and 883 matching lines, and 71 was an artefact of counting the note line as a file.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0034932,
+   "elapsed": 40.03,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F24",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Over-budget single lines are real in this worktree, and cutting one safely needs care the crate has no helper for. (1) Of the tracked files in /Volumes/SSD/Documents/lonic/tetel, exactly four contain a single line longer than 32768 bytes, and all four are tetel's own snapshot ledgers: docs/design/tet46-look-never-returns-tetel-content.md.tetel/facts.jsonl (longest line 905745 bytes, 21 lines), tet30-prose-revised-since-grounding.md.tetel/facts.jsonl (574898, 22), tet29-imported-mechanism-premises.md.tetel/facts.jsonl (57249, 12), tet28-modification-target-census.md.tetel/facts.jsonl (34477, 11). So under a whole-lines-only release rule with a 32768-byte budget, a read of any of these four returns zero content for the selection that begins with its long line, and no `--lines` range returns any byte of that line. (2) The longest line decodes as UTF-8 and is 903823 characters in 905745 bytes, i.e. it contains multi-byte characters \u2014 1922 continuation bytes in that one line, 1410/140/66 in the other three. Byte offset 32768 happens not to be a continuation byte in any of the four, but the presence of multi-byte characters means an arbitrary byte offset can land mid-character, so a byte-offset cut must be snapped down to a character boundary rather than taken raw. (3) A grep of the whole of src/ for `is_char_boundary`, `char_indices` and `.truncate(` returns no hits at all: the crate has no existing helper for cutting a string at a byte budget, so this design must state the character-boundary rule rather than name an existing spelling for it.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.006811424999999999,
+   "elapsed": 71.83,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F25",
+   "verb": "fact",
+   "status": "ok",
+   "text": "What a label change actually costs, in `facts::mint` (src/facts.rs:400-435). The fact's `extent` is built by copying each pending entry's `key`, `label`, `world_root`, `world_state`, `kind`, `pattern` and `out_len` \u2014 so the label IS the extent's label, verbatim. The pin is then `sha256:` over a string assembled by pushing, for every entry in buffer order, `label` + '\\n' + `world_root` + '\\n' + `world_state` + '\\n' + `output` + '\\n'; its own comment calls it \"a content fingerprint over every entry's label, output and world-tree marker\". So altering an entry's label alters both the extent bytes and the pin, and both are carried in the `FactEvent::Create` this function builds and persists. A bound that adds a segment to a label therefore does change the extent and the pin on exactly the observations where it bites; what it leaves untouched is `output` (the captured bytes), `key`, `world_root` and `world_state`. Also visible here: `out_len: Some(e.output.len())` \u2014 the extent already carries a length derived from the captured output, so storing a measurement alongside an observation is not foreign to this record type.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "The fact's `extent` is built by copying each pending entry's `key`, `label`, `world_root`, `world_state`, `kind`, `pattern` and `out_len`",
+     "why": "The extent's `out_len` is derived from the pending entry's captured output, rather than copied from a pending entry's `out_len`.",
+     "facts": [
+      "F25"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "out_len: Some(e.output.len()),",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's clause states that the `extent`'s `out_len` field is built by copying from the pending entry. The evidence shows `out_len: Some(e.output.len())`, meaning it is derived from the length of the pending entry's `output` field, not copied from a pre-existing `out_len` field. The author even correctly describes this derivation later in the paragraph, making the initial clause an internal contradiction as well as a contradiction of the code."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.002341825,
+   "elapsed": 24.87,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F26",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two things that together make the zero-content case reachable and make a `look_path` shortfall recomputable from shipped bytes. (1) `look_path` (src/observe.rs:277-300) refuses exactly two conditions \u2014 a path that does not exist, and a directory \u2014 and then does `fs::read_to_string(p)` on whatever remains. No exclusion filtering is applied on this path at all: the only construction of `Exclusions` in the module is `Exclusions::decide(root_path)` at observe.rs:389, inside `look_grep`, and `decide` itself returns `Exclusions::None { why: \"the caller named one file\" }` for any root that is not a directory. So a tracked path under a `.tetel/` snapshot directory is opened by `look <path>` like any other file, and the four long-line ledgers are reachable. (2) `snapshot.rs`'s `SNAPSHOT_FILES` (src/snapshot.rs:71-100) is a ten-entry enumeration whose first element is `facts.jsonl`, so every fact's persisted `output` \u2014 for a `Path` entry, the complete selected text \u2014 ships beside the rendered memo. The enumeration's own comment says the list is enumerated rather than copied wholesale so that shipping a workspace file is a deliberate decision.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.011065595,
+   "elapsed": 126.46,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F27",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`printed` in `look_grep` is assembled in two separate pushes on the match branch (src/observe.rs:437-439): `printed.push_str(&stdout)` and then `printed.push_str(&format!(\"({note})\\n\"))`, where `note` is `exclusion_note(&exclusions)` computed at observe.rs:417. The zero-match branch (observe.rs:421-435) pushes the same `({note})` line after its \"no matches\" line. So the exclusion note is a distinct trailing segment of `printed`, not part of grep's stdout, and it is present in every return `look_grep` makes. `exclusion_note`'s own doc comment (observe.rs:182-194) states why the text exists: silence about an exclusion is ambiguous between \"nothing was hidden\" and \"nobody said\", and the memo paths are listed rather than counted so that two searches over different memo sets do not fingerprint identically. That doc comment locates the text in the whole-search record's `label`; the code at 437-439 shows it is also pushed into the author-facing return. A budget applied to the `stdout` portion alone therefore leaves the note intact in the return, while a budget applied to the assembled `printed` could cut the note off the author-facing surface.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.006157425,
+   "elapsed": 73.21,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F28",
+   "verb": "fact",
+   "status": "ok",
+   "text": "What `look_path` selects and what it wraps that selection in, read at src/observe.rs:277-337 for the purpose of settling the budget's referent on the path side. (1) The selected text is `shown`: with no `--lines` it is `contents.clone()`, the whole file; with `--lines a:b` it is `all[a - 1..end].join(\"\\n\")` over `contents.lines()`, where `end = b.min(total)` \u2014 so the selection is 1-based, begins at line `a`, and is joined without a trailing newline. (2) `printed` is a separate `String::new()` assembled in up to three pushes: `printed.push_str(&format!(\"==> {path} <==\\n\"))`, then `printed.push_str(&shown)`, then a single `'\\n'` if `shown` is non-empty and does not already end in one. (3) The header therefore exists in `printed` and in no other place: `PendingEntry { output: shown, .. }` receives the selection alone, so neither the header nor the trailing-newline pad is ever part of the captured output, the label, the key or anything that ships in the snapshot. A budget measured over the assembled `printed` would consume the header before any content, and would count `==> ` plus the path plus ` <==\\n` against the file's own bytes; a budget measured over `shown` counts only what was selected.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0067567,
+   "elapsed": 76.39,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F29",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Where the floor actually fires, measured over the four tracked files that hold a single line above 32768 bytes, by simulating this design's release rule (accumulate whole lines, counting the `join(\"\\n\")` separator between them, and stop before the first line that would carry the total past the budget) against each file's per-line byte lengths in order.\n\nThe over-budget line is NEVER the first line of any of the four. Positions of the over-budget lines, and what a selection beginning at line 1 \u2014 which is exactly what a plain `look <path>` selects \u2014 releases:\n\n  tet46 \u2026/facts.jsonl \u2014 20 lines, first line 978 B, over-budget lines at positions 11 (757177 B) and 15 (905745 B). A plain read releases 5 whole lines, 24947 B, stopping before line 6 (8029 B) because the budget is exhausted by ordinary whole lines, not because any line was over budget.\n  tet30 \u2026/facts.jsonl \u2014 21 lines, first line 882 B, over-budget line at position 15 (574898 B). A plain read releases 2 whole lines, 11976 B.\n  tet29 \u2026/facts.jsonl \u2014 11 lines, first line 1273 B, over-budget line at position 2 (57249 B). A plain read releases 1 whole line, 1273 B.\n  tet28 \u2026/facts.jsonl \u2014 10 lines, first line 1237 B, over-budget line at position 2 (34477 B). A plain read releases 1 whole line, 1237 B.\n\nSo on all four, a plain `look <path>` returns between 1237 and 24947 bytes of whole lines and the floor does not fire. The floor fires when and only when the FIRST line of the selection is itself over budget, which on these four is reachable from exactly five ranges: `--lines 11:B` and `--lines 15:B` on tet46, `--lines 15:B` on tet30, `--lines 2:B` on tet29 and `--lines 2:B` on tet28 (any B at or past that line). A range that merely contains an over-budget line does not reach the floor and returns no byte of that line: `--lines 12:20` on tet46 releases lines 12-14 (3 whole lines, 11852 B) and stops before line 15; `--lines 8:20` on tet46 releases 3 whole lines, 6608 B; `--lines 12:21` on tet30 releases 3 whole lines, 12855 B.",
+   "findings": [
+    {
+     "kind": "overreaches",
+     "clause": "A range that merely contains an over-budget line does not reach the floor and returns no byte of that line",
+     "why": "The note makes this universal claim about such ranges, while the capture runs only the displayed containing-range examples.",
+     "facts": [
+      "F29"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "--lines 12:20 (range CONTAINS an over-budget line but does not start on one) -> whole lines released 3 bytes 11852 floor_fires False",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's clause \"A range that merely contains an over-budget line does not reach the floor and returns no byte of that line\" is a universal statement about all such ranges. The evidence, however, only contains the output for three specific examples of such ranges (`--lines 8:20` and `12:20` on `tet46`, and `--lines 12:21` on `tet30`). The clause generalizes from this small sample to the entire population of possible ranges, which is an overreach."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.01455883,
+   "elapsed": 165.94,
+   "findings_before_refutation": 2
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F30",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`run` has this ticket's defect and this design does not fix it \u2014 read so that the standing non-coverage entry can be written honestly about what it does and does not cover. (1) `run_command` (src/observe.rs:537-621) captures the child's merged stdout/stderr into one buffer, converts it with `String::from_utf8_lossy`, and then uses the same value twice: `output: output_text.clone()` into a `PendingEntry` of kind `ObservationKind::Proc` keyed by the command line and labelled `proc: {cmdline} (exit {exit_code})`, and `Ok(RunOutcome { printed: output_text, .. })` as the return. Nothing anywhere in the function measures, bounds or truncates either copy, and the label carries the command line and the exit code and no measure of size. (2) Both front ends hand that return back whole: the CLI does `print!(\"{}\", outcome.printed)` (src/main.rs:526) and the MCP handler returns it as the `\"output\"` field of a structured result (src/mcp.rs:652-657), neither measuring it. (3) The `run` tool's own description (mcp.rs:649) already contemplates the large case and answers it by warning the author rather than by bounding anything: \"The whole output is captured verbatim and, once minted into a fact, becomes permanently unrevisable and ships into the snapshot beside the memo \u2014 so a command whose output is enormous, or contains a credential, puts that in a repository forever.\" So a `run` return overruns the caller's cap exactly as an unbounded `look` return does, and the only thing standing against it today is that warning. Note the census scope here: this fact opens `run_command`, its two call sites and the `run` tool description; it is not a whole-worktree census of any symbol.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.009664675000000001,
+   "elapsed": 108.18,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F31",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`look_grep` is two modes selected by whether its root is a directory, and the single-file mode leaves stdout order recoverable from the shipped ledger. `-r` is pushed only `if root_path.is_dir()` (observe.rs:361-363), and `Exclusions::decide` returns `Exclusions::None { why: \"the caller named one file\" }` for any non-directory root (observe.rs:252-254), so `look --grep <pattern> <one file>` is a first-class mode that searches exactly that file and applies no exclusions. `-H` is pushed unconditionally, so even in that mode every stdout line is `<file>:<lineno>:<text>`. In that mode the `BTreeMap` `by_file` has exactly one key, and its `Vec<String>` holds each matched line's `{lineno}:{text}` in stdout order (the `for line in stdout.lines()` push order), and the shipped `GrepMatch` entry's `output` is `matches.join(\"\\n\")` with label `{file} (grep: {pattern})`. So the file name, the line order and every matched line are all in the ledger, and the full grep stdout reconstructs from a single-file `GrepMatch` entry. With a directory root the same map holds many keys ordered by filename, which is not the stdout order.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008781775,
+   "elapsed": 101.79,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F32",
+   "verb": "fact",
+   "status": "ok",
+   "text": "In `look_path` the label is finished before the string the bound applies to exists \u2014 the opposite statement order from `look_grep`. `let (shown, label) = match lines { ... };` completes at observe.rs:297-312 and fixes `label` in all three of its arms (`path.to_string()`, the \"nothing in range\" form, and `{path} lines {a}-{end}`), and only afterwards, at observe.rs:314, does `let mut printed = String::new()` begin assembling the return. The label is then moved into `PendingEntry { label, .. }` at 321-330 unchanged. So an implementer who bounds `printed` at 316 where `shown` is pushed, and leaves the `match lines` block untouched, gets a cut return with a label that says nothing about the cut, which is the silent cut the design exists to stop. In `look_grep` the same edit is naturally safe: `printed.push_str(&stdout)` at observe.rs:438 opens the match branch and the `Search` label is built afterwards at 457-460.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00232995,
+   "elapsed": 26.02,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F1",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Working tree pin for this design: branch tet30-prose-revised-since-proof, HEAD c821b94d6e1fbf4dc43a1691c975e440448534d2 (\"check: report prose that moved while the claims it cites stood still\"), `git status --porcelain -b` shows only the branch line, i.e. no modified, staged or untracked files.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0005887500000000001,
+   "elapsed": 7.71,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F2",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`prose_after_proof` (src/checks.rs, doc comment through the function body) computes, per non-heading prose block with a non-empty current citation list: `first_proof[claim]` = the EARLIEST evidence record whose `proposition_digest` exactly equals sha256 of the claim's current proposition and whose verdict is not `Refutes` (an empty/pre-digest digest does not qualify; `Qualifies` does); `anchor` = the MAX of `first_proof` over those cited claims that have one, with an existential gate `if cited.is_empty() { continue }` skipping the block entirely when no cited claim is in proof; `block_timestamp` = the timestamp of the EARLIEST event in the block's history whose text AND cite-list BOTH equal the current ones (`min_by_key` over `filter(|(_,t,c,_)| t == cur_text && c == cur_cite)`), with that event's own `why` carried alongside. The block is listed iff `block_timestamp > anchor`. Because `first_proof` is a per-claim minimum, the anchor can only rise when a cited claim that previously had NO first proof acquires one; a later record grading a claim already in proof does not move it.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0029757000000000004,
+   "elapsed": 28.71,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F3",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Where a new workspace event can live, tested three ways.\n\n(1) SCHEMA: `ProseEvent` in src/prose.rs carries `#[serde(tag = \"event\")]` with exactly two variants, `Create` and `Revise`. Both variants' later-added fields (`before` on Create, `cite` on Revise) use `#[serde(default)]` with comments stating \"an old log replays exactly as it did\" \u2014 i.e. field-level forward compatibility is established practice within a variant.\n\n(2) READER: `workspace::read_jsonl` in src/workspace.rs treats a missing file as empty and skips blank lines, but maps ANY line's `serde_json::from_str` failure to `Err(io::Error::InvalidData)` and returns it \u2014 the whole log fails, no line is skipped.\n\n(3) EXPERIMENT: I created a scratch workspace `tet61lab` whose prose.jsonl held one valid `{\"event\":\"Create\",...}` line followed by one `{\"event\":\"Ack\",...}` line, then ran the build at this pin (`cargo run --bin tetel -- query prose --workspace tet61lab`). Output: `tetel: error querying: unknown variant `Ack`, expected `Create` or `Revise` at line 1 column 14`, exit 1. So a build that does not know a new tag value cannot read the log AT ALL \u2014 including the pre-existing Create line. The scratch workspace was then deleted (`rm -rf`, confirmed absent) and `git status --porcelain` printed nothing.\n\n(4) SNAPSHOT MANIFEST: `snapshot::SNAPSHOT_FILES` in src/snapshot.rs is a `const [&str; 9]` explicitly enumerating the shipped files (facts/claims/prose/targets/transplants .jsonl, counters.json, pending.json, refusals.log, identity.json), with a doc comment saying it is \"Enumerated rather than copied wholesale so that a future workspace file is a deliberate decision to ship or withhold, not an accident of `cp -r`.\" The same module's doc comment states \"Because `render` is deterministic in the workspace alone, a snapshot either re-renders its memo byte-for-byte or it does not\", and commits the project to \"a rendered memo is never hand-edited.\"",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.01056755,
+   "elapsed": 117.44,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F4",
+   "verb": "fact",
+   "status": "ok",
+   "text": "TET-30's memo, evidence-ledger rows C4-C11 (docs/design/tet30-prose-revised-since-grounding.md lines 97-104), all marked OWED.\n\nC6 states the clearing story this design must replace: \"Two things clear a listing. Reverting the text and citations to what they were when the claims settled, which works because the timestamp is looked up by content rather than by event order even though prose.jsonl is append-only. And revising or adding a cited claim and having the new wording graded, which is the remedy the finding calls for\". It then states the cost verbatim: \"neither remedy is cheap, so a flow-only edit made after a memo's claims have settled stays listed until some claim moves or the edit is undone, and a memo shipped with such an edit ships the line.\" C6 also establishes that a further grounding pass over unchanged wording \"appends records with later timestamps but cannot move the earliest one, so re-grounding never blesses a listed block\", and that a citation-only revision lists rather than clears.\n\nC11 states the guarantee this design breaks, verbatim: \"Nothing new ships in the snapshot, no schema changes, nothing is executed and no file the document names is opened.\" C11 also states \"`machine_check_failed` is not touched, which is what makes this human-owed by construction rather than by intention\", and that the check's claims must come from the rendered document's imported ledger, never the snapshot's claims.jsonl, because the two sources are not the same string.\n\nC10 states the entry format: bullets in the existing flat human-owed list, one entry per listed block plus one preamble entry carrying the two-clocks caveat; each entry \"names the block's workspace id and the line in this document where its text begins\", \"each cited claim, that claim's first-proof timestamp and the pass that wrote it, and the block's own timestamp \u2014 the inputs to the comparison, so a reader can disbelieve the conclusion.\"\n\nC7 states the ordering's bound: the residue compares an authoring workspace's clock against a grounding pass's; the two are the same unit and epoch (UTC seconds, no timezone term), but \"What no record establishes is that the two processes kept the same wall clock\", and an ordering the line reports \"can be wrong only if the grounding process's clock differed from the authoring workspace's by more than the interval between the prose edit and the pass that first put the cited claims in proof.\"\n\nC4 states the pair key and that keying on text rather than last event \"is what lets a byte-exact revert clear a listing, since prose.jsonl is append-only and a revert can only append a later timestamp\", and that clause (b) is existential so a record-less citation cannot suppress a block silently.\n\nC5 states creations count as well as revisions, and closes the evasion whereby a fresh paragraph under already-settled claims would otherwise escape.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "the guarantee this design breaks",
+     "why": "The captured text describes a guarantee preserved by the design, not one that the design breaks.",
+     "facts": [
+      "F4"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "Nothing new ships in the snapshot, no schema changes, nothing is executed and no file the document names is opened.",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims that C11 states \"the guarantee this design breaks\", and then quotes a sentence. The evidence is the text of C11 itself. In the evidence, that quoted sentence \u2014 \"Nothing new ships in the snapshot, no schema changes, nothing is executed and no file the document names is opened\" \u2014 is presented as a list of things the new design will *not* do. It is a guarantee the proposed design *provides*, not one that it *breaks*. The author's description of what C11 states is therefore contradicted by the content of C11."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.02093515,
+   "elapsed": 233.89,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F5",
+   "verb": "fact",
+   "status": "ok",
+   "text": "In src/checks.rs, `Findings::machine_check_failed` returns true if any of grammar_errors, subset_failures, abutting_failures, unsettled_failures, cascade_failures, ledger_errors, verdict_disagreements, out_of_proof, uncensused_targets, unquoted_premises is non-empty, or `provenance_failed()`. `prose_revised_since_proof` is declared on `Findings` immediately above this impl and is NOT among them. Separately, an `out_of_proof` entry is produced when a claim has records but none whose digest matches its current wording; its printed text is \"Out of proof: nothing grades what this claim says today. Reprove it against the current wording, or restore the wording it was graded against.\" So revising a cited claim's proposition puts that claim out of proof \u2014 a machine failure, exit 1 \u2014 until a later pass grades the new wording.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0054605750000000005,
+   "elapsed": 67.74,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F6",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/report.rs, two regions.\n\n(a) `report::render`'s doc comment and head (lines 155-180): \"`build` names the binary that produced this report (see `buildid.rs`). It is passed in rather than read here so this function stays a pure function of the document it grades \u2014 and it is *always* printed, including on the no-rows path, because the whole point is that two outputs which disagree can be told apart by their checker. A report that does not name its build cannot be disbelieved.\" The no-rows path's own message shows the crate's stance on distinguishable states: \"no tetel rows found in {display_path} \u2014 out of scope, nothing was checked. This is a distinct state from a clean run, not a weaker way of spelling it (exit {EXIT_NO_ROWS}).\" The build line goes into the CHECK REPORT, not into the rendered memo.\n\n(b) The residue's printing block (lines 315-380). One preamble bullet printed once, whose comment cites `ledger_has_no_scope_columns` as the precedent for collapsing a constant to one document-level line (\"a constant repeated per row buries the findings that are about *this* document\"). The preamble text states the two-clock bound in BOTH directions, including \"the same skew in the *other* direction can just as well suppress a listing that should have appeared, since this check is silent by default: an entry missing here is not proof the ordering was clean, only that no skew large enough to flip it was found\". Each entry is a `  - ` bullet naming block id, resolved document line (or \"line unknown (offset lookup failed)\" \u2014 a fabricated 0 is explicitly refused), the pair's date and raw timestamp, and the interval since the anchor, where the anchor is recomputed on the spot as `p.cited.iter().map(...).max()` rather than carried as a field. Then, ONLY when the event producing the current wording was a `Revise`, an indented line `revised because: \"{why}\"` \u2014 with the comment: \"The author's own stated reason for the edit that produced this wording \u2014 present only when that edit was a `Revise` (a `Create` has none, and none is fabricated here). Never a paraphrase: this is the author's own words, carried verbatim, and the single most actionable thing this entry can hand a reader without quoting the paragraph itself.\" Then one indented line per cited claim: `{id}: first entered proof at {date} (raw {ts}), by pass {pass}`.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "not into the rendered memo.",
+     "why": "The no-rows message returned by `render` includes the build line in the rendered output.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "\"checked by {build}\\n\"",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text states that \"The build line goes into the CHECK REPORT, not into the rendered memo.\" However, the evidence from the `render` function's implementation shows that in the no-rows path, the build string is explicitly formatted into the message that is returned: `let msg = format!(\"...checked by {build}\\n\"); return (EXIT_NO_ROWS, msg);`. This returned string is the rendered output, directly contradicting the clause."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.008167975,
+   "elapsed": 91.15,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F7",
+   "verb": "fact",
+   "status": "ok",
+   "text": "src/prose.rs lines 131-210, the minting surface. `prose::create` and `prose::revise` both stamp their event with `workspace::now_unix()` at append time, in the authoring process, and append via `append_jsonl`. Every refusal in both functions is format-level and mechanically decidable, raised through the one helper `workspace::refuse(workspace_dir, \"prose\", message)`: a `--before` anchor that does not exist (\"no such prose block to insert before: {anchor}; try `tetel query prose`\"), a heading level outside 1..=6, a revise target that does not exist (\"no such prose block: {id}\"), and an empty `--why` \u2014 `if why.trim().is_empty()` refusing with \"--revise requires --why (revisions must explain themselves)\". None of them inspects the content of the text or the plausibility of the reason. `revise`'s `cite: None` leaves citations untouched; the doc comment records that before this parameter existed, `--cites` alongside `--revise` was \"accepted alongside `--revise` and silently discarded\". The doc comment at the end of the region states that the CLI and the MCP server build one single shape and pass it to `dispatch`, \"so the two front ends can never drift on which combination of missing flags gets refused, or with what text.\"",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.00742325,
+   "elapsed": 89.91,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F8",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two things that constrain how an ack's claim-digest component may be computed.\n\n(1) src/checks.rs lines 336-368, `prose_after_proof`'s doc comment section \"Two inputs, and the one that fails silently if swapped\": `claims` \"must be the ones `check_file` already imports from the *rendered document* (`ledger::import`), **never** the snapshot's `claims.jsonl`. Every `proposition_digest` on record was computed over a ledger-derived proposition, and the two are not the same string: rendering a claim into the ledger table (`compose::ledger_cell`) replaces embedded newlines with spaces, and importing (`ledger::split_row_cells`) trims every cell. Handed `claims.jsonl`'s propositions instead, a claim whose text has an embedded newline or edge whitespace would digest to something no record ever matches, this function would call it never in proof, and every block citing it would silently drop out of the list \u2014 with nothing red anywhere to say so.\" The same doc comment's \"Existential, not universal\" section records that requiring every citation to be in proof \"was tried first and rejected\".\n\n(2) src/lib.rs lines 160-195, the call site. `findings.mint_windows = facts::mint_windows(&snapshot_dir);` sits immediately above, then the prose call, whose comment states `ledger.claims` is \"deliberately used here, not the snapshot's `claims.jsonl`\". The comment then defends reading prose.jsonl under `if let Ok(...)`: that silent skip is acceptable ONLY because \"This is the same file `snapshot::check` already read moments ago, at the top of this function, via the identical `workspace::read_jsonl::<ProseEvent>` call inside `compose::render` -> `prose::load_all` (same path, same target type). A `prose.jsonl` that fails to parse here therefore already failed that earlier read too, and `findings.provenance` is already `Unreadable`, which `machine_check_failed` already reddens under `[provenance-drift]` \u2014 loudly, before this block runs. This `Err` arm is reachable only alongside a failure already reported elsewhere, never on its own\". A test `check_a_corrupted_prose_jsonl_reddens_via_provenance_drift_not_silently` in tests/authoring_cli.rs is named as pinning that.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.01616875,
+   "elapsed": 189.07,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F9",
+   "verb": "fact",
+   "status": "ok",
+   "text": "An authoring workspace directory (listing `~/.local/state/tetel/workspaces/tet30`) contains exactly: claims.jsonl, counters.json, facts.jsonl, identity.json, pending.json, prose.jsonl, targets.jsonl. There is no evidence file of any kind in it. Evidence records live beside the rendered memo instead: `docs/design/` holds, for each of the five committed memos, `<name>.md`, `<name>.md.evidence.jsonl` and `<name>.md.tetel/`. So an authoring workspace has no access to grounding records, and therefore cannot compute a claim's first proof or a block's anchor at mint time.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.000819975,
+   "elapsed": 9.73,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F10",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The render/snapshot sequencing. In src/main.rs (lines 838-882), `render --out` writes the rendered document with `std::fs::write(&path, &rendered)` FIRST, then calls `snapshot::write(&path, &workspace_dir)`, with the comment \"Document first, then snapshot: if the snapshot write fails the document still exists and `check` reports the missing record, which is a recoverable state. The reverse order could leave a snapshot claiming to describe a document that was never written.\" The rendered string is produced before either write.\n\nIn src/snapshot.rs (lines 104-140), `snapshot::write` doc comment: \"Copy `workspace_dir`'s shipped files into `<memo>.tetel/`. Existing files are overwritten: re-rendering a memo replaces its snapshot, since the snapshot's whole purpose is to match the memo currently on disk. A file absent from the workspace is skipped rather than erroring \u2014 a workspace with no refusals has no refusals log.\" The body is `crate::workspace::identity(workspace_dir)?;` then `fs::create_dir_all(&dir)?;` then a loop `for name in SNAPSHOT_FILES` copying each. So the copy set is exactly the SNAPSHOT_FILES constant, missing entries are skipped, and existing snapshot files are replaced. Identity minting is idempotent (\"a workspace that already has an identity keeps it, so this can never re-date a pass\").",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0053884,
+   "elapsed": 68.0,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F11",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree censuses of the four symbols this design first declared as modification targets (each a grep rooted at /Volumes/SSD/Documents/lonic/tetel; tetel's own output, the five rendered memos and git-ignored paths including target/ are excluded by `look` itself). Counts below are MATCHING LINES, the unit the grep reports.\n\n`SNAPSHOT_FILES` \u2014 3 matching lines, all in src/snapshot.rs: the `const [&str; 9]` at :71, a doc-comment reference at :116, and the copy loop `for name in SNAPSHOT_FILES` at :139.\n\n`NON_COVERAGE` \u2014 2 matching lines, both in src/report.rs: the `const &[&str]` at :16 and the print loop `for item in NON_COVERAGE` at :486.\n\n`prose_revised_since_proof` \u2014 5 matching lines: the `Findings` field at src/checks.rs:212, its initialiser at src/checks.rs:911, the assignment `findings.prose_revised_since_proof = listed;` at src/lib.rs:211, and the two report sites src/report.rs:315 and :331.\n\n`prose_after_proof` \u2014 33 matching lines: src/checks.rs 24, src/lib.rs 3, src/report.rs 2, tests/authoring_cli.rs 3, tests/check_cli.rs 1. Of these, the definition is at src/checks.rs:414; the single production call is `let mut listed = checks::prose_after_proof(&prose_events, &ledger.claims, &evidence_records);` at src/lib.rs:201 (lib.rs:173 and :181 are comments); 18 are direct calls inside checks.rs's own `#[cfg(test)]` module (lines 1818-2249); the remainder are doc-comment or test-name references. Exactly one production call site exists.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0067539,
+   "elapsed": 74.3,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F12",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`NON_COVERAGE` in src/report.rs. Head of the list (lines 16-40): five short general entries (\"dependents that never declared themselves\", \"deleted premises\", \"one word used in two senses\", \"a command that runs green without establishing its proposition\", \"unfalsifiable-shaped claim phrasing\"), then a commented group for the census, whose comment says such lines are \"Printed rather than left implicit, because a refusal that fired is easily read as coverage it never claimed\", and that \"A deliberate exclusion earns its own line, by the same standard as every other entry here.\"\n\nTail of the list (lines 88-107): three entries added for this residue, under a comment saying \"Both entries name a case where this check now stays silent that an earlier version of it did not.\" The third and last entry in the whole constant is the block-total one: \"a citation whose claim settled before the block's wording, when another citation in the same block settled after it \u2014 the anchor is the latest first proof among all of a block's citations, so the earlier-settled one is never compared against the wording on its own; a co-cited claim that keeps being revised and re-entering proof keeps raising the anchor, and whether the wording was ever actually examined against the earlier-settled claim is never answered by any listing here\". Every string in the constant is static; the comment in the head group states \"This can only ever be the general statement \u2014 every string in this list is static and none is per-search\".",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0168777,
+   "elapsed": 217.42,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F13",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two things my implementation-surface and degradation-direction claims got wrong.\n\n(1) THE SHARED FRONT-END SHAPE IS ITSELF A SURFACE. src/prose.rs lines 205-275: `ProseRequest` is a three-variant enum (`Revise { id, text, why, cite }`, `Heading { text, level, before }`, `Paragraph { text, cite, before }`); `ProseOutcome` is a two-variant enum (`Revised { id }`, `Created(Block)`); and `dispatch` consumes the request in an EXHAUSTIVE `match req { ... }` over all three variants. So adding an ack mode is not confined to a new module: it adds a variant to `ProseRequest`, an arm to `dispatch`'s match, and \u2014 since an acknowledgement is neither `Revised` nor `Created` \u2014 a variant to `ProseOutcome`, which each front end matches on. The doc comment's own reason for the shared shape is \"so the two front ends can never drift on which combination of missing flags gets refused, or with what text\", i.e. the shape exists precisely because per-front-end mode chains drift.\n\n(2) `snapshot::write` COPIES AND NEVER REMOVES. src/snapshot.rs lines 133-155: the body is `for name in SNAPSHOT_FILES { let src = workspace_dir.join(name); if src.exists() { fs::copy(&src, dir.join(name))?; } }`. There is no deletion and no reconciliation: a file present in the snapshot but absent from the workspace is left in place, and a file the running build's `SNAPSHOT_FILES` does not name is never touched at all. So a snapshot's copy of any given log is not necessarily the workspace's log as of the last render \u2014 it is the most recent copy any build ever made of it.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.010365875,
+   "elapsed": 124.62,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F14",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree censuses of three further symbols this design must modify (greps rooted at /Volumes/SSD/Documents/lonic/tetel; tetel's own output, six rendered memos and git-ignored paths excluded by `look`).\n\n`ProseRequest` \u2014 12 occurrences in four files: the enum at src/prose.rs:211, the doc reference at :222, `dispatch`'s signature at :228 and its three exhaustive match arms at :230/:235/:240; three construction sites in the CLI at src/main.rs:795/:801/:808; three construction sites in the MCP server at src/mcp.rs:739/:741/:743; and one mention inside a refusal string in src/scope.rs:793.\n\n`ProseOutcome` \u2014 9 occurrences in three files: the enum at src/prose.rs:217, `dispatch`'s return type at :228 and three construction sites at :233/:238/:242; two CLI match arms at src/main.rs:812/:816; two MCP match arms at src/mcp.rs:746/:747.\n\n`snapshot::write` \u2014 3 occurrences: one doc-comment mention at src/main.rs:854 and the two call sites, `tetel::snapshot::write(&path, &workspace_dir)` at src/main.rs:858 and `crate::snapshot::write(path, &dir)` at src/mcp.rs:778. (The definition itself is `pub fn write` in src/snapshot.rs, which this pattern does not match; the census establishes there are exactly two callers, one per front end.)\n\nSo the two front ends each carry their own mode-selection chain and their own outcome match, and every one of these sites is outside the four targets previously declared and outside the proposed new module.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "`ProseRequest` \u2014 12 occurrences in four files",
+     "why": "The captured output shows 3 occurrences in main.rs, 3 in mcp.rs, 6 in prose.rs, and 1 in scope.rs: 13 occurrences total, not 12.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "--- F14 observation 1 ---\n795:                tetel::prose::ProseRequest::Revise { id, text: new_text, why, cite }\n801:                tetel::prose::ProseRequest::Heading { text: heading_text, level, before }\n808:                tetel::prose::ProseRequest::Paragraph { text: body, cite, before }\n--- F14 observation 2 ---\n739:            prose::ProseRequest::Revise { id, text: p.text, why: p.why, cite: p.cites }\n741:            prose::ProseRequest::Heading { text: p.text, level: Some(level), before: p.before }\n743:            prose::ProseRequest::Paragraph { text: p.text, cite: p.cites, before: p.before }\n--- F14 observation 3 ---\n211:pub enum ProseRequest {\n222:/// Dispatches a [`ProseRequest`] to [`create`] or [`revise`], refusing\n228:pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome, AuthoringError> {\n230:        ProseRequest::Revise { id, text, why, cite } => {\n235:        ProseRequest::Heading { text, level, before } => {\n240:        ProseRequest::Paragraph { text, cite, before } => {\n--- F14 observation 4 ---\n793:        let note = \"`prose --revise` cannot change a block's citations. ProseRequest::Revise \\\\",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text claims there are 12 occurrences of `ProseRequest`. The evidence provided (observations 1, 2, 3, and 4) shows 3 + 3 + 6 + 1 = 13 occurrences. The clause's count contradicts the evidence."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.009110199999999999,
+   "elapsed": 107.27,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F15",
+   "verb": "fact",
+   "status": "ok",
+   "text": "`compose::render` (src/compose.rs lines 79-96) builds the memo from exactly five workspace logs: `prose::load_all`, `claims::load_all`, `targets::load_all`, `transplants::load_all` and `facts::load_all`. It reads nothing else. Since provenance drift is decided by re-rendering the snapshot and comparing bytes, only those five of the nine shipped snapshot files are drift-covered; `counters.json`, `pending.json`, `refusals.log` and `identity.json` are shipped but never re-rendered, so tampering with them is not drift. `identity.json` is one of these, and it is the file that decides whether the report calls a claim self-grounded or independently grounded. So a shipped-but-not-drift-covered snapshot file that changes what the report says is a category that already exists at this pin, with four members.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001394625,
+   "elapsed": 17.11,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F16",
+   "verb": "fact",
+   "status": "ok",
+   "text": "The two front ends drift below the shared request shape, in two ways.\n\n(1) TEXT IS REQUIRED ON ONE SIDE, OPTIONAL ON THE OTHER. `ProseParams` (src/mcp.rs lines 349-380) declares `text: String` \u2014 no `Option`, no `#[serde(default)]`, unlike every other optional field there (`heading_level`, `cites`, `before`, `revise`, `why` all carry `#[serde(default)]` and `Option`). So over MCP `text` is schema-required. `Command::Prose` (src/main.rs lines 242-284) declares `text: Option<String>` with the doc \"Omit to read from stdin\", alongside `heading`, `level`, `cites`, `before`, `revise`, `why`, all `Option`. So the CLI accepts a prose invocation with no `text`; the MCP server cannot.\n\n(2) MODE SELECTION IS AN IF/ELSE-IF CHAIN IN EACH FRONT END, AND EACH SILENTLY DROPS THE INPUTS ITS CHOSEN ARM HAS NO FIELD FOR. src/main.rs lines 780-812: `let req = if let Some(id) = revise { ... ProseRequest::Revise { id, text: new_text, why, cite } } else if let Some(heading_raw) = heading { ... ProseRequest::Heading { text: heading_text, level, before } } else { ... ProseRequest::Paragraph { text: body, cite, before } };`. src/mcp.rs lines 730-750: `let req = if let Some(id) = p.revise { prose::ProseRequest::Revise { id, text: p.text, why: p.why, cite: p.cites } } else if let Some(level) = p.heading_level { prose::ProseRequest::Heading { text: p.text, level: Some(level), before: p.before } } else { prose::ProseRequest::Paragraph { text: p.text, cite: p.cites, before: p.before } };`. Neither chain refuses a flag combination: `Revise` has no `before` field and `Heading` has no `cite` field, so those inputs are discarded without a word. This is the same shape as the defect prose.rs's own doc comment records as already fixed once, where `--cites` was \"accepted alongside `--revise` and silently discarded\".",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.008278725,
+   "elapsed": 96.24,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F17",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree censuses of the two front-end symbols the earlier target list omitted (greps rooted at /Volumes/SSD/Documents/lonic/tetel; tetel's own output, six rendered memos and git-ignored paths excluded by `look`). Counts are matching lines.\n\n`ProseParams` \u2014 2 matching lines, both in src/mcp.rs: the struct at :350 and the handler signature `async fn prose(&self, Parameters(p): Parameters<ProseParams>)` at :736.\n\n`Command::Prose` \u2014 2 matching lines, both in src/main.rs: the CLI dispatch arm `Command::Prose { text, heading, level, cites: cite, before, revise, why } => {` at :773, and one unrelated hit at :943, `QueryCommand::Prose => tetel::query::prose_text(&workspace_dir)`, which is a different enum (`QueryCommand`) matched only because this pattern is a substring of it. The `Prose` variant's own declaration inside `enum Command` does not contain the string `Command::Prose` and so is not matched; it is the region at src/main.rs lines 242-284.\n\nNeither symbol's name contains `ProseRequest` or `ProseOutcome`, so neither was visited by the earlier censuses of those two.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0060945,
+   "elapsed": 75.52,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F18",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Two observations bearing on whether a log can shrink, and on what an unreadable snapshot file is.\n\n(1) WHERE `fs::remove` APPEARS. A grep for `fs::remove` across src/ returns 21 matching lines and no more: review.rs:165; facts.rs:559,576,589,599,601; evidence.rs:612,626,639,656,670,687,712,724,750; workspace.rs:522,534,544,561; observe.rs:636,672. Twenty are `remove_dir_all` on a local `dir`/`base` binding in the idiom `let _ = std::fs::remove_dir_all(&dir);`; the twenty-first is facts.rs:599, `std::fs::remove_file(dir.join(\"refusals.log\")).unwrap();`. No occurrence is in prose.rs, claims.rs, targets.rs or transplants.rs. I make no claim here about which of these sites are production paths and which are test code \u2014 this search establishes only the complete list of places the string appears in src/.\n\n(2) AN UNREADABLE SNAPSHOT IS ALREADY A MACHINE FAILURE. src/checks.rs lines 230-252: `provenance_failed()` returns `matches!(self.provenance, Provenance::Drifted { .. } | Provenance::Unreadable(_))`, and its doc comment states \"Drift and an unreadable snapshot are machine failures: both are objective contradictions between a document and the record it claims to rest on, decidable without a human.\" The same comment records the contrast: \"A *missing* snapshot is deliberately not a failure. Every memo authored before `render --out` existed lacks one, and turning that into a hard failure would grade the tooling's own history rather than the document. It is reported as human-owed instead.\"",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "Twenty are `remove_dir_all` on a local `dir`/`base` binding in the idiom `let _ = std::fs::remove_dir_all(&dir);`;",
+     "why": "The captured matches use `.ok()` instead of `let _ =`, and one uses `fs::remove_dir_all(&base)` rather than the stated `std::fs::remove_dir_all(&dir)` idiom.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "612:        std::fs::remove_dir_all(&dir).ok();\n636:        let _ = fs::remove_dir_all(&base);",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's clause claims that twenty of the matches follow the specific idiom `let _ = std::fs::remove_dir_all(&dir);`. The evidence shows this is not strictly true. As the reason points out, nine of the matches in `evidence.rs` use `std::fs::remove_dir_all(&dir).ok();`, which is a different textual pattern. While the author's prose does mention `base` as a possible variable, the description of the \"idiom\" is more specific than the code it describes, and the disagreement correctly identifies this contradiction."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.008518375,
+   "elapsed": 103.47,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F19",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Whole-worktree census of the symbol `Prose` (grep rooted at /Volumes/SSD/Documents/lonic/tetel; tetel's own output, six rendered memos and git-ignored paths excluded by `look`). 73 matching lines across src/, tests/, README.md and a test fixture.\n\nThe site this design must edit and that the narrower `Command::Prose` census could not see is src/main.rs:242, `    Prose {` \u2014 the clap variant declaration inside `enum Command`, where every flag this verb needs is declared as an `#[arg(...)]` field, spanning lines 242-284. The `Command::Prose` pattern does not match it, because the declaration names the variant without its enum path; that census saw only the dispatch arm at :773.\n\nThe rest of the matches partition into: the `ProseEvent` enum and its Create/Revise variants (prose.rs 43/98/108/159/193, checks.rs 22/415/466/508 and its test module, lib.rs 186/199, tests/authoring_cli.rs:1734); `ProseRequest` and `ProseOutcome` (prose.rs 211-242, main.rs 795-816, mcp.rs 739-747, scope.rs 793-794); `ProseParams` (mcp.rs 350, 736); `ProseRevisedSinceProof` (checks.rs 212/250/418/457/554); three unrelated same-named enum variants \u2014 `Kind::Prose` (workspace.rs 411/431, prose.rs 158), `QueryCommand::Prose` (main.rs 331, 943) and the MCP `QueryWhat::Prose` (mcp.rs 404, 805); and prose-in-the-ordinary-sense mentions in doc comments, tests and README.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.01140419,
+   "elapsed": 127.53,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F20",
+   "verb": "fact",
+   "status": "ok",
+   "text": "What making an unreadable ack log redden actually requires, plus the worktree censuses of the two symbols it lands on (greps rooted at /Volumes/SSD/Documents/lonic/tetel; tetel's own output, six rendered memos and git-ignored paths excluded by `look`).\n\n`machine_check_failed` \u2014 7 matching lines, of which 3 are in src/: the definition at src/checks.rs:216, a comment at src/lib.rs:190, and the single call `let failing = findings.machine_check_failed();` at src/report.rs:182. The others are two lines of a test fixture (tests/fixtures/scratch-memo-A.md:117-119) and one line of .git/COMMIT_EDITMSG.\n\n`total_failures` \u2014 2 matching lines, both in src/report.rs: the binding at :183 and its use in the headline format string at :200.\n\nThe region src/report.rs lines 180-200 shows why both are targets. `total_failures` is a hand-written sum over exactly the same ten field lengths `machine_check_failed` disjoins, plus `usize::from(findings.provenance_failed())`. Immediately after it, `let scope = \"grammar, subset (enumerated rows only), abutting literals, unsettled citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, uncensused modification targets, transplant premises that are not the donor's words or that nothing answers, provenance drift\";` \u2014 a string literal naming those same eleven categories, printed as `\"machine-checked: {total_failures} failing \u2014 {scope}\\n\"`. So a new machine-checked failure kind must be added in three hand-maintained places that no compiler links: the disjunction, the sum, and the prose list.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "The others are two lines of a test fixture (tests/fixtures/scratch-memo-A.md:117-119)",
+     "why": "The captured fixture output contains matching text on three lines\u2014117, 118, and 119\u2014not two.",
+     "facts": [
+      "F20"
+     ],
+     "quoted": true,
+     "clause_quoted": true,
+     "span": "117:claim:  A check-3 (abutting-literal) failure is counted into Findings::machine_check_failed and, via report::render, sets the process exit code to EXIT_CHECK_FAILED (1).\n118:domain: src/checks.rs#Findings::machine_check_failed\n119:extent: src/checks.rs#Findings::machine_check_failed, src/report.rs",
+     "rejected": null,
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The clause states that there are \"two lines\" matching in the test fixture `tests/fixtures/scratch-memo-A.md`. The evidence, specifically observation 5, shows that the grep for `machine_check_failed` matched on three lines in that file: 117, 118, and 119. The clause's count is therefore contradicted by the captured output."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.010620774999999999,
+   "elapsed": 123.19,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F21",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Where each source file's in-file test module begins, captured to let a reader place the `fs::remove` sites recorded separately. A search of src/ for `mod tests {` returns 15 lines: brief.rs:225, ledger.rs:354, review.rs:152, checks.rs:1482, buildid.rs:216, compose.rs:366, worldstate.rs:294, citations.rs:338, report.rs:497, scope.rs:425 (plus `pub(crate) mod tests_support {` at scope.rs:397), evidence.rs:576, snapshot.rs:210, workspace.rs:477, observe.rs:624.\n\nFour of the five files holding `fs::remove` sites appear here with a test module opening ABOVE every one of their remove lines: review.rs (152 < 165), evidence.rs (576 < 612-750), workspace.rs (477 < 522-561), observe.rs (624 < 636-672). facts.rs does NOT appear in this list at all, so this search does not locate its test module and establishes nothing about whether facts.rs:559-601 sit inside one.\n\nTwo earlier searches in the same tree for `#\\[cfg\\(test\\)\\]` and for `cfg\\(test\\)` both returned NO MATCHES, which given that in-file test modules plainly exist means this tool's grep did not interpret those patterns as I intended rather than that the attribute is absent. I record the negative results as uninformative, not as evidence the attribute does not appear.",
+   "findings": [
+    {
+     "kind": "contradicts",
+     "clause": "A search of src/ for `mod tests {` returns 15 lines: brief.rs:225, ledger.rs:354, review.rs:152, checks.rs:1482, buildid.rs:216, compose.rs:366, worldstate.rs:294, citations.rs:338, report.rs:497, scope.rs:425 (plus `pub(crate) mod tests_support {` at scope.rs:397), evidence.rs:576, snapshot.rs:210, workspace.rs:477, observe.rs:624.",
+     "why": "The captured search was for `mod tests`, not `mod tests {`.",
+     "facts": [],
+     "quoted": false,
+     "clause_quoted": true,
+     "span": null,
+     "rejected": "[F21] search: /Volumes/SSD/Documents/lonic/tetel/src (grep: mod tests) \u2014 14 files matched \u2014 skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and no rendered memo; git-ignored paths: none, or the root is outside a repository",
+     "refutation": {
+      "verdict": "CORRECT",
+      "why": "The author's text states that the search was for `mod tests {`, but the evidence log for the search explicitly records the search term used as `mod tests`."
+     }
+    }
+   ],
+   "self_defeating": 0,
+   "cost": 0.006364475,
+   "elapsed": 73.18,
+   "findings_before_refutation": 1
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F22",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Nothing binds a rendered memo to the workspace that produced it. src/main.rs lines 820-842: the render arm is `Command::Render { out } => { let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace); ... }` \u2014 the workspace comes from the global `--workspace` flag on each invocation, and the destination comes from `out`. There is no lookup of who rendered this path before, no comparison against anything in an existing `<memo>.tetel/`, and no refusal on a mismatch. So `tetel --workspace W1 render --out M` followed later by `tetel --workspace W2 render --out M` is an ordinary, unrefused sequence.\n\nCombined with `snapshot::write`'s copy loop (recorded separately: it copies only `if src.exists()` and never removes), this means the snapshot beside M after the second render holds W2's prose.jsonl, claims.jsonl and identity.json alongside any file W2 does not have that W1 previously wrote \u2014 those are left in place untouched. The snapshot's contents are therefore not necessarily the contents of any single workspace.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.001874675,
+   "elapsed": 23.25,
+   "findings_before_refutation": 0
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F23",
+   "verb": "fact",
+   "status": "ok",
+   "text": "Three more hand-maintained enumerations of the check's categories, none of which any compiler links to `machine_check_failed` or to each other.\n\n(1) README.md lines 133-138 lists the machine-checked categories in prose \u2014 \"... citations, dependency cascades, evidence-ledger import, verdict disagreement, claims out of proof, modification targets whose census does not hold up against the snapshot, transplant premises that are not the donor's words or that nothing answers, and provenance drift between a document and its own snapshot. These fail the run.\" \u2014 and continues straight into a \"**human-owed**\" list.\n\n(2) src/mcp.rs line 853 is the `check` tool's `#[tool(description = ...)]`, which enumerates both partitions for every agent that reads the schema: \"MACHINE-CHECKED (exit 1 if any fail): grammar, domain-subset-extent on enumerated rows, abutting literals, unsettled citations, dependency cascades, ledger import, verdict contradictions ..., claims out of proof ..., and provenance drift ...\". Note this list omits uncensused modification targets and unquoted transplant premises, both of which `machine_check_failed` disjoins \u2014 so it is already stale by two categories independently of anything this design does.\n\n(3) src/report.rs lines 265-280 is the printed human-owed headline, a single string literal enumerating every human-owed category. It already contains \"prose revised after the claims it cites settled\" \u2014 the phrase TET-30 had to add when it shipped this residue \u2014 which shows that adding a human-owed category requires editing this literal by hand.",
+   "findings": [],
+   "self_defeating": 0,
+   "cost": 0.0121651,
+   "elapsed": 148.3,
+   "findings_before_refutation": 0
+  }
+ ],
+ "refutation": {
+  "cost": 0.6796374999999999,
+  "tally": {
+   "CORRECT": 22,
+   "WRONG": 15
+  },
+  "keep": [
+   "CORRECT",
+   "ERROR",
+   "UNCLEAR"
+  ]
+ }
+}

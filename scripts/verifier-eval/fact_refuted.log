@@ -1,0 +1,29 @@
+37 findings to put to a refutation pass
+  10/37  $0.2448
+  20/37  $0.4588
+  30/37  $0.6762
+  37/37  $0.8453
+
+refutation cost $0.8453
+  CORRECT   11
+  WRONG     26
+
+verb             fact
+subjects         123   (123 ok, 0 not)
+cost             $0.6646 total, $0.00540 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          10/123   (8%)
+  findings         11
+    contradicts   9
+    overreaches   2
+  quoted verbatim  6/11
+  clause verbatim  11/11
+
+AGAINST THE DETERMINISTIC CHECK THAT ALREADY SHIPS (`scope`'s attention)
+  attention flags  12/123 of the same facts
+  both agree       2
+  attention only   10   <- semantic check missed what a substring test caught
+  verifier only    8   <- THE RESIDUE: what a model adds over `scope`
+  The residue is the whole argument for turning `fact` on. Every
+  one of those is worth reading by hand before it becomes a number.

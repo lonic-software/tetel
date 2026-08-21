@@ -322,12 +322,20 @@ const KIND_UNEVIDENCED: &str = "unevidenced";
 /// not one of the 6 wrong ones is an insufficiency objection. The failure
 /// mode lives entirely in the kind this drops.
 ///
+/// `prose` is bounded on the same evidence and one round later. Once the
+/// paragraph was announced as a paragraph (see [`PROSE_CLASSIFY_SYSTEM`]),
+/// its 24 findings split 10 `overreaches` — every one wrong — against 14
+/// `contradicts` carrying all 5 catches. Note the bound was *not* free on
+/// the round before that one, where a catch arrived as an `overreaches`; it
+/// is measured-zero only on the configuration that ships.
+///
 /// Why the verb and not the prompt: a `fact` note is a record of one
-/// capture, so "the capture does not cover the population" is always true
-/// of it and never news. A `claim` ranges over a design's whole argument,
-/// where the same kind carries 83% precision and stays on.
+/// capture and a `prose` paragraph rests on facts it did not choose, so
+/// "the capture does not cover the population" is always true of both and
+/// never news. A `claim` ranges over a design's whole argument, where the
+/// same kind carries 83% precision and stays on.
 fn kind_reported_for(verb: &str, kind: &str) -> bool {
-    !(verb == "fact" && kind == KIND_OVERREACHES)
+    !(matches!(verb, "fact" | "prose") && kind == KIND_OVERREACHES)
 }
 
 /// Why this reply has no verification of its own to report.
@@ -363,6 +371,8 @@ pub struct Settings {
     pub timeout_ms: u64,
     pub verbs: Vec<String>,
     pub literals: bool,
+    /// Unset means no refutation leg; every finding reaches the author.
+    pub refuter: Option<String>,
 }
 
 /// How long one provider call is allowed, when nothing configured a budget.
@@ -382,14 +392,16 @@ pub fn settings(workspace_dir: &Path) -> Settings {
     let d = Some(workspace_dir);
     let approach = config::verify_approach(d);
     let literals = config::verify_literals(d);
+    let refuter = config::verify_refuter(d);
     Settings {
         enabled: config::verify_enabled(d),
         model: config::verify_model(d),
         timeout_ms: config::verify_timeout_ms(d)
-            .unwrap_or(DEFAULT_MS_PER_LEG * u64::from(expected_calls(&approach, literals))),
+            .unwrap_or(DEFAULT_MS_PER_LEG * u64::from(expected_calls(&approach, literals, refuter.is_some()))),
         approach,
         verbs: config::verify_verbs(d),
         literals,
+        refuter,
     }
 }
 
@@ -475,6 +487,15 @@ pub struct Record {
     /// removes whole findings rather than a quotation.
     #[serde(default)]
     pub kind_off_verb: u32,
+    /// [`Telemetry::refuted`], persisted.
+    #[serde(default)]
+    pub refuted: u32,
+    /// Which model refuted, when one did. Recorded rather than inferred
+    /// from [`refuted`](Self::refuted) being non-zero: a leg that ran and
+    /// dropped nothing and a leg that never ran are different states, and
+    /// only this tells them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refuter: Option<String>,
     /// The status of the literal leg when it ran and did **not** complete.
     ///
     /// `None` means either that the leg was off or that it finished, and
@@ -566,6 +587,10 @@ pub fn block(
         "timeout_ms": settings.timeout_ms,
         "verbs": settings.verbs.clone(),
         "literals": settings.literals,
+        // Absent rather than null when unset: the leg either ran or it did
+        // not, and a reader who sees a model name here knows every finding
+        // below survived being put to it.
+        "refuter_model": settings.refuter.clone(),
         "guidance": GUIDANCE,
     });
     let map = out.as_object_mut().expect("json object");
@@ -846,12 +871,13 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
     let dir = dir.to_path_buf();
     let approach = settings.approach.clone();
     let literals = settings.literals;
+    let refuter = settings.refuter.clone();
     let budget = Duration::from_millis(settings.timeout_ms);
     std::thread::spawn(move || {
         let started = Instant::now();
         let mut tel = Telemetry::default();
         let (status, findings, literals_status) =
-            run(&key, &model, &approach, literals, &subject, started, budget, &mut tel);
+            run(&key, &model, &approach, literals, refuter.as_deref(), &subject, started, budget, &mut tel);
         let record_literals_ok = literals_status.is_none();
         let record = Record {
             seq: next_seq(&dir),
@@ -870,6 +896,8 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             literals_refuted: tel.literals_refuted,
             not_a_quantity: tel.not_a_quantity,
             kind_off_verb: tel.kind_off_verb,
+            refuted: tel.refuted,
+            refuter: refuter.clone(),
             literals_status: literals_status.map(|s| s.as_str().to_string()),
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
@@ -919,6 +947,14 @@ pub struct Telemetry {
     /// bound is dead weight; if it climbs, the prompt is drifting toward
     /// the thing the bound exists to catch.
     pub kind_off_verb: u32,
+    /// Findings a second model refuted, so the author never saw them.
+    ///
+    /// The one number that says what the refutation leg is doing. It is a
+    /// rate, not a fault count: measured over the corpus it drops about two
+    /// findings in three on `fact` and three in four on `prose`, and takes
+    /// roughly one true finding in five with them. A run where it drops
+    /// nothing is a leg that is not earning its call.
+    pub refuted: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -927,6 +963,7 @@ fn run(
     model: &str,
     approach: &str,
     literals: bool,
+    refuter: Option<&str>,
     subject: &Subject,
     started: Instant,
     budget: Duration,
@@ -943,7 +980,7 @@ fn run(
     // drops carries the claim text alone, while the one it keeps carries
     // the evidence blob. The ratio is measured nowhere.
     let labelled = if approach == "split" {
-        let body = match call(key, model, CLASSIFY_SYSTEM, &classify_prompt(subject), started, budget, tel)
+        let body = match call(key, model, classify_system_for(&subject.verb), &classify_prompt(subject), started, budget, tel)
         {
             Ok(b) => b,
             Err(s) => return (s, Vec::new(), None),
@@ -989,6 +1026,13 @@ fn run(
                         Ok(mut l) => f.append(&mut l),
                         Err(s) => lit_status = Some(s),
                     }
+                }
+                // Last, over everything: an `unevidenced` finding is as
+                // refutable as a disagreement, and the leg's whole value is
+                // that it asks about a finding rather than about a subject.
+                // It cannot fail the verification — see `refute_findings`.
+                if let Some(r) = refuter {
+                    f = refute_findings(key, r, model, subject, f, started, budget, tel);
                 }
                 (Status::Ok, f, lit_status)
             }
@@ -1448,19 +1492,42 @@ fn evidence_text(subject: &Subject) -> String {
     format!("EVIDENCE — what was opened or run:\n{labels}\nEVIDENCE — captured output:\n{blob}")
 }
 
+/// How a subject is announced to both calls.
+///
+/// A design paragraph headed `CLAIM:` was being split as an assertion about
+/// today: 11 of 38 wrong prose findings objected to what the design
+/// *proposes* as though it described current code. Announcing it as what it
+/// is, together with [`PROSE_CLASSIFY_SYSTEM`], took that cluster to zero.
+///
+/// `fact` keeps `CLAIM:`. A note is not a claim either and the header is
+/// just as wrong there, but every `fact` number on record was measured with
+/// it, and changing it would ship something no run has scored.
+fn header_for(verb: &str) -> &'static str {
+    match verb {
+        "prose" => "PARAGRAPH",
+        _ => "CLAIM",
+    }
+}
+
 fn classify_prompt(subject: &Subject) -> String {
-    format!("CLAIM:\n{}", subject.text)
+    format!("{}:\n{}", header_for(&subject.verb), subject.text)
 }
 
 fn check_prompt(subject: &Subject, labelled: Option<&str>) -> String {
     match labelled {
         Some(l) => format!(
-            "CLAIM:\n{}\n\nASSERTIONS:\n{}\n\n{}",
+            "{}:\n{}\n\nASSERTIONS:\n{}\n\n{}",
+            header_for(&subject.verb),
             subject.text,
             l,
             evidence_text(subject)
         ),
-        None => format!("CLAIM:\n{}\n\n{}", subject.text, evidence_text(subject)),
+        None => format!(
+            "{}:\n{}\n\n{}",
+            header_for(&subject.verb),
+            subject.text,
+            evidence_text(subject)
+        ),
     }
 }
 
@@ -1612,6 +1679,177 @@ Reply with one JSON object and nothing else:
 {"disagreements": [{"kind": "contradicts"|"overreaches", "clause": "", "evidence": "", "why": ""}]}
 
 An empty list is the common and correct answer."#;
+
+/// Put one finding to a second model and ask whether it is correct.
+///
+/// The prompt `refute.py` measured, near enough verbatim. It is the
+/// adjudication brief a human pass used, not a new one written for the
+/// occasion, and it is the only prompt here with per-finding ground truth
+/// behind it.
+///
+/// **Its authority is that finding and checking are different questions.** A
+/// single pass asked to FIND disagreements never exercises the judgement
+/// that rejects a bad one, which is why two rounds of rewording moved
+/// `fact` from 3/14 to 3/14 while asking the other question moved it to
+/// 8/9. The same model asked to refute itself scored 17% — near-random —
+/// so the second asker has to be a different one.
+const REFUTE_SYSTEM: &str = r#"You are given a note or paragraph an author wrote, the evidence a tool captured,
+and someone's assertion that a specific clause disagrees with that evidence. Decide whether the
+assertion is correct.
+
+There are two kinds it may claim:
+
+  contradicts — the evidence shows something incompatible with the clause: a different number, name,
+                type, line or behaviour.
+  overreaches — the clause ranges wider than what was captured; it says "every", "never", "only",
+                "no", "always", "any" or "cannot" about a population the evidence samples rather
+                than covers.
+
+Answer CORRECT only if the clause really does disagree with the captured evidence, in the way and of
+the kind claimed, such that the author would have wanted to know. Answer WRONG if it does not. That
+includes all of these, each of which has been observed:
+
+  * the evidence supports the clause
+  * the reason misreads the evidence
+  * the reason objects to a clause other than the one quoted, or restates the clause
+  * the clause's scope is fixed by its own sentence, and the objection re-reads it more broadly
+  * the captured text — often a doc comment or a declaration — states the general property itself,
+    so the author is reporting the capture rather than generalising past it
+  * the capture disclosed an exclusion or a truncation, and the objection's whole content is that
+    something was not covered; insufficiency is not disagreement
+  * the objection is word-level pedantry that does not change what the text tells a reader
+  * the clause describes what the design PROPOSES to build; evidence captured beforehand cannot
+    contradict it
+  * the text already states the limitation being reported back to it
+
+Answer UNCLEAR only if the evidence is genuinely insufficient to settle it either way.
+
+**Default to WRONG when you are not convinced.** This will be shown to an author as a warning, and a
+wrong warning costs more than a missed one, so the burden of proof is on the assertion and not on the
+author's text. Do not be generous to it.
+
+Judge only against the evidence you were given. Do not assume facts about any codebase beyond it.
+
+Reply with one JSON object and nothing else:
+{"verdict": "CORRECT"|"WRONG"|"UNCLEAR", "why": ""}"#;
+
+/// Drop the findings a second model can refute.
+///
+/// **Only `WRONG` drops.** `UNCLEAR`, an unreadable reply and a transport
+/// failure all keep the finding, so no warning is ever deleted by something
+/// going wrong — a refutation that did not happen is not a refutation. The
+/// leg therefore cannot fail the verification either: it can only decline to
+/// filter it.
+///
+/// Refusing to run when the refuter names the configured model is not
+/// defensive tidiness. Self-refutation was measured at 17%, worse than the
+/// unfiltered rate it replaces, so silently honouring that configuration
+/// would make the feature actively harmful while looking configured.
+fn refute_findings(
+    key: &str,
+    refuter: &str,
+    model: &str,
+    subject: &Subject,
+    findings: Vec<Finding>,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Vec<Finding> {
+    if refuter == model {
+        // Names neither setting as the culprit, because the refuter may
+        // not have been set at all: it defaults to
+        // `config::DEFAULT_REFUTER`, so an author who moved `verify.model`
+        // onto that model reaches this with nothing of their own to
+        // correct. The remedy is what the message has to carry.
+        tel.detail = Some(format!(
+            "the refuter and verify.model are both {refuter}; a model refuting itself scored \
+             17% and the leg is skipped — set verify.refuter_model to a different model, or to \
+             `{off}` to go unrefuted deliberately",
+            off = crate::config::REFUTER_OFF
+        ));
+        return findings;
+    }
+    let evidence = evidence_text(subject);
+    let mut kept = Vec::new();
+    for f in findings {
+        let quotation = f.evidence.clone().or_else(|| f.rejected_span.clone());
+        let user = format!(
+            "AUTHOR'S TEXT:\n{}\n\n{}\n\nPROPOSED DISAGREEMENT:\n  kind: {}\n  clause: {}\n  \
+             reason: {}\n  quotation offered: {}",
+            subject.text,
+            evidence,
+            f.kind,
+            f.clause,
+            f.why,
+            quotation.as_deref().unwrap_or("(none)")
+        );
+        let verdict = call(key, refuter, REFUTE_SYSTEM, &user, started, budget, tel)
+            .ok()
+            .and_then(|b| json_object(&b))
+            .map(|v| str_field(&v, "verdict").to_ascii_uppercase());
+        if verdict.as_deref() == Some("WRONG") {
+            tel.refuted += 1;
+            continue;
+        }
+        kept.push(f);
+    }
+    kept
+}
+
+/// The classify prompt for a `prose` paragraph, in place of
+/// [`CLASSIFY_SYSTEM`].
+///
+/// The three mis-labelled shapes it names are taken from the findings that
+/// failed, not invented: a paragraph describing the behaviour the design is
+/// adding in the present tense, a paragraph reasoning about a record the
+/// design defines, and a requirement stated flatly. Together with the
+/// `PARAGRAPH:` header this took the proposal cluster from 11 findings to
+/// none, and prose precision from 14% to 21% — 36% once `overreaches` is
+/// bounded, and 80% with a refuter behind it.
+const PROSE_CLASSIFY_SYSTEM: &str = r#"You are given one PARAGRAPH from a software design memo. Split it into its separate assertions and
+label each.
+
+  current   — asserts how the code, files or tools behave TODAY. Checkable against captured evidence.
+  proposed  — asserts what THIS DESIGN will build, add, change, recommend or require. The evidence
+              was captured BEFORE that exists, so it cannot speak to this.
+  argument  — a reason, a decision, an entailment, or a statement about what is right or necessary.
+              Nothing captured can settle it.
+
+A design paragraph is mostly NOT about how the code behaves today. It is mostly proposal and
+argument. `current` is usually the smallest of the three labels here and is often empty. Label
+`current` only when the assertion is about the code as it stands, with the design not yet built.
+
+Three shapes are `proposed` and get labelled `current` by mistake:
+
+1. THE PARAGRAPH DESCRIBES THE BEHAVIOUR THE DESIGN IS ADDING, in the present tense. "A line longer
+   than the budget is never returned whole", "the return is lines 12, 13 and 14", "it reports how
+   many of the selected lines were shown" — a budget the design is introducing, described as though
+   installed. The present tense is the author writing about the thing they are building. Ask whether
+   the mechanism exists yet; if the paragraph is what introduces it, the assertion is `proposed`.
+
+2. THE PARAGRAPH REASONS ABOUT A RECORD OR EVENT THE DESIGN IS ADDING. "Matching is existential over
+   keys", "a later ack with a different key simply does not match" — about an event type this design
+   defines. That the current code rejects it is the paragraph's premise, not its error.
+
+3. THE PARAGRAPH STATES WHAT AN IMPLEMENTER MUST DO. A requirement, a rule the design imposes, a
+   shape something "must" take. That is `proposed` however flatly it is worded.
+
+One sentence often carries more than one assertion, with different labels, and a single sentence
+frequently mixes a `current` observation with the `proposed` change it motivates. Split them.
+
+Quote each assertion VERBATIM from the paragraph — character for character, never paraphrased,
+never merged, never invented. You are only sorting the author's own words.
+
+Reply with one JSON object and nothing else:
+{"assertions": [{"text": "", "label": "current"|"proposed"|"argument"}]}"#;
+
+/// Which classify prompt this verb is split with.
+fn classify_system_for(verb: &str) -> &'static str {
+    match verb {
+        "prose" => PROSE_CLASSIFY_SYSTEM,
+        _ => CLASSIFY_SYSTEM,
+    }
+}
 
 /// Which check prompt this verb is graded with.
 ///
@@ -1900,8 +2138,14 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
     let mut times: Vec<u64> = records.iter().map(|r| r.elapsed_ms).collect();
     times.sort_unstable();
     let median = times.get(times.len() / 2).copied().unwrap_or(0);
-    let retried =
-        records.iter().filter(|r| r.attempts > expected_calls(&r.approach, r.literals)).count();
+    // Only where the call count is knowable. The refutation leg makes one
+    // call per finding, so `attempts` above the approach's own count means
+    // "it found things", not "it retried" — and counting those as retries
+    // would report a healthy run as a failing one.
+    let retried = records
+        .iter()
+        .filter(|r| r.refuter.is_none() && r.attempts > expected_calls(&r.approach, r.literals, false))
+        .count();
 
     out.push_str(&format!("\nVERIFICATIONS   {}\n", records.len()));
     for (status, n) in &by_status {
@@ -2074,6 +2318,12 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
         ));
     }
+    let refuted_away: u32 = records.iter().map(|r| r.refuted).sum();
+    if refuted_away > 0 {
+        out.push_str(&format!(
+            "  dropped, a second model refuted it {refuted_away}   <- asked whether the finding was right, not whether the text was\n"
+        ));
+    }
     let off_verb: u32 = records.iter().map(|r| r.kind_off_verb).sum();
     if off_verb > 0 {
         out.push_str(&format!(
@@ -2115,12 +2365,21 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
 
 /// How many calls an approach makes when nothing is retried, so a retry
 /// can be counted rather than inferred.
-fn expected_calls(approach: &str, literals: bool) -> u32 {
+///
+/// The refutation leg is charged a flat two calls rather than its real
+/// count, which is one per finding and unknown before the check replies.
+/// Two is what the corpus says: a flagged subject carries a median of one
+/// finding and 90% carry two or fewer. A subject that beats it runs the
+/// remaining refutations against a budget that may expire, and a refutation
+/// that times out **keeps** its finding, so the failure mode is an
+/// unfiltered warning rather than a lost one. `verify.timeout_ms` overrides
+/// this for anyone whose subjects flag harder.
+fn expected_calls(approach: &str, literals: bool, refuter: bool) -> u32 {
     let base = match approach {
         "split" => 2,
         _ => 1,
     };
-    base + u32::from(literals)
+    base + u32::from(literals) + if refuter { 2 } else { 0 }
 }
 
 #[cfg(test)]
@@ -2135,6 +2394,7 @@ mod tests {
             timeout_ms: 60_000,
             verbs: vec!["claim".into()],
             literals: false,
+            refuter: None,
         }
     }
 
@@ -2232,6 +2492,8 @@ mod tests {
             literals_refuted: 0,
             not_a_quantity: 0,
             kind_off_verb: 0,
+            refuted: 0,
+            refuter: None,
             findings: Vec::new(),
             at: 0,
             cost: 0.0,
@@ -2780,17 +3042,17 @@ mod tests {
         // replaced left a two-call run no headroom and a three-call run
         // none at all.
         let per_leg = DEFAULT_MS_PER_LEG;
-        assert_eq!(per_leg * u64::from(expected_calls("direct", false)), per_leg);
-        assert_eq!(per_leg * u64::from(expected_calls("split", false)), per_leg * 2);
-        assert_eq!(per_leg * u64::from(expected_calls("split", true)), per_leg * 3);
+        assert_eq!(per_leg * u64::from(expected_calls("direct", false, false)), per_leg);
+        assert_eq!(per_leg * u64::from(expected_calls("split", false, false)), per_leg * 2);
+        assert_eq!(per_leg * u64::from(expected_calls("split", true, false)), per_leg * 3);
     }
 
     #[test]
     fn the_literal_check_adds_a_call_that_a_retry_count_must_not_mistake() {
-        assert_eq!(expected_calls("split", false), 2);
-        assert_eq!(expected_calls("split", true), 3);
-        assert_eq!(expected_calls("direct", false), 1);
-        assert_eq!(expected_calls("direct", true), 2);
+        assert_eq!(expected_calls("split", false, false), 2);
+        assert_eq!(expected_calls("split", true, false), 3);
+        assert_eq!(expected_calls("direct", false, false), 1);
+        assert_eq!(expected_calls("direct", true, false), 2);
     }
 
     #[test]
@@ -2858,6 +3120,106 @@ mod tests {
         // is, prose is graded by the prompt whose failures are at least
         // known.
         assert_eq!(check_system_for("prose"), CHECK_SYSTEM);
+    }
+
+    #[test]
+    fn a_refuter_naming_the_same_model_is_declined_and_says_so() {
+        // Self-refutation measured 17% — worse than the unfiltered rate it
+        // would replace. Honouring the configuration silently would make
+        // the feature harmful while looking configured, so it is refused
+        // and the reason is written where a reader will meet it.
+        let subject = subject_fixture("x", &[("F1", &["alpha"])]);
+        let f = vec![Finding {
+            kind: KIND_CONTRADICTS.into(),
+            clause: "c".into(),
+            clause_quoted: false,
+            facts: vec![],
+            quoted_from: None,
+            legacy_fact: None,
+            evidence: None,
+            literal: None,
+            why: "w".into(),
+            quoted: false,
+            rejected_span: None,
+        }];
+        let mut tel = Telemetry::default();
+        let kept = refute_findings(
+            "k",
+            "openai/gpt-5.6-luna",
+            "openai/gpt-5.6-luna",
+            &subject,
+            f,
+            Instant::now(),
+            Duration::from_millis(1),
+            &mut tel,
+        );
+        assert_eq!(kept.len(), 1, "no call is made and nothing is dropped");
+        assert_eq!(tel.refuted, 0);
+        let detail = tel.detail.as_deref().unwrap_or("");
+        assert!(detail.contains("both"), "the skip must be legible: {detail:?}");
+        // The refuter now has a default, so a reader can meet this without
+        // having configured anything. Naming the state is not enough; the
+        // message has to name what to do about it.
+        assert!(
+            detail.contains(crate::config::KEY_VERIFY_REFUTER)
+                && detail.contains(crate::config::REFUTER_OFF),
+            "the skip must name the remedy: {detail:?}"
+        );
+    }
+
+    #[test]
+    fn a_refutation_that_could_not_run_keeps_the_finding() {
+        // An expired budget, an unreadable reply and a transport failure
+        // all reach the same place. A refutation that did not happen is not
+        // a refutation, so the warning survives and the leg can only
+        // decline to filter — never fail the verification.
+        let subject = subject_fixture("x", &[("F1", &["alpha"])]);
+        let f = vec![Finding {
+            kind: KIND_CONTRADICTS.into(),
+            clause: "c".into(),
+            clause_quoted: false,
+            facts: vec![],
+            quoted_from: None,
+            legacy_fact: None,
+            evidence: None,
+            literal: None,
+            why: "w".into(),
+            quoted: false,
+            rejected_span: None,
+        }];
+        let mut tel = Telemetry::default();
+        // Zero budget: `call` returns before it can reach a provider.
+        let kept = refute_findings(
+            "k",
+            "anthropic/claude-sonnet-4.5",
+            "openai/gpt-5.6-luna",
+            &subject,
+            f,
+            Instant::now() - Duration::from_secs(60),
+            Duration::from_millis(1),
+            &mut tel,
+        );
+        assert_eq!(kept.len(), 1, "fail-open: the author still sees it");
+        assert_eq!(tel.refuted, 0);
+    }
+
+    #[test]
+    fn prose_is_announced_as_a_paragraph_and_split_by_its_own_prompt() {
+        // Measured together: the header and the prose classify prompt took
+        // the proposal cluster from 11 findings to 0. `fact` keeps `CLAIM:`
+        // because every fact number on record was measured with it.
+        let mut prose = subject_fixture("some text", &[("F1", &["alpha"])]);
+        prose.verb = "prose".into();
+        assert!(classify_prompt(&prose).starts_with("PARAGRAPH:\n"));
+        assert!(check_prompt(&prose, None).starts_with("PARAGRAPH:\n"));
+        assert_eq!(classify_system_for("prose"), PROSE_CLASSIFY_SYSTEM);
+        assert!(PROSE_CLASSIFY_SYSTEM.starts_with("You are given one PARAGRAPH"));
+
+        let mut fact = subject_fixture("some text", &[("F1", &["alpha"])]);
+        fact.verb = "fact".into();
+        assert!(classify_prompt(&fact).starts_with("CLAIM:\n"));
+        assert_eq!(classify_system_for("fact"), CLASSIFY_SYSTEM);
+        assert_eq!(classify_system_for("claim"), CLASSIFY_SYSTEM);
     }
 
     #[test]
