@@ -1517,10 +1517,12 @@ async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default()
     }
 
     // The defaults: the configuration the retrodiction measured, and
-    // `claim` alone — `fact` being half covered by `scope` already and
-    // `prose` being the least-evidenced comparison of the three.
+    // `claim` with `fact` — `fact` at 88% precision once it is addressed
+    // with its own prompt, bounded off `overreaches` and refuted, which is
+    // above `claim`'s own 83%. `prose` stays off at 80%, the floor of what
+    // is worth printing rather than a margin over it.
     assert_eq!(claimed["verify"]["approach"], "split");
-    assert_eq!(claimed["verify"]["verbs"], serde_json::json!(["claim"]));
+    assert_eq!(claimed["verify"]["verbs"], serde_json::json!(["claim", "fact"]));
     assert_eq!(claimed["verify"]["literals"], false);
     // Refutation defaults on: an unrefuted finding is a warning nobody
     // checked, and `prose` does not clear this tool's bar for printing one

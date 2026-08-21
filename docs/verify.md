@@ -168,7 +168,7 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.model` | `vendor/model` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
 | `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 120s `split`, plus 120s for the refuter and 60s for `literals` — 240s at the shipped defaults |
-| `verify.verbs` | any of `fact`, `claim`, `prose` | `claim` | which verbs are verified |
+| `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
 | `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
@@ -274,24 +274,26 @@ counts as flagged in the precision and recall join, because that join reports wh
 shown. The report says how many flags came from the literal check alone, so you can read those two
 fractions knowing which part of them has an evaluation behind it.
 
-### `verbs`, and why the default is `claim` alone
+### `verbs`, and why `prose` is the one still off
 
 - **`claim` is on** because it is the comparison nothing in tetel performs today. `attention` reads a
   note against its own extent; `overlap` reports ids and shared file paths, never notes. No existing
-  check reads a proposition against the *content* of the evidence cited for it.
-- **`fact` is off** because half its work is already done, deterministically and for free, by the
-  `attention` array. The residue has since been measured: over 123 real notes it flags 12% of them
-  and is right 63% of the time, catching arithmetic a note contradicts inside its own sentence and
-  readings of code the note describes. That is a real check and a defensible thing to turn on; it
-  stays off by default because it costs about a claim check per fact and most facts are fine.
-- **`prose` is off** because it is the highest-volume verb of the three and prose-against-propositions
-  is the comparison with the least evidence behind it. Turning it on spends the largest share of the
-  budget on the least-evidenced check.
-
-Turn more on when you want them:
+  check reads a proposition against the *content* of the evidence cited for it. 83% precision.
+- **`fact` is on**, and used not to be. The old reason was its score: over 123 real notes it flagged
+  12% of them and was right 63% of the time — a real check, but below the bar for something printed
+  unasked. Three changes closed that. It is addressed with its own prompt rather than one written for
+  "a claim from a design memo" (63%), `overreaches` is dropped on it in code because a note records
+  one capture and "the capture does not cover the population" is therefore always true and never news,
+  and every finding is refuted before you see it. **88% precision, 7% of notes flagged** — above
+  `claim`'s own number. It costs about a claim check per fact.
+- **`prose` is off.** It reaches 80%, which is the floor of what is worth printing rather than a
+  margin over it, and only with the strict refuter — a looser one puts it at 44%. It is also the
+  highest-volume verb of the three, so it spends the largest share of the budget on the weakest
+  check. Turn it on knowing that.
 
 ```sh
-tetel config verify.verbs "claim,fact"
+tetel config verify.verbs "claim,fact,prose"   # add the third
+tetel config verify.verbs ""                   # verify nothing, without unsetting the rest
 ```
 
 ---
@@ -320,8 +322,11 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`) plus `deterministic: false` and a `guidance` string — because tetel only admits a setting
-that is visible in the output it affects, and four of those five would otherwise be invisible.
+`literals`, `refuter_model`) plus `deterministic: false` and a `guidance` string — because tetel only
+admits a setting that is visible in the output it affects, and all but one of those would otherwise
+be invisible. `timeout_ms` and `refuter_model` matter most here: both have defaults that `tetel
+config` prints as "(unset)", so this echo is the only place the number and the second model actually
+in force appear.
 
 ### A finding
 

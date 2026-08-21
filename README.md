@@ -149,12 +149,16 @@ run.
 
 ## The mint-time verifier
 
-Optional, off by default, and the one part of tetel that reaches the network. When enabled, `fact`,
-`claim` and `prose` compare what you just wrote against the evidence the tool already captured for
-it, and report disagreements in the tool result — `scope.rs` for meaning rather than for location.
-It never refuses, never blocks a mint, and never runs inside `check`.
+Optional, off by default, and the one part of tetel that reaches the network. Enabled, it compares
+what you just wrote against the evidence the tool already captured for it and reports disagreements
+in the tool result — `scope.rs` for meaning rather than for location. It never refuses, never blocks
+a mint, and never runs inside `check`.
 
-It flags about 8 things on a 40-claim design, 6 of them real, for a few tens of cents. It also misses
+`claim` and `fact` are checked by default; `prose` is built, measured and off. Every finding is put
+to a **second model** before it reaches you, because a finding nobody checked is an assertion rather
+than a warning — that leg took `fact` from 63% to 88% precision and is on by default too.
+
+On a 40-claim design it flags about 8 things, 6 of them real, for a few tens of cents. It also misses
 most of what a grounding pass catches, and it says so.
 
 **[`docs/verify.md`](docs/verify.md)** — configuration, every option, what the statuses mean, what it
