@@ -264,3 +264,4 @@ raises the ceiling — an earlier version lowered it, which is exactly backwards
 | `run_eval.py` | the original verdict harness |
 | `literals_eval.py` | the `unevidenced` kind, over the retrodiction's corpus |
 | `*_luna2.json`, `*.log` | the runs the table above reports |
+| `*_refuted.json`, `*_refuted_gemini.json` | the same findings put to a second model — `anthropic/claude-sonnet-4.5` and `google/gemini-2.5-pro`, scored against the same adjudications, which is what makes the refuter a dial rather than a fixed price |

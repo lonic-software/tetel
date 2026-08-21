@@ -50,25 +50,50 @@ not exist yet — 11 of 38 wrong findings, reduced to none.
 
 ## The second opinion
 
-Set `verify.refuter_model` to a **different** model and every finding is put to it before you see
-it: here is the text, here is the evidence, here is the proposed disagreement — is it correct? Only
-a clear *wrong* drops the finding. An unreadable answer, an expired budget or a provider failure
-all keep it, so a warning is never deleted by something going wrong.
+Every finding is put to a **second model** before you see it: here is the text, here is the
+evidence, here is the proposed disagreement — is it correct? Only a clear *wrong* drops the finding.
+An unreadable answer, an expired budget or a provider failure all keep it, so a warning is never
+deleted by something going wrong.
 
-Measured 2026-08-16 with `anthropic/claude-sonnet-4.5` against findings adjudicated one by one:
+This is on by default, at `anthropic/claude-sonnet-4.5`, and it is the one setting here that
+defaults to spending rather than to silence. The reason is that an unrefuted finding is an assertion
+nobody checked, and `prose` does not clear this tool's own bar for printing a warning without it.
+Measured 2026-08-16 against findings adjudicated one by one:
 
-| | without | with |
+| | unrefuted | refuted |
 |---|---|---|
 | `fact` | 63% precision, 12% of notes flagged | **88%**, 7% flagged |
 | `prose` | 36% precision, 11% flagged | **80%**, 4% flagged |
 
-It costs about one true finding in five, and one extra call per *finding* — not per mint, and
-findings are rare. It is off unless set, and it is worth setting: this tool's own rule is that a
-wrong warning costs more than a missed one.
+One extra call per *finding* — not per mint, and findings are rare, so it costs about a third more
+per mint than it saves in wrong warnings. `verify.refuter_model off` turns it off; `--unset`
+restores the default rather than removing the leg.
 
-It must not name the same model as `verify.model`. Asked to refute itself that model scored 17%,
-near-random — finding and checking are only different questions when someone else asks the second
-one. Configuring it that way is refused, with the reason in the record.
+### The refuter is a precision/recall dial, not a fixed price
+
+The Sonnet numbers cost about **one true finding in five**, and that price belongs to *this refuter*
+rather than to refutation. Running the same findings past `google/gemini-2.5-pro`:
+
+| | kept the true catches | precision |
+|---|---|---|
+| `fact` — Sonnet | 8/10 | 88% |
+| `fact` — Gemini | **10/10** | 76% |
+| `prose` — Sonnet | 4/5 | 80% |
+| `prose` — Gemini | 4/5 | 44% |
+
+Sonnet's survivors are a strict subset of Gemini's on `fact` and all but one on `prose` — the two
+never disagree about a finding being *true*, only about how aggressively to drop the false ones. So
+the two catches Sonnet loses are recoverable, at a precision cost, by naming the looser refuter.
+Sonnet is the default because a wrong warning costs an author more than a missed one, and because
+`prose` at 44% is not a warning worth printing.
+
+That comparison is also the answer to the obvious objection — that an Opus author and a Sonnet
+refuter are close enough to agree for the wrong reason. If the 88% were an artifact of family
+agreement, a third family would disagree about *which* findings are correct. It does not.
+
+The refuter must not name the same model as `verify.model`. Asked to refute itself that model scored
+17%, near-random — finding and checking are only different questions when someone else asks the
+second one. Configuring it that way is refused, with the reason in the record.
 
 ### Why the overlap set is in there
 
@@ -142,8 +167,9 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 60s `direct`, 120s `split`, 180s with `literals` |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 120s `split`, plus 120s for the refuter and 60s for `literals` — 240s at the shipped defaults |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim` | which verbs are verified |
+| `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
 ### `approach`
@@ -233,9 +259,10 @@ comparison happened. That principle is right and the trade was wrong: the disagr
 is the whole reason `verify` is an object.
 
 `verify.timeout_ms` bounds the whole verification end to end, not each call, so its **default scales
-with the number of calls**: 60s per leg, meaning 60s for `direct`, 120s for `split`, and 180s for
-`split` with literals on. Measured over the corpus a single call's median is under 10 seconds and
-its p90 around 50, so a flat budget would have left `split` no headroom and three legs none at all.
+with the number of calls**: 60s per leg, meaning 60s for `direct` and 120s for `split`, with the
+refuter charged a flat two legs and `literals` one — 240s for the shipped configuration. Measured
+over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat budget
+would have left `split` no headroom and four legs none at all.
 Set it explicitly and your number is used as-is:
 
 ```sh

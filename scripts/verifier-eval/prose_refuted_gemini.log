@@ -1,0 +1,21 @@
+24 findings to put to a refutation pass
+  10/24  $0.2876
+  20/24  $0.5527
+  24/24  $0.6761
+
+refutation cost $0.6761
+  CORRECT   12
+  ERROR     1
+  WRONG     11
+
+verb             prose
+subjects         112   (112 ok, 0 not)
+cost             $0.7779 total, $0.00695 each
+
+FLAG RATE ON REAL, PUBLISHED, ALREADY-GROUNDED MATERIAL
+  flagged          10/112   (9%)
+  findings         13
+    contradicts   9
+    overreaches   4
+  quoted verbatim  7/13
+  clause verbatim  13/13

@@ -1756,9 +1756,16 @@ fn refute_findings(
     tel: &mut Telemetry,
 ) -> Vec<Finding> {
     if refuter == model {
+        // Names neither setting as the culprit, because the refuter may
+        // not have been set at all: it defaults to
+        // `config::DEFAULT_REFUTER`, so an author who moved `verify.model`
+        // onto that model reaches this with nothing of their own to
+        // correct. The remedy is what the message has to carry.
         tel.detail = Some(format!(
-            "verify.refuter_model is {refuter}, the same model as verify.model; \
-             a model refuting itself scored 17% and the leg is skipped"
+            "the refuter and verify.model are both {refuter}; a model refuting itself scored \
+             17% and the leg is skipped — set verify.refuter_model to a different model, or to \
+             `{off}` to go unrefuted deliberately",
+            off = crate::config::REFUTER_OFF
         ));
         return findings;
     }
@@ -3148,10 +3155,15 @@ mod tests {
         );
         assert_eq!(kept.len(), 1, "no call is made and nothing is dropped");
         assert_eq!(tel.refuted, 0);
+        let detail = tel.detail.as_deref().unwrap_or("");
+        assert!(detail.contains("both"), "the skip must be legible: {detail:?}");
+        // The refuter now has a default, so a reader can meet this without
+        // having configured anything. Naming the state is not enough; the
+        // message has to name what to do about it.
         assert!(
-            tel.detail.as_deref().unwrap_or("").contains("same model"),
-            "the skip must be legible: {:?}",
-            tel.detail
+            detail.contains(crate::config::KEY_VERIFY_REFUTER)
+                && detail.contains(crate::config::REFUTER_OFF),
+            "the skip must name the remedy: {detail:?}"
         );
     }
 
