@@ -83,6 +83,30 @@ const ENV_CONFIG_HOME: &str = "TETEL_CONFIG_HOME";
 /// default is 1; this key only decides where the number comes from.
 pub const KEY_GROUNDING_FLOOR: &str = "grounding.floor";
 
+/// How long a single `tetel run` command may take before its process
+/// group is killed and the call refused. See [`DEFAULT_RUN_TIMEOUT_MS`].
+pub const KEY_RUN_TIMEOUT_MS: &str = "run.timeout_ms";
+
+/// The wall-clock bound on one `run`, in milliseconds, when
+/// [`KEY_RUN_TIMEOUT_MS`] is unset.
+///
+/// Five minutes, chosen against two things it has to sit between. Below
+/// it: a cold `cargo build --release` or a full test suite, which are
+/// honest evidence and must not be refused by default, or authors will
+/// raise the key globally and the bound will protect nothing. Above it: a
+/// command that will never finish, which on the MCP surface does not fail
+/// alone — `run` waits for its child and the server answers requests
+/// serially, so one runaway queues every later call. A measured instance
+/// ran 1h55m at 100% CPU and cost an attack pass every finding it had not
+/// yet written, while the server sat at 0% CPU because it was blocked
+/// rather than busy, which makes the failure look like a hang.
+///
+/// Five minutes converts that outcome completely and refuses almost
+/// nothing real. It is not a guess at how long commands take: it is the
+/// point past which "still running" stops being evidence-gathering and
+/// starts being a wedged session.
+pub const DEFAULT_RUN_TIMEOUT_MS: u64 = 300_000;
+
 /// Whether the mint-time verifier runs at all. Off unless set.
 pub const KEY_VERIFY_ENABLED: &str = "verify.enabled";
 /// Which model performs the comparison, as `vendor/model`.
@@ -233,6 +257,11 @@ const KEYS: &[KeyDef] = &[
         summary: "how many non-author workspaces must grade a claim's current wording \
 before it leaves the owed list (at least 1)",
         accepts: Accepts::IntAtLeast(1),
+    },
+    KeyDef {
+        name: KEY_RUN_TIMEOUT_MS,
+        summary: "how long one `tetel run` command may take before its process group is killed and the call refused (milliseconds, at least 1000; unset: 300000). The bound exists because a command that never returns does not fail alone: `run` waits for its child and the MCP server answers serially, so one runaway queues every later call. Raise it for a build or a suite that honestly takes longer — a refusal names the elapsed time, the command and this key. Nothing is captured from a command that hit the bound: a killed command produced an indeterminate prefix, and a prefix that looks like output is the wrong-but-green evidence this tool exists to avoid",
+        accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
         name: KEY_VERIFY_ENABLED,
@@ -427,6 +456,21 @@ pub fn rejections(key: &str, workspace_dir: Option<&Path>) -> Vec<(Scope, String
 pub fn grounding_floor(workspace_dir: Option<&Path>) -> (Option<u32>, Source) {
     let (raw, source) = resolve(KEY_GROUNDING_FLOOR, workspace_dir);
     (raw.and_then(|v| v.trim().parse::<u32>().ok()), source)
+}
+
+/// [`resolve`] for [`KEY_RUN_TIMEOUT_MS`], parsed, with
+/// [`DEFAULT_RUN_TIMEOUT_MS`] when the file says nothing.
+///
+/// Unlike [`verify_timeout_ms`] this one *does* answer with a default,
+/// because there is nothing further downstream that knows better. A
+/// verification's budget scales with how many provider calls the
+/// configured approach makes and only `verify` knows that count; a `run`
+/// is one command, and the number is the number.
+pub fn run_timeout_ms(workspace_dir: Option<&Path>) -> u64 {
+    resolve(KEY_RUN_TIMEOUT_MS, workspace_dir)
+        .0
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .map_or(DEFAULT_RUN_TIMEOUT_MS, u64::from)
 }
 
 /// [`resolve`] for [`KEY_VERIFY_ENABLED`], parsed. Absent means off.

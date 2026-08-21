@@ -20,6 +20,13 @@ tokio = { version = "1", features = ["rt"] }
 rmcp = { version = "3.1", features = ["transport-io"] }
 ureq = "3.4.0"
 
+# Only to send a signal to a process *group*, which `std` cannot express:
+# `run`'s bound has to reach a command's grandchildren, and killing the
+# direct child alone leaves them holding the pipes `run` is reading. Already
+# in the lock file transitively, so this adds no crate to the build.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 rmcp = { version = "3.1", features = ["client", "transport-child-process"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }

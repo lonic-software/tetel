@@ -123,6 +123,10 @@ enum Command {
         grep: Option<String>,
     },
     /// Execute a command, printing and recording its combined output.
+    ///
+    /// Bounded by `run.timeout_ms` (5 minutes unset). Past it the command
+    /// and everything it started are killed, the call is refused, and
+    /// nothing is captured.
     Run {
         /// The command and its arguments.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
