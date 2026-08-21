@@ -19,7 +19,7 @@
 //! someone remembers to set.
 
 use std::fmt;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -511,7 +511,14 @@ condition the proposition holds under, or what you could not establish".to_strin
 /// rest.
 pub fn load(memo: &Path) -> io::Result<(Vec<EvidenceRecord>, Vec<String>)> {
     let path = evidence_path(memo);
-    let text = match fs::read_to_string(&path) {
+    // `path` is derived from `memo` by a fixed, predictable string
+    // suffix (see `evidence_path`), not read from tetel's own state, so
+    // it is in the same TET-79 class as a directly caller-supplied path:
+    // a FIFO named `<memo>.evidence.jsonl` would hang this read exactly
+    // as one at `memo` itself would. `read_caller_path` preserves the
+    // `NotFound` kind a bare `fs::read_to_string` would give, which is
+    // what the arm below still matches on.
+    let text = match crate::workspace::read_caller_path(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
         Err(e) => return Err(e),

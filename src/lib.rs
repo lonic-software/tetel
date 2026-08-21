@@ -116,7 +116,10 @@ pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
 /// whatever evidence has been recorded in `<file>.evidence.jsonl`, if it
 /// exists.
 pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
-    let source = std::fs::read_to_string(path)?;
+    // Refuses a FIFO/socket/device before the read rather than blocking
+    // inside it — same guard `look` uses (TET-79), through the
+    // workspace-less path since `check` opens no workspace.
+    let source = workspace::read_caller_path(path)?;
     let doc = parse::parse_document(&source);
     let ledger = ledger::import(&doc.body);
     let mut findings = checks::analyze(&doc, &ledger.claims);
@@ -298,7 +301,9 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
 /// section a switched-off flag would give, and the decision not to have a
 /// flag depends on the parameter not becoming one.
 pub fn brief_file(path: &Path, json: bool, floor: u32) -> std::io::Result<(i32, String)> {
-    let source = std::fs::read_to_string(path)?;
+    // See `check_file`: same TET-79 guard, same reason `brief` has no
+    // workspace to refuse into.
+    let source = workspace::read_caller_path(path)?;
     let doc = parse::parse_document(&source);
     let ledger = ledger::import(&doc.body);
     let display_path = path.display().to_string();
@@ -360,7 +365,10 @@ pub fn record_from_fact_file(
     fact_id: &str,
     note: Option<String>,
 ) -> std::io::Result<Result<String, evidence::RecordError>> {
-    let source = std::fs::read_to_string(memo)?;
+    // Same TET-79 guard as `check_file`/`brief_file`: `memo` is
+    // caller-supplied and this function has no workspace of its own to
+    // refuse into (it takes one only to look up `fact_id`).
+    let source = workspace::read_caller_path(memo)?;
     let doc = parse::parse_document(&source);
     let ledger = ledger::import(&doc.body);
 
@@ -386,7 +394,12 @@ pub fn record_from_fact_file(
 /// This is the *ingested* path: extent and source are typed by the caller.
 /// See [`record_from_fact_file`] for the witnessed one.
 pub fn record_file(path: &Path, input_json: &str) -> std::io::Result<Result<(), evidence::RecordError>> {
-    let source = std::fs::read_to_string(path)?;
+    // Same TET-79 guard, io-based like `check_file`/`brief_file`: `record`
+    // has no workspace_dir here at all, and even `record_from_fact_file`,
+    // which does, keeps its memo-read refusals off `refusals.log` by
+    // design (see `main.rs`'s `refuse_here` doc comment) rather than
+    // routing them through `workspace::refuse`.
+    let source = workspace::read_caller_path(path)?;
     let doc = parse::parse_document(&source);
     let ledger = ledger::import(&doc.body);
     Ok(evidence::record(path, &ledger.claims, input_json))

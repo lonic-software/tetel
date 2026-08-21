@@ -329,6 +329,164 @@ fn look_refuses_a_nonexistent_path_and_a_directory() {
     assert!(err.contains("--grep"), "stderr was:\n{err}");
 }
 
+/// TET-79: a FIFO passes `exists()` and fails `is_dir()` exactly like a
+/// regular file, but nothing after those two guards distinguishes it
+/// from one — `fs::read_to_string` blocks on a FIFO until a writer
+/// closes it, forever if none ever does. There is no child process here
+/// for `run.timeout_ms` to bound, so `look` must refuse this up front.
+///
+/// `#[cfg(unix)]` rather than a runtime skip: `mkfifo` and the hang it
+/// causes are both POSIX-specific, and CI (`ci.yml`) runs only macOS and
+/// Ubuntu, so a `#[cfg(unix)]` test is exercised on every platform this
+/// suite actually runs on and cleanly absent (not failed) elsewhere.
+/// `run_bounded` is what turns "hangs" into a red assertion here instead
+/// of a wedged test binary, which is exactly the shape of TET-79 itself.
+#[test]
+#[cfg(unix)]
+fn look_refuses_a_fifo_instead_of_hanging() {
+    let sb = Sandbox::new("look-fifo");
+    let fifo = sb.dir.join("pipe");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (code, err) = run_bounded(&sb, &["look", fifo.to_str().unwrap()], 10);
+    assert_ne!(code, 0, "a FIFO must be refused, not read: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+    assert!(err.contains("not a regular file"), "stderr was:\n{err}");
+}
+
+/// The fix for TET-79 must refuse a FIFO without refusing everything
+/// merely unusual: a symlink whose target is a regular file has to keep
+/// working, because `fs::metadata` (unlike `fs::symlink_metadata`)
+/// resolves through the link to classify the target, not the link
+/// itself. Without this test, "refuse anything that isn't a plain
+/// on-disk regular file" would also pass — and would wrongly break every
+/// symlinked file a caller might `look` at.
+#[test]
+#[cfg(unix)]
+fn look_accepts_a_symlink_to_a_regular_file() {
+    let sb = Sandbox::new("look-symlink");
+    sb.write("real.txt", "the actual content\n");
+    let real = sb.dir.join("real.txt");
+    let link = sb.dir.join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).expect("failed to create symlink");
+
+    let (code, out, err) = sb.run(&["look", link.to_str().unwrap()]);
+    assert_eq!(code, 0, "a symlink to a regular file must be accepted, not refused: {err}");
+    assert!(out.contains("the actual content"), "output was:\n{out}");
+}
+
+/// Pins the class fix, not just `look_path`: `check_file` reads a
+/// caller-supplied memo path the same unguarded way `look_path` used to,
+/// and TET-79 asked for the guarantee moved into a shared helper rather
+/// than patched only at the site the ticket happened to name. If this
+/// regresses to a bare `fs::read_to_string`, this test hangs (bounded by
+/// `run_bounded`) rather than merely failing quietly.
+#[test]
+#[cfg(unix)]
+fn check_refuses_a_fifo_instead_of_hanging() {
+    let sb = Sandbox::new("check-fifo");
+    let fifo = sb.dir.join("pipe.md");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (code, err) = run_bounded(&sb, &["check", fifo.to_str().unwrap()], 10);
+    assert_ne!(code, 0, "check must refuse a FIFO, not read it: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+}
+
+/// TET-79 code-review round 2, finding 1: `look_path` got the FIFO guard
+/// but `look --grep` did not — `look_grep` shells out to `grep`, which
+/// opens and reads an explicitly-named root exactly like
+/// `fs::read_to_string` does, and hung with no bound of any kind (unlike
+/// `run`, `look_grep`'s `grep` invocation is not under `run.timeout_ms`).
+/// `run_bounded` is what turns "hangs" into a red assertion here rather
+/// than a wedged test binary — see this test's own revert-check in the
+/// PR description for the run against `look_grep` before the guard.
+#[test]
+#[cfg(unix)]
+fn look_grep_refuses_a_fifo_root_instead_of_hanging() {
+    let sb = Sandbox::new("look-grep-fifo");
+    let fifo = sb.dir.join("pipe");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (code, err) = run_bounded(&sb, &["look", "--grep", "x", fifo.to_str().unwrap()], 10);
+    assert_ne!(code, 0, "a FIFO grep root must be refused, not read: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+}
+
+/// A directory root must still work after the `look --grep` guard above:
+/// the guard only applies when `root_path` is not a directory, and this
+/// is what stops that condition from silently becoming "refuse every
+/// root" the way an inverted or missing `is_dir` check would.
+#[test]
+fn look_grep_still_searches_a_directory_root() {
+    let sb = Sandbox::new("look-grep-dir-still-works");
+    sb.write("src/lib.rs", "fn needle_marker() {}\n");
+    let (code, out, err) = sb.run(&["look", "--grep", "needle_marker", "src"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("needle_marker"), "output was:\n{out}");
+}
+
+/// TET-79 code-review round 2, findings 2/3: `resolve_text_value`'s
+/// `@file` branch (and `--input`) must not refuse *every* FIFO — bash
+/// process substitution (`@<(command)`) and `/dev/stdin` when piped are
+/// both FIFOs with a real writer, and both worked on `main`. This is the
+/// test that stops the split-guard fix from silently regressing back to
+/// a blanket refusal: it must actually observe the substituted text
+/// land in the claim, not merely observe a non-error exit code.
+#[test]
+#[cfg(unix)]
+fn a_live_fifo_via_process_substitution_is_read_not_refused() {
+    let sb = Sandbox::new("note-fifo-live");
+    sb.write("src/lib.rs", "fn a() {}\n");
+    let file = sb.dir.join("src/lib.rs");
+    let (code, _out, err) = sb.run(&["look", file.to_str().unwrap()]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let (code, _out, err) = sb.run(&["fact", "--note", "opened lib.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let bin = env!("CARGO_BIN_EXE_tetel");
+    let script = format!(
+        "{bin} claim --proposition @<(echo -n 'a proposition sourced from a live fifo') --cites F1"
+    );
+    let (code, out, err) = run_bash_bounded(&sb, &script, 15);
+    assert_eq!(code, 0, "process substitution must be read, not refused. stdout:\n{out}\nstderr:\n{err}");
+    assert!(
+        sb.claims_jsonl().contains("a proposition sourced from a live fifo"),
+        "the fifo's content never reached the claim: {}",
+        sb.claims_jsonl()
+    );
+}
+
+/// The other half of the same split: a FIFO with no writer at all must
+/// still be refused, just after `FIFO_READ_DEADLINE` (10s in
+/// `workspace.rs`) rather than `look`'s immediate refusal. `run_bounded`'s
+/// cap is set comfortably above the production deadline so this measures
+/// "did the deadline actually fire", not a race against it.
+#[test]
+#[cfg(unix)]
+fn a_writerless_fifo_via_at_file_is_refused_after_the_deadline_not_hung() {
+    let sb = Sandbox::new("note-fifo-deadline");
+    sb.write("src/lib.rs", "fn a() {}\n");
+    let file = sb.dir.join("src/lib.rs");
+    let (code, _out, err) = sb.run(&["look", file.to_str().unwrap()]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    let (code, _out, err) = sb.run(&["fact", "--note", "opened lib.rs"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let fifo = sb.dir.join("deadnote");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let arg = format!("@{}", fifo.display());
+    let (code, err) = run_bounded(&sb, &["claim", "--proposition", &arg, "--cites", "F1"], 30);
+    assert_ne!(code, 0, "a writer-less FIFO must eventually be refused, not read forever: {err}");
+    assert!(err.contains("did not finish within"), "the refusal must name the deadline: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+}
+
 #[test]
 fn run_captures_output_and_mirrors_exit_code() {
     let sb = Sandbox::new("run-basic");
@@ -368,6 +526,43 @@ fn run_bounded(sb: &Sandbox, args: &[&str], secs: u64) -> (i32, String) {
     let out = child.wait_with_output().expect("collect output");
     (
         out.status.code().expect("process should exit normally"),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// As [`run_bounded`], but for a `bash -c` script rather than a direct
+/// `tetel` invocation — needed for the process-substitution test, which
+/// has to go through a shell to get `@<(...)` expanded into a `/dev/fd/N`
+/// path before `tetel` ever sees it. Same reasoning: a regression that
+/// reintroduced a hang on this path must redden this test, not wedge it.
+fn run_bash_bounded(sb: &Sandbox, script: &str, secs: u64) -> (i32, String, String) {
+    let mut child = Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .current_dir(&sb.dir)
+        .env("TETEL_STATE_HOME", sb.state_home())
+        .env("TETEL_CONFIG_HOME", sb.config_home())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn bash");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        if child.try_wait().expect("try_wait failed").is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            child.kill().ok();
+            child.wait().ok();
+            panic!("`bash -c {script:?}` did not return within {secs}s");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let out = child.wait_with_output().expect("collect output");
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
 }

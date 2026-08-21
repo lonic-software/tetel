@@ -71,7 +71,8 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -109,8 +110,28 @@ pub struct Identity {
 
 /// Read an existing identity without creating one — for a snapshot
 /// directory, where creating one would invent an author.
+///
+/// `dir` is `<memo>.tetel`, a fixed suffix on a caller-supplied memo
+/// path — the same derivation `evidence::load`'s `<memo>.evidence.jsonl`
+/// has, and in the same TET-79 class for the same reason: a FIFO living
+/// at `<memo>.tetel/identity.json` would block this read on `check`'s,
+/// `brief`'s or `verify-report`'s calling thread exactly as one at
+/// `memo` itself would. Routed through [`read_caller_path`], the strict
+/// (no-FIFO-exception) guard — this reads snapshot-internal metadata a
+/// human never names with `@<(...)`, not a free-text carrier, so it
+/// belongs with `evidence::load` rather than with
+/// [`read_text_carrier_path`].
+///
+/// The refusal is not surfaced as distinct from "no identity recorded":
+/// this function already collapses every other failure mode — a missing
+/// file, unparseable JSON — into `None` via `.ok()`, so a guard refusal
+/// joins that same collapse rather than getting new standing. Nothing
+/// downstream (`AuthoringIdentity::NoSnapshot`/`SnapshotWithoutIdentity`,
+/// or `verify.rs`'s pass-identity match) currently distinguishes those
+/// cases from each other either; adding one only for this new failure
+/// mode would be inconsistent with what the function already promises.
 pub fn identity_of(dir: &Path) -> Option<String> {
-    let raw = fs::read_to_string(dir.join("identity.json")).ok()?;
+    let raw = read_caller_path(&dir.join("identity.json")).ok()?;
     serde_json::from_str::<Identity>(&raw).ok().map(|i| i.id)
 }
 
@@ -311,6 +332,242 @@ pub fn refusals_since(workspace_dir: &Path, since: Option<u64>) -> Vec<String> {
         .collect()
 }
 
+/// What a caller-supplied path resolved to, when `fs::metadata` says it
+/// is neither a regular file nor a directory. Only [`Fifo`](Self::Fifo)
+/// gets treated differently from the rest anywhere in this module (see
+/// [`read_text_carrier_path`]) — every other variant is always refused
+/// outright, which is why they carry no data of their own beyond
+/// [`label`](Self::label).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonRegularKind {
+    Fifo,
+    Socket,
+    CharDevice,
+    BlockDevice,
+    /// Whatever this platform cannot name more precisely — including
+    /// every non-regular, non-directory path on a non-Unix target, where
+    /// `std::fs::FileType` has no vocabulary finer than "not a file, not
+    /// a directory".
+    Other,
+}
+
+impl NonRegularKind {
+    fn label(self) -> &'static str {
+        match self {
+            NonRegularKind::Fifo => "named pipe (FIFO)",
+            NonRegularKind::Socket => "socket",
+            NonRegularKind::CharDevice => "character device",
+            NonRegularKind::BlockDevice => "block device",
+            NonRegularKind::Other => "not a regular file",
+        }
+    }
+}
+
+/// Classifies `meta` for every guard in this module, so a FIFO refused
+/// through `look` and one refused through `check` are named the same
+/// way.
+///
+/// `fs::metadata` follows symlinks (measured on this platform: a symlink
+/// to a regular file reports `is_file() == true` here, while
+/// `fs::symlink_metadata` on the same link reports `is_file() == false`
+/// and `file_type().is_symlink() == true`), so a symlink whose target is
+/// a regular file is invisible to this function — it classifies the
+/// target, which is what lets that symlink pass every guard built on it.
+///
+/// Directories are deliberately excluded (returned as `None`, i.e. "not
+/// flagged here"): `fs::read_to_string` already fails fast on one — no
+/// blocking read to prevent — and `look_path` has its own richer
+/// refusal for a directory that names the `--grep` alternative; folding
+/// a directory into this generic message would either duplicate that or
+/// blunt it.
+#[cfg(unix)]
+fn non_regular_kind(meta: &fs::Metadata) -> Option<NonRegularKind> {
+    use std::os::unix::fs::FileTypeExt;
+    if meta.is_file() || meta.is_dir() {
+        return None;
+    }
+    let ft = meta.file_type();
+    Some(if ft.is_fifo() {
+        NonRegularKind::Fifo
+    } else if ft.is_socket() {
+        NonRegularKind::Socket
+    } else if ft.is_char_device() {
+        NonRegularKind::CharDevice
+    } else if ft.is_block_device() {
+        NonRegularKind::BlockDevice
+    } else {
+        NonRegularKind::Other
+    })
+}
+
+#[cfg(not(unix))]
+fn non_regular_kind(meta: &fs::Metadata) -> Option<NonRegularKind> {
+    if meta.is_file() || meta.is_dir() { None } else { Some(NonRegularKind::Other) }
+}
+
+/// The refusal wording for a caller-supplied path this crate will not
+/// read outright — shared by every guard below so a FIFO refused on
+/// `look` and one refused on `check` read identically.
+///
+/// "extent" echoes `look`'s own vocabulary for a captured read (see
+/// `look_path`'s doc comment): the point of the message is that a FIFO
+/// or device has none — reading it blocks until a writer closes it
+/// (a FIFO with no writer: forever) or, for `/dev/zero`, never blocks
+/// and never ends either. TET-79: `look` on a FIFO hung indefinitely on
+/// `main`, unkillable by any bound already shipped, because the block
+/// happens inside `fs::read_to_string` on the calling thread itself —
+/// there is no child process for a timeout to signal.
+fn non_regular_reason(display: &str, kind: NonRegularKind) -> String {
+    format!(
+        "{display} is a {}, not a regular file; a stream with no end is not an extent `tetel` can read.",
+        kind.label()
+    )
+}
+
+/// Guards a caller-supplied path before it reaches `fs::read_to_string`,
+/// for the authoring commands that hold a workspace and must log a
+/// refusal into it (via [`refuse`]) rather than merely return one.
+///
+/// Checks only — the caller still performs its own read afterward. This
+/// stays a guard rather than a guard-and-read because `look_path`
+/// interleaves it between its own existence and directory refusals and
+/// needs the workspace-scoped [`refuse`] call to fire from exactly this
+/// point, not from inside a read this function doesn't own.
+///
+/// Always the strict form — no FIFO exception, unlike
+/// [`read_text_carrier_path`]. Everything that reaches this (`look`'s
+/// plain-file read, and `look --grep`'s explicitly-named, non-directory
+/// root) treats what it reads as an *extent*: a captured span that must
+/// be re-readable later exactly as captured. A stream has no such span,
+/// live writer or not, so there is nothing here worth waiting out.
+pub fn guard_regular_file(workspace_dir: &Path, cmd: &str, display: &str, path: &Path) -> Result<(), AuthoringError> {
+    let meta = fs::metadata(path).map_err(|e| AuthoringError::Io(e.to_string()))?;
+    if let Some(kind) = non_regular_kind(&meta) {
+        return Err(refuse(workspace_dir, cmd, non_regular_reason(display, kind)));
+    }
+    Ok(())
+}
+
+/// Reads `path` the strict way every workspace-less *extent* reader needs
+/// to (`check`, `brief`, `record`'s two memo reads, `evidence::load`'s
+/// derived `<memo>.evidence.jsonl`, and `identity_of`'s derived
+/// `<snapshot>/identity.json`): refuse before the read rather than block
+/// inside it, and refuse every non-regular kind including a FIFO — each
+/// of these reads becomes part of a memo's evidence, ledger or identity
+/// state, which — like `look`'s capture — has to be a fixed extent, not
+/// a live stream a caller happens to have a writer for right now. These
+/// callers have no workspace to log a refusal into — `check_file` and
+/// `brief_file` open no workspace by design (see this module's own doc
+/// comment on working state vs. a memo's provenance) — so the refusal is
+/// an ordinary `io::Error` rather than a routed [`AuthoringError`].
+///
+/// See [`read_text_carrier_path`] for the sibling used by `--note`/
+/// `--proposition`/…'s `@file` form and by `record`'s own `--input`
+/// argument, which allows a FIFO a bounded wait because neither reads a
+/// source that has to stay re-readable later — unlike this function's
+/// callers, nothing here is captured as an extent.
+///
+/// A missing path still surfaces as `io::ErrorKind::NotFound`, unchanged
+/// from a bare `fs::read_to_string`: the existence check happens inside
+/// `fs::metadata` here rather than being skipped, so callers matching on
+/// that error kind (`evidence::load`'s "no ledger yet" case) keep working
+/// unmodified.
+pub fn read_caller_path(path: &Path) -> io::Result<String> {
+    let meta = fs::metadata(path)?;
+    if let Some(kind) = non_regular_kind(&meta) {
+        let display = path.display().to_string();
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, non_regular_reason(&display, kind)));
+    }
+    fs::read_to_string(path)
+}
+
+/// How long [`read_text_carrier_path`] waits for a FIFO with no writer
+/// yet before giving up.
+///
+/// Bracketed by two failure modes, not tuned to either alone: too short
+/// and a legitimately slow producer behind `@<(some slow command)` (bash
+/// process substitution) is cut off before it has written anything,
+/// turning a working `@file` into a flaky one; too long and a
+/// writer-less FIFO — the actual TET-79 case, just relocated from `look`
+/// to a free-text flag — holds an MCP session (which answers requests
+/// serially) for that whole span while the caller has no idea anything
+/// is stuck. 10s sits in the "seconds to tens of seconds" this trade
+/// calls for: generous next to a shell command substitution, which
+/// ordinarily produces its first byte in well under a second, and short
+/// next to the minutes-scale budget `run.timeout_ms` gives a command the
+/// author explicitly chose to execute — this is not that; nothing behind
+/// `@file`/`--input` was invoked on the author's own authority to run
+/// for a while, so it gets no comparable allowance.
+const FIFO_READ_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Reads `path` on a separate thread and gives up after `deadline` —
+/// the same poll-`is_finished`-to-a-deadline shape `observe.rs`'s
+/// `join_with_deadline`/`reap_with_grace` use for `run`'s bound, and the
+/// same reasoning: a thread parked in a blocking `read()` cannot be
+/// cancelled from outside, so this can only either wait for it to finish
+/// or give up on it. `join()` is called only once `is_finished()` has
+/// already confirmed the thread is done — a near-instant call at that
+/// point, fetching a result rather than waiting for one — and never
+/// called at all on the timeout path below, where the handle is simply
+/// dropped unjoined. Dropping it is safe because the thread holds
+/// nothing but its own stack and the file handle: it either notices its
+/// writer close the pipe eventually and exits on its own, or (a writer
+/// that never arrives) stays parked for the life of the process, which
+/// is a leaked thread per incident rather than a wedged call.
+fn read_with_deadline(path: &Path, deadline: Duration) -> io::Result<String> {
+    let owned = path.to_path_buf();
+    let handle = thread::spawn(move || fs::read_to_string(&owned));
+    let until = Instant::now() + deadline;
+    let mut nap = Duration::from_millis(1);
+    loop {
+        if handle.is_finished() {
+            return match handle.join() {
+                Ok(result) => result,
+                Err(_) => Err(io::Error::new(io::ErrorKind::Other, format!("reading {} panicked", path.display()))),
+            };
+        }
+        if Instant::now() >= until {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "{} did not finish within {}s — a FIFO with no writer blocks forever, so \
+this is refused rather than waited out indefinitely",
+                    path.display(),
+                    deadline.as_secs()
+                ),
+            ));
+        }
+        thread::sleep(nap);
+        nap = (nap * 2).min(Duration::from_millis(50));
+    }
+}
+
+/// Reads `path` the way `resolve_text_value`'s `@path` branch and
+/// `record`'s `--input` argument both need to: refuse a socket,
+/// character device or block device outright — `/dev/zero` never
+/// reaches EOF no matter how long this waits, so a deadline on a device
+/// would only turn a hang into a slow refusal after exhausting memory
+/// first — but give a FIFO a bounded wait ([`FIFO_READ_DEADLINE`])
+/// rather than refusing it outright, because `@<(some command)` (bash
+/// process substitution) and `/dev/stdin` when stdin is piped (measured
+/// on this platform: piped stdin makes `/dev/stdin` — itself a symlink
+/// to `fd/0` — resolve to a FIFO) are both FIFOs with an actual writer,
+/// and both worked on `main`. Neither caller reads a source that has to
+/// stay re-readable later the way `look`'s capture or a memo's evidence
+/// log does — see [`read_caller_path`] for the strict sibling used by
+/// those.
+pub fn read_text_carrier_path(path: &Path) -> io::Result<String> {
+    let meta = fs::metadata(path)?;
+    match non_regular_kind(&meta) {
+        None => fs::read_to_string(path),
+        Some(NonRegularKind::Fifo) => read_with_deadline(path, FIFO_READ_DEADLINE),
+        Some(kind) => {
+            let display = path.display().to_string();
+            Err(io::Error::new(io::ErrorKind::InvalidInput, non_regular_reason(&display, kind)))
+        }
+    }
+}
+
 /// Resolves a `text|-|@file` CLI value: `-` reads all of stdin; `@path`
 /// reads the named file, byte-exact; anything else is used as the
 /// literal text. Every free-text flag (`--note`, `--proposition`, `--why`,
@@ -323,11 +580,19 @@ pub fn refusals_since(workspace_dir: &Path, since: Option<u64>) -> Vec<String> {
 /// when a backtick still made it through — the first real design memo
 /// authored with this tool hit exactly this on every inline attempt,
 /// falling back to `@file` each time only after a failed call.
+///
+/// `@path`'s read goes through [`read_text_carrier_path`], not a bare
+/// `fs::read_to_string`: a socket or device is refused outright (TET-79),
+/// worded the same way `look`'s refusal is, but a FIFO gets a bounded
+/// wait instead of `look`'s outright refusal — `@<(command)` is bash
+/// process substitution, a FIFO with a real writer, and `--note
+/// @<(...)` worked on `main`; refusing every FIFO here would have
+/// silently broken it.
 pub fn resolve_text_value(raw: &str) -> io::Result<String> {
     if raw == "-" {
         read_stdin()
     } else if let Some(path) = raw.strip_prefix('@') {
-        fs::read_to_string(path)
+        read_text_carrier_path(Path::new(path))
     } else {
         warn_on_inline_backtick(raw);
         Ok(raw.to_string())

@@ -133,6 +133,47 @@ fn refusal(command: &str, workspace_name: &str, err: AuthoringError) -> CallTool
     }))
 }
 
+/// Distinguishes a caller-path refusal from a genuine I/O failure on a
+/// workspace-less reader (`check`, `brief`, `record`'s two memo reads —
+/// every MCP handler that calls `check_file`/`brief_file`/
+/// `record_from_fact_file`/`record_file`, which all read through
+/// `workspace::read_caller_path`) and returns the shape each deserves.
+///
+/// `read_caller_path` sets `ErrorKind::InvalidInput` deliberately for a
+/// refusal — see `workspace.rs`. One other case can carry the same kind:
+/// `fs::metadata` itself rejects a path containing an embedded NUL byte
+/// (measured on this platform) before `read_caller_path`'s own
+/// classification ever runs. That is not this function's refusal, but
+/// routing it the same way is still the right shape — a caller-supplied
+/// path the OS itself refuses to open is exactly the kind of thing a
+/// `refused` result, not an opaque `internal_error`, should report. A
+/// refusal (of either origin) surfaces the way `look`'s does: a
+/// structured `refused` result the caller can act on, not
+/// `internal_error`, which asserts something false for the deliberate
+/// case — nothing went wrong internally, the tool correctly declined a
+/// path it will not read.
+///
+/// Not routed through [`refusal`]/`workspace::refuse`: `check` and
+/// `brief` hold no workspace to log a refusal into, which is the whole
+/// reason they call `read_caller_path` instead of `guard_regular_file`
+/// in the first place. This changes only the shape the caller receives.
+///
+/// A genuine failure (missing file, permission denied, …) is unchanged:
+/// `internal_error_msg` is exactly the message each call site already
+/// built for that case, so only the one error kind above is affected —
+/// not the wording, and not any other kind.
+fn reading_error(cmd: &str, e: std::io::Error, internal_error_msg: String) -> Result<CallToolResult, ErrorData> {
+    if e.kind() == std::io::ErrorKind::InvalidInput {
+        Ok(CallToolResult::structured_error(json!({
+            "error": "refused",
+            "command": cmd,
+            "guidance": e.to_string(),
+        })))
+    } else {
+        Err(ErrorData::internal_error(internal_error_msg, None))
+    }
+}
+
 /// A caller-supplied path, resolved to absolute for every message that
 /// names it.
 ///
@@ -295,10 +336,15 @@ struct LineRange {
 struct LookParams {
     /// The authoring workspace this observation is recorded into.
     workspace: String,
-    /// The file to open (plain mode), or the file/directory to search
-    /// when `grep` is given. **Pass an absolute path** — see this
-    /// module's doc comment on why a relative one resolves somewhere you
-    /// cannot predict.
+    /// The file to open (plain mode) — must be a regular file, or a
+    /// symlink to one; a directory is refused there — or the
+    /// file/directory to search when `grep` is given, where a directory
+    /// is fine (grep recurses into it) and so is a single regular file.
+    /// A FIFO, socket or device named directly as `path` is refused in
+    /// either mode (TET-79) — one reached by recursing into a searched
+    /// directory is not covered, and still blocks the search.
+    /// **Pass an absolute path** — see this module's doc comment on why
+    /// a relative one resolves somewhere you cannot predict.
     path: String,
     /// Restrict the open to this 1-based inclusive line range. Only
     /// valid without `grep`.
@@ -702,7 +748,7 @@ impl TetelServer {
         Self { tool_router }
     }
 
-    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `path` must be a regular file (or a symlink to one), or, with `grep`, a directory to search recursively. A FIFO, socket or device named directly as `path` is refused rather than read in either mode: it does not behave like a file to read (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF), so it is refused up front instead — but one reached by recursing into a searched directory is not covered, and still blocks the search. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Refused after the workspace is open, not before, so it reaches
@@ -1187,7 +1233,10 @@ they are in the snapshot but nothing in the document rests on them"
                 let block = vec![ContentBlock::text(report)];
                 Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
             }
-            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", resolved(&p.file).display()), None)),
+            Err(e) => {
+                let msg = format!("error reading {}: {e}", resolved(&p.file).display());
+                reading_error("check", e, msg)
+            }
         }
     }
 
@@ -1236,7 +1285,10 @@ schedule a switched-off flag produces. The floor is at least 1.",
                 let block = vec![ContentBlock::text(out)];
                 Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
             }
-            Err(e) => Err(ErrorData::internal_error(format!("error reading {memo}: {e}"), None)),
+            Err(e) => {
+                let msg = format!("error reading {memo}: {e}");
+                reading_error("brief", e, msg)
+            }
         }
     }
 
@@ -1285,10 +1337,10 @@ schedule a switched-off flag produces. The floor is at least 1.",
                     "pass": identity,
                 }))),
                 Ok(Err(e)) => refused(e),
-                Err(e) => Err(ErrorData::internal_error(
-                    format!("error reading {}: {e}", resolved(&p.memo).display()),
-                    None,
-                )),
+                Err(e) => {
+                    let msg = format!("error reading {}: {e}", resolved(&p.memo).display());
+                    reading_error("record", e, msg)
+                }
             };
         }
 
@@ -1316,7 +1368,10 @@ workspace captured) or `input` (ingested: extent typed by you)",
                 "witnessed": false,
             }))),
             Ok(Err(e)) => refused(e),
-            Err(e) => Err(ErrorData::internal_error(format!("error reading {}: {e}", resolved(&p.memo).display()), None)),
+            Err(e) => {
+                let msg = format!("error reading {}: {e}", resolved(&p.memo).display());
+                reading_error("record", e, msg)
+            }
         }
     }
 }

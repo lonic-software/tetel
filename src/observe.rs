@@ -353,6 +353,18 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
             ),
         ));
     }
+    // A FIFO or a character device both pass `exists()` and fail
+    // `is_dir()` above, and reading either does not behave like reading a
+    // file: a FIFO with no writer blocks `fs::read_to_string` forever
+    // (TET-79 — reproduced on `main` with `mkfifo pipe && tetel look
+    // "$PWD/pipe"`, SIGKILLed after 5s of no progress), and a character
+    // device such as `/dev/zero` reads until memory is exhausted rather
+    // than reaching EOF. Neither is a child process, so neither the
+    // `run.timeout_ms` bound nor a group-kill can reach either case —
+    // the block is inside this thread's own `read_to_string` call. So
+    // this is refused up front rather than bounded: "is this a regular
+    // file" is decidable before the read starts.
+    workspace::guard_regular_file(workspace_dir, "look", path, p)?;
     let contents = fs::read_to_string(p).map_err(|e| AuthoringError::Io(e.to_string()))?;
     let key = resolve_key(p);
     // Resolved from the file being read, never from this process's working
@@ -415,6 +427,27 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     let root_path = Path::new(root);
     if !root_path.exists() {
         return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
+    }
+    // The explicitly-named root is the same hazard `look_path` has
+    // (TET-79) — `grep pattern <fifo>` opens and reads it exactly as
+    // `fs::read_to_string` does, and a FIFO with no writer blocks `grep`
+    // forever below, with no bound of any kind on this call (unlike
+    // `run`, this is not spawned under `run.timeout_ms`). Guarded here,
+    // before grep ever runs, when `root` itself is not a directory.
+    //
+    // A directory root is left unguarded by this check — it is the
+    // normal recursive case, and refusing it would break every ordinary
+    // `--grep` call. This is a narrower fix than "no FIFO reachable from
+    // `look --grep` can ever hang it": measured directly against
+    // `/usr/bin/grep` (BSD grep 2.6.0-FreeBSD, the same build already
+    // cited in this file's `rendered_memos` comment), `grep -r` over a
+    // directory containing a writer-less FIFO **does** hang trying to
+    // read it — recursion does not skip a special file the way it skips
+    // nothing else here. A FIFO *inside* a recursed directory is
+    // therefore still an unaddressed hang in this function; only a FIFO
+    // named directly as `root` is closed by this guard.
+    if !root_path.is_dir() {
+        workspace::guard_regular_file(workspace_dir, "look", root, root_path)?;
     }
     // One session for the whole search: a recursive grep can match in
     // dozens of files, and each matched file resolves its own marker
