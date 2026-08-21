@@ -103,7 +103,10 @@ enum Command {
     /// or search a file/directory with `--grep`.
     Look {
         /// The file to open (plain form), or the file/directory to
-        /// search when `--grep` is given.
+        /// search when `--grep` is given. Must be a regular file (or a
+        /// symlink to one, resolved through) — a FIFO, socket or device
+        /// is refused rather than read, since reading one does not
+        /// behave like reading a file (TET-79).
         path: Option<String>,
         /// A 1-based inclusive line range, `A:B`. Only valid without
         /// `--grep`.
@@ -525,7 +528,10 @@ a value `{}` accepts.",
                 }
             }
             let input_json = match &input {
-                Some(path) => std::fs::read_to_string(path),
+                // TET-79: `--input` names a caller-supplied path with no
+                // workspace in reach at this point in dispatch, same
+                // shape as `check`/`brief`'s memo argument.
+                Some(path) => tetel::workspace::read_caller_path(path),
                 None => {
                     let mut buf = String::new();
                     std::io::stdin().read_to_string(&mut buf).map(|_| buf)

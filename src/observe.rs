@@ -353,6 +353,18 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
             ),
         ));
     }
+    // A FIFO or a character device both pass `exists()` and fail
+    // `is_dir()` above, and reading either does not behave like reading a
+    // file: a FIFO with no writer blocks `fs::read_to_string` forever
+    // (TET-79 — reproduced on `main` with `mkfifo pipe && tetel look
+    // "$PWD/pipe"`, SIGKILLed after 5s of no progress), and a character
+    // device such as `/dev/zero` reads until memory is exhausted rather
+    // than reaching EOF. Neither is a child process, so neither the
+    // `run.timeout_ms` bound nor a group-kill can reach either case —
+    // the block is inside this thread's own `read_to_string` call. So
+    // this is refused up front rather than bounded: "is this a regular
+    // file" is decidable before the read starts.
+    workspace::guard_regular_file(workspace_dir, "look", path, p)?;
     let contents = fs::read_to_string(p).map_err(|e| AuthoringError::Io(e.to_string()))?;
     let key = resolve_key(p);
     // Resolved from the file being read, never from this process's working

@@ -296,9 +296,11 @@ struct LookParams {
     /// The authoring workspace this observation is recorded into.
     workspace: String,
     /// The file to open (plain mode), or the file/directory to search
-    /// when `grep` is given. **Pass an absolute path** — see this
-    /// module's doc comment on why a relative one resolves somewhere you
-    /// cannot predict.
+    /// when `grep` is given. Must be a regular file (or a symlink to
+    /// one) — a FIFO, socket or device is refused rather than read
+    /// (TET-79). **Pass an absolute path** — see this module's doc
+    /// comment on why a relative one resolves somewhere you cannot
+    /// predict.
     path: String,
     /// Restrict the open to this 1-based inclusive line range. Only
     /// valid without `grep`.
@@ -702,7 +704,7 @@ impl TetelServer {
         Self { tool_router }
     }
 
-    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. Refuses anything that is not a regular file or a symlink to one: a FIFO, socket or device does not behave like a file to read (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF), so it is refused up front rather than read. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Refused after the workspace is open, not before, so it reaches

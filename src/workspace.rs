@@ -311,6 +311,107 @@ pub fn refusals_since(workspace_dir: &Path, since: Option<u64>) -> Vec<String> {
         .collect()
 }
 
+/// What `fs::metadata` found at a caller-supplied path, when it is
+/// neither a regular file nor a directory — the classification shared by
+/// every guard below, so a FIFO refused through `look` and one refused
+/// through `check` are named the same way.
+///
+/// `fs::metadata` follows symlinks (measured on this platform: a symlink
+/// to a regular file reports `is_file() == true` here, while
+/// `fs::symlink_metadata` on the same link reports `is_file() == false`
+/// and `file_type().is_symlink() == true`), so a symlink whose target is
+/// a regular file is invisible to this function — it classifies the
+/// target, which is what lets that symlink pass every guard built on it.
+///
+/// Directories are deliberately excluded (returned as `None`, i.e. "not
+/// flagged here"): `fs::read_to_string` already fails fast on one — no
+/// blocking read to prevent — and `look_path` has its own richer
+/// refusal for a directory that names the `--grep` alternative; folding
+/// a directory into this generic message would either duplicate that or
+/// blunt it.
+#[cfg(unix)]
+fn non_regular_kind(meta: &fs::Metadata) -> Option<&'static str> {
+    use std::os::unix::fs::FileTypeExt;
+    if meta.is_file() || meta.is_dir() {
+        return None;
+    }
+    let ft = meta.file_type();
+    Some(if ft.is_fifo() {
+        "named pipe (FIFO)"
+    } else if ft.is_socket() {
+        "socket"
+    } else if ft.is_char_device() {
+        "character device"
+    } else if ft.is_block_device() {
+        "block device"
+    } else {
+        "not a regular file"
+    })
+}
+
+#[cfg(not(unix))]
+fn non_regular_kind(meta: &fs::Metadata) -> Option<&'static str> {
+    if meta.is_file() || meta.is_dir() { None } else { Some("not a regular file") }
+}
+
+/// The refusal wording for a caller-supplied path this crate will not
+/// read — shared by [`read_caller_path`] and [`guard_regular_file`] so a
+/// FIFO refused on `look` and one refused on `check` read identically.
+///
+/// "extent" echoes `look`'s own vocabulary for a captured read (see
+/// `look_path`'s doc comment): the point of the message is that a FIFO
+/// or device has none — reading it blocks until a writer closes it
+/// (a FIFO with no writer: forever) or, for `/dev/zero`, never blocks
+/// and never ends either. TET-79: `look` on a FIFO hung indefinitely on
+/// `main`, unkillable by any bound already shipped, because the block
+/// happens inside `fs::read_to_string` on the calling thread itself —
+/// there is no child process for a timeout to signal.
+fn non_regular_reason(display: &str, kind: &str) -> String {
+    format!("{display} is a {kind}, not a regular file; a stream with no end is not an extent `tetel` can read.")
+}
+
+/// Guards a caller-supplied path before it reaches `fs::read_to_string`,
+/// for the authoring commands that hold a workspace and must log a
+/// refusal into it (via [`refuse`]) rather than merely return one.
+///
+/// Checks only — the caller still performs its own read afterward. This
+/// stays a guard rather than a guard-and-read because `look_path`
+/// interleaves it between its own existence and directory refusals and
+/// needs the workspace-scoped [`refuse`] call to fire from exactly this
+/// point, not from inside a read this function doesn't own.
+pub fn guard_regular_file(workspace_dir: &Path, cmd: &str, display: &str, path: &Path) -> Result<(), AuthoringError> {
+    let meta = fs::metadata(path).map_err(|e| AuthoringError::Io(e.to_string()))?;
+    if let Some(kind) = non_regular_kind(&meta) {
+        return Err(refuse(workspace_dir, cmd, non_regular_reason(display, kind)));
+    }
+    Ok(())
+}
+
+/// Reads `path` the way every workspace-less caller needs to (`check`,
+/// `brief`, `record`'s two memo reads, `--input`, and the `@file` branch
+/// of [`resolve_text_value`]): refuse before the read rather than block
+/// inside it. These callers have no workspace to log a refusal into —
+/// `check_file` and `brief_file` open no workspace by design (see this
+/// module's own doc comment on working state vs. a memo's provenance) —
+/// so the refusal is an ordinary `io::Error` rather than a routed
+/// [`AuthoringError`]; see [`guard_regular_file`] for the workspace-
+/// having counterpart built on the same [`non_regular_kind`]
+/// classification.
+///
+/// A missing path still surfaces as `io::ErrorKind::NotFound`, unchanged
+/// from a bare `fs::read_to_string`: the existence check happens inside
+/// `fs::metadata` here rather than being skipped, so callers matching on
+/// that error kind (`evidence::load`'s "no ledger yet" case) keep working
+/// unmodified.
+pub fn read_caller_path(path: &Path) -> io::Result<String> {
+    let meta = fs::metadata(path)?;
+    if let Some(kind) = non_regular_kind(&meta) {
+        let display = path.display().to_string();
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, non_regular_reason(&display, kind)));
+    }
+    fs::read_to_string(path)
+}
+
 /// Resolves a `text|-|@file` CLI value: `-` reads all of stdin; `@path`
 /// reads the named file, byte-exact; anything else is used as the
 /// literal text. Every free-text flag (`--note`, `--proposition`, `--why`,
@@ -323,11 +424,17 @@ pub fn refusals_since(workspace_dir: &Path, since: Option<u64>) -> Vec<String> {
 /// when a backtick still made it through — the first real design memo
 /// authored with this tool hit exactly this on every inline attempt,
 /// falling back to `@file` each time only after a failed call.
+///
+/// `@path`'s read goes through [`read_caller_path`], not a bare
+/// `fs::read_to_string`, for the same reason `look` does (TET-79): a
+/// FIFO named after `@` is exists()-and-not-a-directory just like any
+/// other caller-supplied path, and this flag is the one place besides
+/// `look` and `--input` where free text can name an arbitrary file.
 pub fn resolve_text_value(raw: &str) -> io::Result<String> {
     if raw == "-" {
         read_stdin()
     } else if let Some(path) = raw.strip_prefix('@') {
-        fs::read_to_string(path)
+        read_caller_path(Path::new(path))
     } else {
         warn_on_inline_backtick(raw);
         Ok(raw.to_string())

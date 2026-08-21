@@ -329,6 +329,72 @@ fn look_refuses_a_nonexistent_path_and_a_directory() {
     assert!(err.contains("--grep"), "stderr was:\n{err}");
 }
 
+/// TET-79: a FIFO passes `exists()` and fails `is_dir()` exactly like a
+/// regular file, but nothing after those two guards distinguishes it
+/// from one — `fs::read_to_string` blocks on a FIFO until a writer
+/// closes it, forever if none ever does. There is no child process here
+/// for `run.timeout_ms` to bound, so `look` must refuse this up front.
+///
+/// `#[cfg(unix)]` rather than a runtime skip: `mkfifo` and the hang it
+/// causes are both POSIX-specific, and CI (`ci.yml`) runs only macOS and
+/// Ubuntu, so a `#[cfg(unix)]` test is exercised on every platform this
+/// suite actually runs on and cleanly absent (not failed) elsewhere.
+/// `run_bounded` is what turns "hangs" into a red assertion here instead
+/// of a wedged test binary, which is exactly the shape of TET-79 itself.
+#[test]
+#[cfg(unix)]
+fn look_refuses_a_fifo_instead_of_hanging() {
+    let sb = Sandbox::new("look-fifo");
+    let fifo = sb.dir.join("pipe");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (code, err) = run_bounded(&sb, &["look", fifo.to_str().unwrap()], 10);
+    assert_ne!(code, 0, "a FIFO must be refused, not read: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+    assert!(err.contains("not a regular file"), "stderr was:\n{err}");
+}
+
+/// The fix for TET-79 must refuse a FIFO without refusing everything
+/// merely unusual: a symlink whose target is a regular file has to keep
+/// working, because `fs::metadata` (unlike `fs::symlink_metadata`)
+/// resolves through the link to classify the target, not the link
+/// itself. Without this test, "refuse anything that isn't a plain
+/// on-disk regular file" would also pass — and would wrongly break every
+/// symlinked file a caller might `look` at.
+#[test]
+#[cfg(unix)]
+fn look_accepts_a_symlink_to_a_regular_file() {
+    let sb = Sandbox::new("look-symlink");
+    sb.write("real.txt", "the actual content\n");
+    let real = sb.dir.join("real.txt");
+    let link = sb.dir.join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).expect("failed to create symlink");
+
+    let (code, out, err) = sb.run(&["look", link.to_str().unwrap()]);
+    assert_eq!(code, 0, "a symlink to a regular file must be accepted, not refused: {err}");
+    assert!(out.contains("the actual content"), "output was:\n{out}");
+}
+
+/// Pins the class fix, not just `look_path`: `check_file` reads a
+/// caller-supplied memo path the same unguarded way `look_path` used to,
+/// and TET-79 asked for the guarantee moved into a shared helper rather
+/// than patched only at the site the ticket happened to name. If this
+/// regresses to a bare `fs::read_to_string`, this test hangs (bounded by
+/// `run_bounded`) rather than merely failing quietly.
+#[test]
+#[cfg(unix)]
+fn check_refuses_a_fifo_instead_of_hanging() {
+    let sb = Sandbox::new("check-fifo");
+    let fifo = sb.dir.join("pipe.md");
+    let status = Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let (code, err) = run_bounded(&sb, &["check", fifo.to_str().unwrap()], 10);
+    assert_ne!(code, 0, "check must refuse a FIFO, not read it: {err}");
+    assert!(err.contains("FIFO"), "the refusal must name what the path is: {err}");
+}
+
 #[test]
 fn run_captures_output_and_mirrors_exit_code() {
     let sb = Sandbox::new("run-basic");
