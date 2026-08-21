@@ -127,6 +127,13 @@ enum Command {
         #[arg(long, value_name = "A:B")]
         lines: Option<String>,
         /// Search `path` for `pattern` instead of opening it.
+        ///
+        /// `pattern` is POSIX extended regular expressions — the `grep -E`
+        /// dialect — never a literal string. Parentheses group, so a
+        /// literal `(` or `)` (and likewise `+ ? { } |`) needs its own
+        /// backslash. ERE cannot spell "match this whole string of
+        /// metacharacters literally"; for that, use `tetel run grep -P
+        /// …`, whose own argv records the dialect it ran under.
         #[arg(long, value_name = "PATTERN")]
         grep: Option<String>,
     },

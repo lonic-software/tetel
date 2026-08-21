@@ -351,6 +351,13 @@ struct LookParams {
     #[serde(default)]
     lines: Option<LineRange>,
     /// Search `path` for this pattern instead of opening it.
+    ///
+    /// POSIX extended regular expressions — the `grep -E` dialect — never
+    /// a literal string. Parentheses group, so a literal `(` or `)` (and
+    /// likewise `+ ? { } |`) needs its own backslash. ERE cannot spell
+    /// "match this whole string of metacharacters literally"; for that,
+    /// use `run` with `["grep", "-P", …]`, whose own argv records the
+    /// dialect it ran under.
     #[serde(default)]
     grep: Option<String>,
 }
@@ -748,7 +755,7 @@ impl TetelServer {
         Self { tool_router }
     }
 
-    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `path` must be a regular file (or a symlink to one), or, with `grep`, a directory to search recursively. A FIFO, socket or device named directly as `path` is refused rather than read in either mode: it does not behave like a file to read (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF), so it is refused up front instead — but one reached by recursing into a searched directory is not covered, and still blocks the search. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `path` must be a regular file (or a symlink to one), or, with `grep`, a directory to search recursively. `grep` is POSIX extended regular expressions (the `grep -E` dialect), never a literal string — parentheses group, so a literal `(`, `)`, and likewise `+ ? { } |`, needs its own backslash; for a whole-string literal search, use `run` with `[\"grep\", \"-P\", …]` instead, whose own argv records the dialect it ran under. A malformed pattern is refused before anything is searched. A FIFO, socket or device named directly as `path` is refused rather than read in either mode: it does not behave like a file to read (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF), so it is refused up front instead — but one reached by recursing into a searched directory is not covered, and still blocks the search. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Refused after the workspace is open, not before, so it reaches

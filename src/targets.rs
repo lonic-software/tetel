@@ -157,8 +157,8 @@ pub fn declare(workspace_dir: &Path, symbol: &str, from: &str) -> Result<Target,
     };
 
     if !fact.extent.iter().any(|e| e.censuses(symbol)) {
-        // Say which of the three ways it failed, because the remedies
-        // differ and a bare refusal would send the author guessing.
+        // Say which of the ways it failed, because the remedies differ
+        // and a bare refusal would send the author guessing.
         let why = diagnose(fact, symbol);
         return Err(workspace::refuse(
             workspace_dir,
@@ -184,9 +184,11 @@ pub fn declare(workspace_dir: &Path, symbol: &str, from: &str) -> Result<Target,
     Ok(Target { id, symbol: symbol.to_string(), from: from.to_string(), withdrawn: false })
 }
 
-/// Which half of the predicate the cited fact failed, in the author's
-/// terms. Never a score and never a guess — each branch reports a
-/// property that was read off the record.
+/// Which part of [`facts::ExtentEntry::censuses`] the cited fact failed,
+/// in the author's terms. Never a score and never a guess — each branch
+/// reports a property that was read off the record, in the same order
+/// `censuses` checks it, so this can never explain a failure `censuses`
+/// did not actually have.
 fn diagnose(fact: &facts::Fact, symbol: &str) -> String {
     use crate::pending::ObservationKind::{NoMatch, Search};
     let searches: Vec<&facts::ExtentEntry> =
@@ -204,6 +206,22 @@ fn diagnose(fact: &facts::Fact, symbol: &str) -> String {
             "it searched for {} — a census must search for the symbol itself, byte for byte",
             patterns.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(", ")
         );
+    }
+    // Round-2 review, F2: a symbol carrying an unescaped ERE metacharacter
+    // — `cfg(test)`, say — can byte-equal a recorded `pattern` while the
+    // search that pattern actually ran asked ERE a different question
+    // (grouping, alternation, a repetition count). Checked here, in the
+    // same order `censuses` checks it, so a symbol failing on this
+    // ground is never misdiagnosed as the *next* check's failure (a root
+    // narrower than the worktree) just because the loop below would
+    // otherwise report the first thing it happens to notice.
+    if crate::facts::contains_unescaped_ere_metachar(symbol) {
+        return "the symbol contains an unescaped ERE metacharacter (one of `| + ? ( ) { }`) — \
+under this crate's dialect that changes what the search actually asked for, so a pattern that is \
+byte-equal to the symbol does not mean the search asked about the symbol's own literal text; \
+escape the metacharacter(s) in both the search and the symbol, or choose a symbol that needs no \
+escaping"
+            .to_string();
     }
     for e in &searches {
         if e.pattern == symbol {

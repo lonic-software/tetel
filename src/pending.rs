@@ -11,6 +11,28 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// The regex grammar an observation's pattern was read under.
+///
+/// A match *configuration*, not a yes/no flag, even though only one
+/// variant exists today. TET-56 f2 (word-boundary matching) can add a new
+/// variant, or a field on this one, without redefining what `Ere` means on
+/// every entry already minted — a bare `bool` bolted onto [`PendingEntry`]
+/// alongside this field could not make that promise: a caller reading an
+/// old entry's `false` would have no way to tell "measured, and off" from
+/// "the flag did not exist yet", which is exactly the ambiguity `None`
+/// below exists to rule out at the `Option` level.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Matcher {
+    /// POSIX extended regular expressions — `grep -E`. The only dialect
+    /// `look_grep` sends to the underlying grep (see its doc comment for
+    /// why: `scripts/grep-dialect-census.py`, run against every `pattern`
+    /// on file across every workspace this machine had authored, found an
+    /// unescaped `|` reading as alternation in 98 of 480 distinct
+    /// patterns, against 3 that already spelled alternation the GNU-BRE
+    /// way, `\|`).
+    Ere,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ObservationKind {
     Path,
@@ -83,6 +105,19 @@ pub struct PendingEntry {
     /// *searched for the empty string*.
     #[serde(default)]
     pub pattern: String,
+    /// The regex grammar `pattern` was read under, on `Search` and
+    /// `NoMatch` entries only (see [`Matcher`]), and `None` everywhere
+    /// else including entries minted before this field existed.
+    ///
+    /// Same discipline as `pattern` and `kind` above: `None` means *not
+    /// recorded*, never *some default grammar* — a `look --grep` from
+    /// before this field shipped read its pattern under some dialect, but
+    /// nothing on the record says which, and guessing `Ere` for it would
+    /// claim a fact minted under literal-pipe BRE was searched under the
+    /// grammar that turns `|` into alternation. The remedy is the cheap
+    /// one already established for `kind`/`out_len`: observe again.
+    #[serde(default)]
+    pub matcher: Option<Matcher>,
 }
 
 fn path(workspace_dir: &Path) -> PathBuf {

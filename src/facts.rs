@@ -77,6 +77,18 @@ pub struct ExtentEntry {
     /// be quoted from, and the remedy is the cheap one — look again.
     #[serde(default)]
     pub out_len: Option<usize>,
+    /// The regex grammar `pattern` was read under — see
+    /// [`crate::pending::PendingEntry::matcher`] and [`crate::pending::Matcher`].
+    ///
+    /// Carried through the fold in [`mint`] exactly as `kind`/`pattern`/
+    /// `out_len` are: `None` means *not recorded*, never *some default
+    /// grammar*, for a fact minted before this field existed. TET-28's
+    /// census predicate deliberately does not read this field — the
+    /// existence and rooting of a search is what a target's census
+    /// establishes, not which dialect answered it — but a reader deciding
+    /// whether an old `NoMatch` extent's absence is trustworthy needs it.
+    #[serde(default)]
+    pub matcher: Option<crate::pending::Matcher>,
 }
 
 impl ExtentEntry {
@@ -92,14 +104,121 @@ impl ExtentEntry {
     /// the predicate is about existence and rooting, never about what was
     /// found, so a symbol with no occurrences is censused by the grep
     /// that established it has none.
+    ///
+    /// Round-2 review, F2: byte-equality on `pattern` alone is not enough
+    /// once `pattern` is read as ERE. `symbol` containing an unescaped ERE
+    /// metacharacter (see [`ERE_FLIPPED_METACHARS`]) means the search
+    /// never asked about the symbol's own literal text — an unbalanced one
+    /// (`look_grep(`) is refused upstream by `ere_precheck` and cannot
+    /// reach here at all; a *balanced* one (`cfg(test)`) parses as ERE
+    /// grouping, greps for `cfgtest`, and would otherwise still pass this
+    /// predicate because the stored `pattern` is byte-identical to
+    /// `symbol` — a target certified as censused by a search that never
+    /// asked about the symbol as written, this ticket's own defect
+    /// reintroduced on the census path. Measured before adding this guard:
+    /// 0 of 60 distinct symbols ever declared as a modification target
+    /// across every workspace this machine had authored contain an ERE
+    /// metacharacter — every one is a plain identifier — so this closes a
+    /// real but so-far-unexercised gap at no cost to any target on file.
     pub fn censuses(&self, symbol: &str) -> bool {
         use crate::pending::ObservationKind::{NoMatch, Search};
         matches!(self.kind, Some(Search) | Some(NoMatch))
             && self.pattern == symbol
+            && !contains_unescaped_ere_metachar(symbol)
             && !self.world_root.is_empty()
             && self.world_root != crate::worldstate::NO_GIT
             && self.key == self.world_root
     }
+
+    /// Whether this is a pre-dialect `NoMatch`/`Search` record — one
+    /// minted by a `look --grep` old enough to predate TET-68's declared
+    /// [`crate::pending::Matcher`] — whose `pattern` carries an unescaped
+    /// ERE metacharacter (see [`ERE_FLIPPED_METACHARS`]). Every such
+    /// record was read as GNU-extended BRE, where each of those seven
+    /// characters is literal unless individually escaped; this build reads
+    /// the same pattern as POSIX ERE, where each one is syntax instead.
+    /// The record is immutable and cannot be repaired, only pointed at.
+    ///
+    /// Round-2 review, F3: this predicate covered only `|` at first. A
+    /// pre-dialect extent with pattern `cfg(test)` searched literal
+    /// parentheses under BRE and is now read under ERE grouping by this
+    /// build's readers and by the second-model verifier — the same "the
+    /// record says a question was asked that was not asked" defect `|`
+    /// has, unreported for the other six characters. Generalised to the
+    /// full set `scripts/grep-dialect-census.py`'s `GROUPING_CHARS`
+    /// enumerates (plus `|`, which that script already tracks as its own
+    /// census row) rather than narrowing the category's wording instead:
+    /// the verifier reads these labels regardless of which character
+    /// flipped, and the cost of the wider predicate is one shared helper
+    /// — [`contains_unescaped_ere_metachar`], the same one
+    /// [`ExtentEntry::censuses`] (F2) already needed.
+    ///
+    /// `matcher.is_none()` is exactly the discriminator: every entry this
+    /// build mints carries `Some(Matcher::Ere)` (see [`crate::pending::Matcher`]'s
+    /// own doc comment for what `None` means), so `None` here can only
+    /// mean "minted before that was ever recorded" — never "recorded, and
+    /// some other dialect".
+    ///
+    /// `Search`, not only `NoMatch`: a search minted from an unescaped
+    /// metacharacter that DID match found something — the literal string
+    /// `a|b`, or the grouped-but-unrepeated `cfgtest` a search for
+    /// `cfg(test)` actually ran — so it is not a bounded negative and is
+    /// less dangerous than the no-match case. But its label carries the
+    /// pattern verbatim, fed to the second-model verifier, which reads it
+    /// as the ERE syntax it now is rather than the literal text it was
+    /// searched as. The defect is the same defect either way: the record
+    /// says a question was asked that was not asked. Counting only
+    /// `NoMatch` would report the half where nothing was found and stay
+    /// silent about the half where the wrong thing was found — see
+    /// [`crate::checks::pre_dialect_no_matches`] for how the two states
+    /// are worded apart rather than flattened into one "no-match" claim.
+    ///
+    /// The metacharacter test is a byte property — one of the seven
+    /// characters preceded by an even run of backslashes, i.e. not itself
+    /// escaped — decided the same way `scripts/grep-dialect-census.py`
+    /// decides it, never a guess at what the pattern was meant to mean.
+    pub fn pre_dialect_unescaped_ere_metachar(&self) -> bool {
+        use crate::pending::ObservationKind::{NoMatch, Search};
+        matches!(self.kind, Some(NoMatch) | Some(Search))
+            && self.matcher.is_none()
+            && contains_unescaped_ere_metachar(&self.pattern)
+    }
+}
+
+/// The seven characters GNU-extended BRE (the dialect `look --grep` used
+/// before TET-68) reads as literal unless individually escaped, and POSIX
+/// ERE (the dialect it uses now) reads as syntax unless individually
+/// escaped — the full set whose *unescaped* meaning flips between the two
+/// dialects. Named once here and reused by [`ExtentEntry::censuses`] (F2)
+/// and [`ExtentEntry::pre_dialect_unescaped_ere_metachar`] (F3) rather
+/// than restated — and kept in step by hand with
+/// `scripts/grep-dialect-census.py`'s `GROUPING_CHARS` (six of these
+/// seven; that script tracks `|` separately as its own census row, since
+/// this repo's census wanted alternation broken out on its own line).
+const ERE_FLIPPED_METACHARS: [u8; 7] = [b'|', b'+', b'?', b'(', b')', b'{', b'}'];
+
+/// Whether `pattern` contains any of [`ERE_FLIPPED_METACHARS`] preceded by
+/// an even run of backslashes (0, 2, 4, ...) — i.e. not itself escaped.
+/// Kept in step by hand with `scripts/grep-dialect-census.py`'s
+/// `unescaped_positions`, since one is Python run offline over a census
+/// and the other is Rust run inside `check`/`target`.
+pub(crate) fn contains_unescaped_ere_metachar(pattern: &str) -> bool {
+    let bytes = pattern.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if !ERE_FLIPPED_METACHARS.contains(&b) {
+            continue;
+        }
+        let mut run = 0usize;
+        let mut k = i;
+        while k > 0 && bytes[k - 1] == b'\\' {
+            run += 1;
+            k -= 1;
+        }
+        if run % 2 == 0 {
+            return true;
+        }
+    }
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,6 +526,7 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
             kind: Some(e.kind),
             pattern: e.pattern.clone(),
             out_len: Some(e.output.len()),
+            matcher: e.matcher,
         })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");

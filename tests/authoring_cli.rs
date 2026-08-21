@@ -191,7 +191,246 @@ fn zero_match_grep_is_recorded_as_an_explicit_observation() {
 
     let (code, out, _err) = sb.run(&["query", "facts"]);
     assert_eq!(code, 0);
-    assert!(out.contains("no-match: DOES_NOT_OCCUR in src"), "output was:\n{out}");
+    assert!(out.contains("no-match (ERE): DOES_NOT_OCCUR in src"), "output was:\n{out}");
+}
+
+/// TET-68: `look --grep` reads its pattern as POSIX ERE (`grep -E`), not
+/// the GNU-extended BRE it silently read before. An unescaped `|` is
+/// alternation under ERE — literal under BRE — so a pattern like
+/// `AppImage|current-version|foo` now MATCHES a file containing any one
+/// of those three strings, where it previously searched for that whole
+/// string as one literal and matched nothing (the exact shape this
+/// ticket's motivating defect took: a `no-match:` extent minted from a
+/// search that never asked the question the pattern looks like it asks).
+/// This is the "now matches" half of the revert-check the PR body
+/// reports both directions of.
+#[test]
+fn an_unescaped_alternation_now_matches_where_it_previously_minted_a_no_match() {
+    let sb = Sandbox::new("ere-alternation-now-matches");
+    sb.write("src/lib.rs", "the installer writes an AppImage to disk\n");
+
+    let (code, out, err) = sb.run(&["look", "--grep", "AppImage|current-version|foo", "src"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(!out.contains("no matches"), "an unescaped | must alternate under ERE, not read as a literal pipe:\n{out}");
+    assert!(out.contains("AppImage"), "output was:\n{out}");
+}
+
+/// TET-68: passing `-E` without a precheck would open a new silent-
+/// failure class — an invalid ERE exits grep with status 2 and empty
+/// stdout, indistinguishable on stdout alone from "found nothing", and
+/// `look_grep` reads only stdout. `CDK=(` is an unbalanced-parenthesis
+/// pattern that exits 2 on every grep this crate has measured directly —
+/// BSD grep 2.6.0-FreeBSD (macOS) and GNU grep 3.7 (Ubuntu 22.04, this
+/// project's CI) — but the two builds disagree on the *wording*: BSD
+/// says `parentheses not balanced`, GNU says `Unmatched ( or \(`. A CI
+/// round pinned the BSD wording here and failed on Ubuntu for it — the
+/// assertion below now pins the platform-independent property the
+/// refusal actually promises ("quote grep's own diagnostic verbatim, do
+/// not paraphrase it") rather than either build's specific sentence:
+/// `grep says: grep: ` followed by something non-empty. Widening to
+/// `contains("parentheses") || contains("Unmatched")` was considered and
+/// rejected — a two-build whitelist is the same defect with a longer
+/// list, and it would keep passing on a build that paraphrased grep's
+/// message into text containing either word.
+///
+/// This must REFUSE, not mint a `no-match:` fact — the "refuses instead"
+/// half of the revert-check the PR body reports both directions of.
+#[test]
+fn an_invalid_ere_pattern_is_refused_not_minted_as_a_no_match() {
+    let sb = Sandbox::new("ere-invalid-pattern-refused");
+    sb.write("src/lib.rs", "nothing relevant here\n");
+
+    let (code, out, err) = sb.run(&["look", "--grep", "CDK=(", "src"]);
+    assert_ne!(code, 0, "an invalid ERE must be refused: stdout:\n{out}\nstderr:\n{err}");
+    assert!(err.contains("extended regular expression"), "stderr was:\n{err}");
+    // Grep always prefixes its own diagnostics with `grep: `, on every
+    // build measured — assert the refusal quotes grep verbatim (the
+    // property this test exists to pin), never which grep produced it.
+    assert!(err.contains("grep says: grep:"), "the refusal must quote grep's own diagnostic verbatim: {err}");
+    let quoted = err.split("grep says: grep:").nth(1).unwrap_or("").trim();
+    assert!(!quoted.is_empty(), "grep's own message must not be empty: {err}");
+
+    // And the refusal must leave no trace to fold into a fact — an
+    // invalid pattern must never reach the pending buffer at all.
+    let (code, _out, err) = sb.run(&["fact", "--note", "nothing was actually searched"]);
+    assert_ne!(code, 0, "the pending buffer must still be empty after a refused --grep: {err}");
+}
+
+/// Restores a directory's permissions on drop, so a test that `chmod
+/// 000`s a fixture never leaves an unreadable directory behind for a
+/// later run (or a human) to trip over — including when an assertion
+/// above it panics.
+#[cfg(unix)]
+struct RestorePerms(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RestorePerms {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// TET-68 round-2 review, F1 (blocker): `grep -r` exits 2 if *anything*
+/// went wrong reading the tree, even when it printed real matches for
+/// every readable file — measured directly here and, separately, on GNU
+/// grep 3.7 (Ubuntu 22.04, via Docker, as a non-root user matching CI's
+/// own): a tree with one `chmod 000` subdirectory and a real match
+/// elsewhere prints the match and still exits 2, on both. An earlier cut
+/// of this crate's exit-code handling refused unconditionally on that
+/// status, discarding the match with no way to recover it — any repo
+/// containing a permission-denied subtree, a dangling symlink, or a
+/// recursion loop became unsearchable outright. Revert-checked against
+/// the pre-fix binary via `git stash`; both runs are in the PR body.
+///
+/// The fix: record the real matches, and carry a caveat that the search
+/// was partial into `note` — the same channel `exclusion_note` already
+/// uses — so it survives everywhere `note` goes: the printed return *and*
+/// the whole-search extent's own label, not only something a caller
+/// happened to be watching on stdout.
+#[test]
+#[cfg(unix)]
+fn an_unreadable_subtree_with_a_real_match_elsewhere_records_it_with_a_partial_caveat() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sb = Sandbox::new("ere-partial-search-records-matches");
+    sb.write("ok.txt", "NEEDLE here\n");
+    let hidden = sb.write("blocked/hidden.txt", "NEEDLE hidden\n");
+    let blocked_dir = hidden.parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&blocked_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let _restore = RestorePerms(blocked_dir);
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_eq!(code, 0, "a partial search with real matches must not be refused: stdout:\n{out}\nstderr:\n{err}");
+    assert!(out.contains("NEEDLE here"), "the readable match must still be shown:\n{out}");
+    assert!(out.contains("PARTIAL SEARCH"), "the printed output must carry the partial-search caveat:\n{out}");
+
+    // The caveat must survive into the extent, not just stdout a caller
+    // happened to be watching.
+    sb.run(&["fact", "--note", "found NEEDLE; the search was partial"]);
+    let (_c, facts_out, _e) = sb.run(&["query", "facts"]);
+    assert!(
+        facts_out.contains("PARTIAL SEARCH"),
+        "the fact's own extent must carry the caveat, not only the printed return:\n{facts_out}"
+    );
+}
+
+/// TET-68 round-2 review, F1, the other direction: when the ONLY match is
+/// inside the unreadable subtree, stdout is genuinely empty and the
+/// refusal's own justification holds exactly as it did before this
+/// finding — recording a no-match here would claim the pattern does not
+/// occur anywhere in the tree, when the search never finished reading it.
+/// Measured the same way as the sibling test above, on both greps.
+#[test]
+#[cfg(unix)]
+fn an_unreadable_subtree_with_no_readable_match_still_refuses() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sb = Sandbox::new("ere-partial-search-empty-still-refuses");
+    sb.write("ok.txt", "irrelevant\n");
+    let hidden = sb.write("blocked/hidden.txt", "NEEDLE hidden\n");
+    let blocked_dir = hidden.parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&blocked_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let _restore = RestorePerms(blocked_dir);
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_ne!(
+        code, 0,
+        "no readable match exists; this must refuse rather than mint a false no-match: stdout:\n{out}\nstderr:\n{err}"
+    );
+    assert!(err.contains("grep says:"), "the refusal should quote grep: {err}");
+}
+
+/// TET-68 round-2 review, F4: a non-clean status from `ere_precheck`'s
+/// probe does not by itself mean the *pattern* is bad — `/dev/null` (or
+/// `grep` itself) could be unusable in this environment, and every
+/// pattern would then fail identically. A fake `grep` is put first on
+/// `PATH` that exits 2 unconditionally, simulating exactly that: no
+/// pattern, however trivially valid, can get a clean result from it. The
+/// control probe (`grep -E -e a /dev/null`) must fail too under this fake
+/// grep, and the refusal must say the environment — not the caller's
+/// pattern `hello` — is what's broken.
+#[test]
+#[cfg(unix)]
+fn a_broken_grep_environment_is_named_rather_than_blamed_on_the_pattern() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sb = Sandbox::new("ere-precheck-environment-broken");
+    sb.write("src/lib.rs", "irrelevant\n");
+
+    let fake_bin = sb.dir.join("fakebin");
+    std::fs::create_dir_all(&fake_bin).unwrap();
+    let fake_grep = fake_bin.join("grep");
+    std::fs::write(&fake_grep, "#!/bin/sh\necho 'grep: environment simulated broken' >&2\nexit 2\n").unwrap();
+    std::fs::set_permissions(&fake_grep, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let real_path = std::env::var("PATH").unwrap_or_default();
+    let mut cmd = sb.command(&["look", "--grep", "hello", "src"]);
+    cmd.env("PATH", format!("{}:{real_path}", fake_bin.display()));
+    let out = cmd.output().expect("failed to run tetel");
+    let code = out.status.code().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+
+    assert_ne!(code, 0, "a broken grep environment must still refuse: {err}");
+    assert!(
+        err.contains("not about your pattern"),
+        "once the control probe fails too, the refusal must blame the environment, not the \
+caller's (here trivially valid) pattern: {err}"
+    );
+    assert!(err.contains("control pattern"), "the refusal should name the control-probe mechanism that decided this: {err}");
+}
+
+/// TET-68: the "Dialect" section of `look_grep`'s own doc comment, made
+/// executable. Under BRE, `cfg(test)` searched for that literal string,
+/// parens included. Under ERE it no longer does — `(` and `)` group, so
+/// `cfg(test)` reads as `cfg` followed by a non-repeating group `(test)`,
+/// which matches exactly the same characters as `cfgtest` would and
+/// nothing that contains a literal parenthesis. Matching the literal
+/// `#[cfg(test)]` attribute now requires escaping: `cfg\(test\)`. Both
+/// halves measured directly against `/usr/bin/grep -E` before being
+/// asserted here. "Predictably" in this ticket's sense means exactly
+/// this: the change in meaning is the documented ERE grouping rule,
+/// applied consistently, not an accident of some other flag.
+#[test]
+fn a_literal_paren_pattern_behaves_predictably_under_ere() {
+    let sb = Sandbox::new("ere-literal-paren");
+    sb.write("src/lib.rs", "one line has cfgtest inline\nanother has #[cfg(test)] on it\n");
+
+    // Unescaped: matches the grouped-but-unrepeated concatenation
+    // "cfgtest", never the literal parentheses.
+    let (code, out, err) = sb.run(&["look", "--grep", "cfg(test)", "src"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("cfgtest inline"), "output was:\n{out}");
+    assert!(!out.contains("#[cfg(test)]"), "an unescaped ( must group, not match a literal paren:\n{out}");
+
+    // Escaped: matches the literal parentheses, never the plain
+    // concatenation.
+    let (code, out, err) = sb.run(&["look", "--grep", "cfg\\(test\\)", "src"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert!(out.contains("#[cfg(test)]"), "output was:\n{out}");
+    assert!(!out.contains("cfgtest inline"), "an escaped \\( must match a literal paren, not group:\n{out}");
+}
+
+/// TET-68: an embedded newline is an implicit alternation in every grep
+/// dialect (multiple `-e` patterns), which this record has no field to
+/// express — refused rather than silently searched as "something".
+#[test]
+fn a_newline_bearing_grep_pattern_is_refused() {
+    let sb = Sandbox::new("ere-newline-pattern-refused");
+    sb.write("src/lib.rs", "irrelevant\n");
+    let (code, _out, err) = sb.run(&["look", "--grep", "a\nb", "src"]);
+    assert_ne!(code, 0, "a newline-bearing pattern must be refused: {err}");
+    assert!(err.contains("newline"), "stderr was:\n{err}");
+}
+
+/// TET-68: an empty pattern is refused rather than silently searching for
+/// nothing (which grep itself treats as "match every line").
+#[test]
+fn an_empty_grep_pattern_is_refused() {
+    let sb = Sandbox::new("ere-empty-pattern-refused");
+    sb.write("src/lib.rs", "irrelevant\n");
+    let (code, _out, err) = sb.run(&["look", "--grep", "", "src"]);
+    assert_ne!(code, 0, "an empty pattern must be refused: {err}");
 }
 
 #[test]
@@ -1891,6 +2130,81 @@ fn check_lists_the_refusals_recorded_in_a_facts_own_mint_window() {
     );
 }
 
+/// TET-68 commit 2: a fact minted before `look --grep` declared its
+/// matcher — `matcher` absent, `kind` `NoMatch`, pattern carrying an
+/// unescaped `|` — cannot be repaired (extents are immutable), but
+/// `check` must point at it. The pre-dialect shape is written by hand
+/// directly into `facts.jsonl`, the same way `facts.rs`'s own
+/// `window_tests::seed` writes raw events to control exactly which
+/// fields are (and are not) present, since no build of this tool can
+/// mint one going forward.
+#[test]
+fn check_reports_a_pre_dialect_no_match_extent_as_human_owed() {
+    let sb = Sandbox::new("check-pre-dialect-no-match");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+
+    // F2: a legacy NoMatch extent (found nothing) and F3: a legacy Search
+    // extent (matched the literal string). Both `matcher`-omitted (not
+    // `null` — the same "never recorded" shape a build before this field
+    // existed would have written), both patterns carrying an unescaped
+    // `|`. Coordinator review on this ticket: a Search that matched under
+    // the literal reading is a different state from a NoMatch that found
+    // nothing, and the report must say so honestly rather than call both
+    // "no-match".
+    let facts_path = sb.state_home().join("workspaces/default/facts.jsonl");
+    let legacy_no_match = r#"{"event":"Create","id":"F2","note":"legacy grep observation","extent":[{"key":"/repo","label":"no-match: AppImage|current-version|foo in .","world_root":"no-git-worktree","world_state":"no-git-worktree","kind":"NoMatch","pattern":"AppImage|current-version|foo","out_len":0}],"output":"","pin":"sha256:deadbeef","timestamp":1}"#;
+    let legacy_search = r#"{"event":"Create","id":"F3","note":"legacy grep observation, matched","extent":[{"key":"/repo/a.txt","label":"/repo/a.txt (grep: a|b)","world_root":"no-git-worktree","world_state":"no-git-worktree","kind":"Search","pattern":"a|b","out_len":0}],"output":"","pin":"sha256:beadfeed","timestamp":1}"#;
+    let mut existing = std::fs::read_to_string(&facts_path).unwrap();
+    existing.push_str(legacy_no_match);
+    existing.push('\n');
+    existing.push_str(legacy_search);
+    existing.push('\n');
+    std::fs::write(&facts_path, existing).unwrap();
+
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    // Human-owed: a byte property of a pattern, never a truth question,
+    // so it must never redden the machine partition.
+    assert!(
+        report.contains("machine-checked: clean"),
+        "a pre-dialect record must never fail the machine partition:\n{combined}"
+    );
+    assert!(code == 0, "human-owed findings alone must not fail the run:\n{combined}");
+    assert!(report.contains("F2"), "the pre-dialect NoMatch fact must be named:\n{combined}");
+    assert!(report.contains("F3"), "the pre-dialect Search (matched) fact must be named:\n{combined}");
+    assert!(
+        report.contains("pre-dialect record"),
+        "check must point at the pre-dialect record:\n{combined}"
+    );
+    assert!(
+        report.contains("AppImage|current-version|foo"),
+        "the offending NoMatch pattern should be shown:\n{combined}"
+    );
+    assert!(report.contains("matched `a|b`"), "the offending Search pattern should be shown, described as matched, not empty:\n{combined}");
+    // The wording must tell the two states apart, never call a matched
+    // extent a "no matches"/empty one.
+    let f3_line = report.lines().find(|l| l.contains("F3")).expect("F3's line must exist");
+    assert!(
+        !f3_line.contains("found nothing") && !f3_line.contains("no matches"),
+        "F3 matched under the literal reading; its line must not claim the extent is empty:\n{f3_line}"
+    );
+    assert!(f3_line.contains("matched"), "F3's line must say it matched: {f3_line}");
+    let f2_line = report.lines().find(|l| l.contains("F2")).expect("F2's line must exist");
+    assert!(f2_line.contains("found nothing"), "F2 found nothing; its line must say so: {f2_line}");
+    // The category must be advertised in the preamble too.
+    assert!(
+        report.contains("a pre-dialect extent — no-match or match — whose pattern contains an unescaped ERE metacharacter (| + ? ( ) { })"),
+        "the preamble must name the category it prints:\n{combined}"
+    );
+}
+
 /// A memo whose facts were minted with nothing refused says nothing
 /// about mint windows — the same reason the mint-time line is silent.
 #[test]
@@ -3080,6 +3394,52 @@ fn a_target_is_refused_when_its_census_swept_less_than_the_worktree() {
     assert!(run(&["fact", "--note", "callers of gate, worktree-wide"]).0);
     let (ok, err) = run(&["target", "gate", "--cites", "F2"]);
     assert!(ok, "a worktree-rooted census must be accepted: {err}");
+}
+
+/// TET-68 round-2 review, F2: a symbol carrying a *balanced* ERE
+/// metacharacter — `cfg(test)` — passes `ere_precheck` (it's a
+/// syntactically valid ERE), the resulting search greps for the grouped-
+/// but-unrepeated string `cfgtest`, and because the stored `pattern` is
+/// still byte-equal to the symbol, `censuses()` would have returned true
+/// before this finding's fix: a target certified as censused by a search
+/// that never asked about the symbol's own literal text — this ticket's
+/// own defect, reintroduced on the census path. The fact still mints
+/// (nothing about minting a fact is wrong here); `target --cites` is
+/// where this must be caught, and now is.
+#[test]
+fn a_symbol_with_a_balanced_ere_metachar_mints_a_fact_but_is_refused_as_uncensused() {
+    let sb = Sandbox::new("tet28-ere-metachar-symbol-refused");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    // Nothing here spells the literal string "cfgtest" — the point is
+    // that the search below runs and mints cleanly (a NoMatch is exactly
+    // as valid a census input as a Search, per `censuses`'s own doc
+    // comment), not that it happens to match something.
+    std::fs::write(repo.join("a.rs"), "fn unrelated() {}\n").unwrap();
+
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
+        let o = c.output().unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stderr).into_owned())
+    };
+
+    let (ok, err) = run(&["look", "--grep", "cfg(test)", "."]);
+    assert!(ok, "a balanced metacharacter is a syntactically valid ERE and must not be refused by ere_precheck: {err}");
+    let (ok, err) = run(&["fact", "--note", "worktree-wide search for cfg(test)"]);
+    assert!(ok, "the fact must still mint — nothing wrong with the search itself: {err}");
+
+    let (ok, err) = run(&["target", "cfg(test)", "--cites", "F1"]);
+    assert!(
+        !ok,
+        "a symbol with an unescaped ERE metacharacter must be refused as uncensused, even though \
+the search was worktree-rooted and the pattern is byte-equal to the symbol"
+    );
+    assert!(
+        err.contains("metacharacter"),
+        "the refusal must name the real reason (a metacharacter changed what the search asked), \
+not misdiagnose this as a narrow-root or missing-search failure: {err}"
+    );
 }
 
 #[test]

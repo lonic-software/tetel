@@ -109,6 +109,14 @@ pub struct Findings {
     /// Only populated when a snapshot shipped beside the memo, since
     /// facts appear nowhere in the rendered document.
     pub notes_outside_extent: Vec<crate::scope::OutsideExtent>,
+    /// One line per fact whose extent contains a pre-dialect no-match or
+    /// whole-search record — see [`pre_dialect_no_matches`] and
+    /// [`crate::facts::ExtentEntry::pre_dialect_unescaped_ere_metachar`].
+    /// Human-owed, verbatim, never a failure: TET-68's dialect fix cannot
+    /// repair an already-minted extent, only point at it. Like
+    /// `notes_outside_extent`, only populated when a snapshot shipped
+    /// beside the memo.
+    pub pre_dialect_no_matches: Vec<String>,
     /// Refusals recorded between one fact's mint and the previous one —
     /// what the author tried and could not do in the window that produced
     /// each fact. Human-owed and verbatim; a mint following a refusal is
@@ -1015,6 +1023,7 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         provenance: crate::snapshot::Provenance::Missing,
         cites_something: false,
         notes_outside_extent: Vec::new(),
+        pre_dialect_no_matches: Vec::new(),
         tree_states: Vec::new(),
         tree_ungradable: Vec::new(),
         uncensused_targets: Vec::new(),
@@ -1335,6 +1344,71 @@ pub fn unresolved_evidence_sources(claims: &[Claim], evidence: &[EvidenceRecord]
                 ));
             }
         }
+    }
+    out
+}
+
+/// One line per fact whose extent contains a pre-dialect `NoMatch` or
+/// `Search` record — see
+/// [`crate::facts::ExtentEntry::pre_dialect_unescaped_ere_metachar`].
+///
+/// A `NoMatch` and a `Search` are different states, and the wording says
+/// so rather than flattening both into "no matches": a `NoMatch` found
+/// nothing (the original bounded-negative defect), a `Search` matched the
+/// literal string and never asked what the pattern's own metacharacter(s)
+/// would have meant under ERE (a real find that still under-asked the
+/// question its own pattern looks like it asks). Saying "no-match" about
+/// an extent that in fact matched something would be exactly the kind of
+/// record-versus-reality gap this whole ticket exists to close.
+///
+/// Round-2 review, F3: this used to say "an unescaped `|`" specifically.
+/// Generalised to the full flipped-metacharacter set (see
+/// [`crate::facts::ERE_FLIPPED_METACHARS`]) rather than narrowed the
+/// category wording instead — the second-model verifier reads these
+/// labels regardless of which of the seven characters flipped, and the
+/// wording below no longer names `|` specifically for the same reason.
+///
+/// Human-owed, not a refusal: the predicate is a byte property of the
+/// pattern (an unescaped ERE metacharacter, decided the same way
+/// `scripts/grep-dialect-census.py` decides it), so it never breaches the
+/// format-level rule against refusing on a truth question — but the
+/// record it points at is immutable and there is no singular remedy to
+/// apply *to it*; only "re-run the search under this build" fixes what it
+/// found (or didn't).
+pub fn pre_dialect_no_matches(facts: &[crate::facts::Fact]) -> Vec<String> {
+    use crate::pending::ObservationKind::{NoMatch, Search};
+    let mut out = Vec::new();
+    for f in facts {
+        let hits: Vec<String> = f
+            .extent
+            .iter()
+            .filter(|e| e.pre_dialect_unescaped_ere_metachar())
+            .map(|e| match e.kind {
+                Some(NoMatch) => format!(
+                    "found nothing for `{}` — a bounded negative that may never have asked what \
+its own regex metacharacter(s) suggest under ERE",
+                    e.pattern
+                ),
+                Some(Search) => format!(
+                    "matched `{}` on the literal string alone — never asked what its regex \
+metacharacter(s) would have meant under ERE",
+                    e.pattern
+                ),
+                _ => unreachable!(
+                    "pre_dialect_unescaped_ere_metachar only admits Some(NoMatch) or Some(Search)"
+                ),
+            })
+            .collect();
+        if hits.is_empty() {
+            continue;
+        }
+        out.push(format!(
+            "{}: this fact's extent contains a pre-dialect record whose then-active grep read a \
+regex metacharacter in its pattern literally, not as the ERE syntax it now is — {}; the remedy is \
+to re-run it under this build",
+            f.id,
+            hits.join("; ")
+        ));
     }
     out
 }

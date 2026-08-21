@@ -141,8 +141,9 @@ Two labelled partitions, each stating its own scope, and **never a single docume
   facts whose note names a location outside their own captured extent, refusals recorded in a fact's
   own mint window, prose revised after the claims it cites settled, prose whose revised-after-proof
   listing was acknowledged, whether a claim was graded by the workspace that authored it or an
-  independent one, a missing snapshot, and tetel's own standing non-coverage. **None of it is settled
-  by a passing check**, and none of it fails the run.
+  independent one, a missing snapshot, a pre-dialect extent — no-match or match — whose pattern
+  contains an unescaped ERE metacharacter (| + ? ( ) { }), and tetel's own standing non-coverage. **None of it is settled by a passing check**,
+  and none of it fails the run.
 
 Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean
 run.
