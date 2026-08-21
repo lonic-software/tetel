@@ -340,6 +340,108 @@ fn run_captures_output_and_mirrors_exit_code() {
     assert_eq!(code, 0, "a run observation must be fact-worthy");
 }
 
+/// Spawns `tetel` with `args` and refuses to wait past `secs`.
+///
+/// Every test below is measuring that a command *stops*, so a plain
+/// `Command::output()` would turn each failure into a hung suite rather
+/// than a red one — which is the same shape as the defect they cover.
+fn run_bounded(sb: &Sandbox, args: &[&str], secs: u64) -> (i32, String) {
+    let mut child = sb
+        .command(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn tetel binary");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        if child.try_wait().expect("try_wait failed").is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            child.kill().ok();
+            child.wait().ok();
+            panic!("`tetel {}` did not return within {secs}s", args.join(" "));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let out = child.wait_with_output().expect("collect output");
+    (
+        out.status.code().expect("process should exit normally"),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// A command that outruns its bound is refused, and nothing it printed is
+/// kept.
+///
+/// The discarding is the part worth asserting. A killed command produced
+/// an indeterminate prefix of its output, and a prefix folded into a fact
+/// is indistinguishable from complete output ever after — the extent is
+/// immutable and ships in the snapshot. So the buffer must be untouched,
+/// not merely marked.
+#[test]
+fn a_run_that_outlasts_its_bound_is_refused_and_captures_nothing() {
+    let sb = Sandbox::new("run-timeout-refuses");
+    assert_eq!(sb.run(&["config", "run.timeout_ms", "1000"]).0, 0);
+
+    // Prints, then hangs. The print is what makes "captures nothing"
+    // a real assertion rather than one about an empty stream.
+    let (code, err) = run_bounded(&sb, &["run", "sh", "-c", "echo partial; sleep 30"], 20);
+    assert_ne!(code, 0, "a command that hit the bound must not report success");
+    assert!(err.contains("did not finish within 1s"), "the refusal must name the bound: {err}");
+    assert!(err.contains("run.timeout_ms"), "the refusal must name the remedy: {err}");
+
+    // `fact` refuses on an empty buffer, which is how "nothing was
+    // captured" is observable from outside.
+    let (fcode, _out, ferr) = sb.run(&["fact", "--note", "whatever that command showed"]);
+    assert_ne!(fcode, 0, "the timed-out command left something mintable behind: {ferr}");
+    assert!(
+        !sb.facts_jsonl().contains("partial"),
+        "a prefix of a killed command's output reached a fact:\n{}",
+        sb.facts_jsonl()
+    );
+
+    // The refusal is the durable record. Discarding the capture is only
+    // defensible because this is not also discarded.
+    let log = std::fs::read_to_string(sb.state_home().join("workspaces/default/refusals.log"))
+        .unwrap_or_default();
+    assert!(log.contains("did not finish within"), "the timeout is not in refusals.log:\n{log}");
+}
+
+/// The bound reaches what the command started, not just the command.
+///
+/// This is the case that produced the ticket: the runaway was
+/// `bash -c python …`, so `argv[0]` was a shell and the process burning
+/// the CPU was its child. Killing the direct child alone leaves the
+/// grandchild holding both pipes, the drain threads reading a stream that
+/// never ends, and the call hung exactly as before — so without a process
+/// *group* this test does not fail, it hangs, which is why `run_bounded`
+/// exists.
+#[test]
+fn the_bound_kills_what_the_command_started_too() {
+    let sb = Sandbox::new("run-timeout-group");
+    // 1000 is the floor the key accepts: a sub-second bound on a command
+    // is not a bound, it is a race with process startup.
+    assert_eq!(sb.run(&["config", "run.timeout_ms", "1000"]).0, 0);
+    let marker = sb.dir.join("grandchild-survived");
+    let script = format!(
+        "(sleep 4; echo alive > {}) & wait",
+        marker.display()
+    );
+
+    let (code, err) = run_bounded(&sb, &["run", "sh", "-c", &script], 20);
+    assert_ne!(code, 0, "the bound did not fire: {err}");
+
+    // Outlives the grandchild's own sleep, so the marker's absence means
+    // it was killed rather than merely not finished yet.
+    std::thread::sleep(std::time::Duration::from_secs(6));
+    assert!(
+        !marker.exists(),
+        "the shell was killed and its child was not — the bound stopped a process, not a command"
+    );
+}
+
 /// A command `run` spawns must never inherit the parent's stdin.
 ///
 /// This has to spawn the binary by hand rather than use `Sandbox::run`,

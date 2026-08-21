@@ -19,7 +19,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
+use crate::config;
 use crate::pending::{self, ObservationKind, PendingEntry};
 use crate::workspace::{self, AuthoringError};
 use crate::worldstate;
@@ -595,6 +597,36 @@ pub struct RunOutcome {
     pub exit_code: i32,
 }
 
+/// Kills the process group led by `pid`.
+///
+/// A *group* rather than a process, and that is the whole mechanism: `run`
+/// executes `argv` directly, so `argv[0]` is frequently a shell or a
+/// wrapper and the thing that will not stop is its child. The runaway that
+/// produced this bound was `bash -c python …` — killing bash alone leaves
+/// python holding both pipes, the drain threads reading a stream that
+/// never ends, and the call hung exactly as it was before.
+///
+/// **Unix only.** Elsewhere this is inert and a `run` is unbounded, as it
+/// was everywhere before. A signal to a negative pid is not something
+/// `std` can express, and no portable equivalent reaches a grandchild.
+#[cfg(unix)]
+fn stop_process_group(pid: u32) {
+    // SAFETY: `kill` takes no pointers and is async-signal-safe. The
+    // negative pid names the group led by `pid`, which exists because the
+    // child was spawned with `process_group(0)`; `pid` has not been reaped
+    // yet at either call site, so it cannot have been recycled onto some
+    // other process. SIGKILL rather than SIGTERM because this fires only
+    // after the command has already ignored its entire budget, and a
+    // process that traps SIGTERM is precisely the case a bound must
+    // survive.
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+}
+
+#[cfg(not(unix))]
+fn stop_process_group(_pid: u32) {}
+
 /// `tetel run <command...>` — executes `argv` directly (never through a
 /// shell), prints its combined stdout/stderr, and records `argv`'s
 /// command line plus the captured output into the pending buffer.
@@ -616,8 +648,11 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     let world = worldstate::Session::new().for_cwd();
     let cmdline = argv.join(" ");
 
-    let mut child = Command::new(&argv[0])
-        .args(&argv[1..])
+    let budget = Duration::from_millis(config::run_timeout_ms(Some(workspace_dir)));
+    let started = Instant::now();
+
+    let mut cmd = Command::new(&argv[0]);
+    cmd.args(&argv[1..])
         // Null, never inherited. `run` passes `argv` and nothing else — there
         // is no way for an author to supply input — so a child reading stdin
         // can only block, and on the MCP surface it blocks on the **JSON-RPC
@@ -631,20 +666,21 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         // *other* reason (a lock, a network call, an interactive prompt) still
         // takes the whole server hostage, because nothing here times out.
         .stdin(Stdio::null())
-        // Null, never inherited. `run` passes `argv` and nothing else — there
-        // is no way for an author to supply input — so a child reading stdin
-        // can only block, and on the MCP surface it blocks on the **JSON-RPC
-        // transport**: the server's stdin is its request channel. Because that
-        // server answers requests serially, one such child stalls every later
-        // call rather than only its own, which is how a `tetel run tee …` cost
-        // a grounding pass 92 minutes and looked like the design loop being
-        // slow. Null makes those commands fail fast and empty instead.
-        //
-        // Note this leaves a wider hole open: any command that blocks for some
-        // *other* reason (a lock, a network call, an interactive prompt) still
-        // takes the whole server hostage, because nothing here times out.
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The child leads its own process group, which is what makes the bound
+    // below reach a *command* rather than a process. `run` executes `argv`
+    // directly, so `argv[0]` is frequently a shell or a wrapper and the
+    // thing actually burning the CPU is its child: the runaway that cost
+    // 1h55m was `bash -c python …`, where killing bash alone would have
+    // left python holding both pipes and the drain threads reading from a
+    // stream that never ends.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| AuthoringError::Io(format!("could not run `{cmdline}`: {e}")))?;
 
@@ -667,9 +703,63 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     let t_out = drain(stdout_pipe, Arc::clone(&captured));
     let t_err = drain(stderr_pipe, Arc::clone(&captured));
 
-    let status = child.wait().map_err(|e| AuthoringError::Io(e.to_string()))?;
+    // Polled on this thread rather than watched from another one, and the
+    // reason is a race rather than taste. A watchdog thread has to decide
+    // to kill *after* the main thread may already have reaped the child,
+    // and a reaped pid can be recycled onto an unrelated process — so the
+    // signal that bounds one command can land on something else entirely.
+    // Here the kill happens before anything is reaped, so `child.id()`
+    // still names this command and nothing else, and there is no shared
+    // state to get the ordering wrong.
+    //
+    // The nap backs off because both ends matter: an `echo` must not pay
+    // 50ms of polling latency, and a five-minute command must not wake
+    // this thread twelve thousand times.
+    //
+    // The clock starts only now, with both pipes already draining, so a
+    // command cannot spend its budget blocked on a full pipe buffer that
+    // nothing is reading yet.
+    let mut timed_out = false;
+    let mut nap = Duration::from_millis(1);
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| AuthoringError::Io(e.to_string()))? {
+            break status;
+        }
+        if started.elapsed() >= budget {
+            stop_process_group(child.id());
+            timed_out = true;
+            break child.wait().map_err(|e| AuthoringError::Io(e.to_string()))?;
+        }
+        thread::sleep(nap);
+        nap = (nap * 2).min(Duration::from_millis(50));
+    };
     t_out.join().ok();
     t_err.join().ok();
+
+    // Refused rather than recorded, and the captured bytes are dropped on
+    // the floor. A killed command produced an indeterminate prefix of what
+    // it would have produced, and a prefix folded into a fact is
+    // indistinguishable from complete output ever after — the extent is
+    // immutable and it ships in the snapshot. Discarding loses nothing a
+    // reader could have trusted, and the refusal is not lost either:
+    // `workspace::refuse` appends it to `refusals.log`, which `check`
+    // already reports for a fact's own mint window.
+    if timed_out {
+        let secs = started.elapsed().as_secs();
+        return Err(workspace::refuse(
+            workspace_dir,
+            "run",
+            format!(
+                "`{cmdline}` did not finish within {}s and was killed, along with anything it \
+                 started; nothing was captured. A command that never returns does not fail alone \
+                 here — `run` waits for its child, so on the MCP surface every later call queues \
+                 behind it. Raise the bound with `tetel config {} <milliseconds>` if this command \
+                 honestly takes longer (elapsed: {secs}s).",
+                budget.as_secs(),
+                config::KEY_RUN_TIMEOUT_MS,
+            ),
+        ));
+    }
 
     let bytes = captured.lock().unwrap().clone();
     let output_text = String::from_utf8_lossy(&bytes).into_owned();

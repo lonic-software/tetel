@@ -729,7 +729,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Execute a command directly (no shell) and record its combined stdout/stderr into the pending buffer. The whole output is captured verbatim and, once minted into a fact, becomes permanently unrevisable and ships into the snapshot beside the memo — so a command whose output is enormous, or contains a credential, puts that in a repository forever. A command exiting 0 also establishes nothing by exiting 0: read the output and ask whether it states your proposition or merely fails to deny it. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Execute a command directly (no shell) and record its combined stdout/stderr into the pending buffer. The whole output is captured verbatim and, once minted into a fact, becomes permanently unrevisable and ships into the snapshot beside the memo — so a command whose output is enormous, or contains a credential, puts that in a repository forever. A command exiting 0 also establishes nothing by exiting 0: read the output and ask whether it states your proposition or merely fails to deny it. There is a wall-clock bound (`run.timeout_ms`, 5 minutes unset): past it the command and everything it started are killed, the call is refused, and NOTHING is captured — so a command you expect to take longer needs the bound raised first, not a retry. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn run(&self, Parameters(p): Parameters<RunParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         match observe::run_command(&dir, &p.command) {
