@@ -22,7 +22,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::config;
-use crate::pending::{self, ObservationKind, PendingEntry};
+use crate::pending::{self, Matcher, ObservationKind, PendingEntry};
 use crate::workspace::{self, AuthoringError};
 use crate::worldstate;
 
@@ -404,12 +404,156 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         world_state: world.state,
         captured_at: workspace::now_unix(),
         pattern: String::new(),
+        matcher: None,
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
     pending::save(workspace_dir, &buf)?;
 
     Ok(LookOutcome { printed })
+}
+
+/// Whether a grep invocation's exit status is one of the two codes that
+/// mean the search actually ran to completion and told us something: 0
+/// (matched) or 1 (no lines selected). Anything else — 2, a signal kill
+/// (`status.code()` is `None` in that case), or an unexpected code — means
+/// grep did not complete its documented contract, and neither its stdout
+/// nor its absence may be read as an answer. Shared by [`ere_precheck`]
+/// and [`look_grep`]'s own exit-code check, so the two cannot drift on
+/// what "clean" means.
+fn grep_status_is_clean(status: &std::process::ExitStatus) -> bool {
+    matches!(status.code(), Some(0) | Some(1))
+}
+
+/// Names a grep exit status for a refusal or an annotation, distinguishing
+/// an ordinary exit code from a signal kill.
+///
+/// `status.code()` is `None` when a process was killed by a signal rather
+/// than exiting on its own — reading that as "not 2, so fine" (the shape
+/// [`ere_precheck`] had before this function existed) silently treats a
+/// crashed or killed grep as a clean result. This names the signal when
+/// the platform can report one (every platform this crate targets is
+/// Unix-like; a `#[cfg(unix)]` fallback covers the rest) rather than
+/// letting `None` fall through unlabelled.
+fn describe_grep_status(status: &std::process::ExitStatus) -> String {
+    match status.code() {
+        Some(n) => format!("grep exited {n}"),
+        None => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                if let Some(sig) = status.signal() {
+                    return format!("grep was killed by signal {sig}");
+                }
+            }
+            "grep terminated abnormally, without an exit code".to_string()
+        }
+    }
+}
+
+/// Grep's own stderr, trimmed, or an explicit placeholder when it printed
+/// nothing — so a refusal never silently ends in an empty "grep says: "
+/// that reads as if the quote was dropped rather than absent.
+fn grep_stderr_or_placeholder(output: &std::process::Output) -> String {
+    let s = String::from_utf8_lossy(&output.stderr);
+    let s = s.trim();
+    if s.is_empty() { "(no message)".to_string() } else { s.to_string() }
+}
+
+/// Refuses a `--grep` pattern `grep -E` cannot parse, before the real
+/// search below ever runs under it.
+///
+/// [`look_grep`] reads only `output.stdout` from the search it runs —
+/// `status` and `stderr` are discarded, and its no-match branch fires on
+/// empty stdout alone. Under the BRE this crate used before `-E` existed
+/// on this argv that was harmless: almost any string parses as a literal
+/// BRE. Passing `-E` without this check would open a *new* silent-failure
+/// class: grep's own documented contract is exit 0 for a match, 1 for no
+/// lines selected, 2 for an error, so an invalid ERE exits 2 with empty
+/// stdout — indistinguishable, on stdout alone, from "found nothing" —
+/// and would mint a no-match extent: a durable claim that the pattern
+/// does not occur anywhere in the tree, from a search that never
+/// actually asked the question.
+///
+/// Verified on both greps this crate has measured directly (never
+/// asserted for one and assumed for the other): BSD grep 2.6.0-FreeBSD
+/// (already cited by [`look_grep`]'s FIFO-hang comment) and GNU grep 3.7
+/// (Ubuntu 22.04, via Docker — this crate's CI runs Ubuntu). An unbalanced
+/// `(` such as `CDK=(` exits 2 on both: BSD says `parentheses not
+/// balanced`, GNU says `Unmatched ( or \(` — same code, different wording,
+/// which is exactly why the refusal below quotes grep rather than
+/// paraphrasing it. An unbalanced `)` alone, `seed)`, does **not** exit 2
+/// on either build — both read a lone trailing `)` as literal and exit 1.
+/// The failure mode this function exists to close is real, even though
+/// not every syntactically odd-looking pattern trips it, on either grep
+/// measured here.
+///
+/// Run against `/dev/null`, not the real root: a syntax error is a
+/// property of the pattern alone, this has to answer before the real
+/// (possibly slow, possibly large) search runs, and `/dev/null` has zero
+/// lines for any pattern to select — so a clean exit here means only "the
+/// pattern is syntactically a valid ERE", never "and it looked at your
+/// tree".
+///
+/// Round-2 review, F4: a non-clean status from the probe does not, on its
+/// own, mean the *pattern* is bad — `/dev/null` could itself be missing
+/// or unreadable in a minimal container, a chroot, or a sandbox that
+/// denies the exec, and every pattern would then fail the same way. Before
+/// blaming the caller's pattern, a control probe runs the same check
+/// against a pattern no ERE implementation could reject (`a`, one literal
+/// character). If the control also fails, the environment is what's
+/// broken, and the refusal says so instead of naming the caller's
+/// pattern; the second `grep` invocation is paid only on this already-
+/// exceptional path, never on an ordinary valid pattern.
+///
+/// This does **not** cover the second gap the same discarded-status
+/// design leaves: a *valid* ERE can still make the real search below exit
+/// non-cleanly if grep fails on the tree itself (an unreadable file or
+/// subtree). It exists today under BRE exactly as it will under ERE —
+/// this precheck cannot see it, because it never touches `root` — and the
+/// real search below has its own exit-code handling for that case (see
+/// its comment on the round-2 review finding, F1, that this crate's first
+/// cut of that handling discarded real matches rather than only refusing
+/// when nothing was found).
+fn ere_precheck(workspace_dir: &Path, pattern: &str) -> Result<(), AuthoringError> {
+    let probe = |p: &str| -> Result<std::process::Output, AuthoringError> {
+        Command::new("grep")
+            .args(["-E", "-e", p, "/dev/null"])
+            .output()
+            .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))
+    };
+
+    let output = probe(pattern)?;
+    if grep_status_is_clean(&output.status) {
+        return Ok(());
+    }
+
+    let control = probe("a")?;
+    if !grep_status_is_clean(&control.status) {
+        return Err(workspace::refuse(
+            workspace_dir,
+            "look",
+            format!(
+                "could not check whether '{pattern}' is a valid extended regular expression: the \
+check itself failed in this environment, even for the control pattern `a` against `/dev/null` \
+({}) — this is not about your pattern, the environment `look --grep` runs `grep` in cannot \
+validate one right now. grep says: {}",
+                describe_grep_status(&control.status),
+                grep_stderr_or_placeholder(&control)
+            ),
+        ));
+    }
+
+    Err(workspace::refuse(
+        workspace_dir,
+        "look",
+        format!(
+            "'{pattern}' is not a valid extended regular expression (POSIX ERE, the `grep -E` \
+dialect `look --grep` uses) — checked against an empty input before running the real search, so \
+nothing was searched. grep says: {}",
+            grep_stderr_or_placeholder(&output)
+        ),
+    ))
 }
 
 /// `tetel look --grep <pattern> <path-or-dir>`.
@@ -423,7 +567,42 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
 /// match records one entry per file that actually matched, keyed by
 /// that file's resolved path (fix 2), not by the search root or the
 /// grep command line.
+///
+/// # Dialect
+///
+/// `pattern` is read as POSIX extended regular expressions — `grep -E` —
+/// never BRE, and never a literal string. Parentheses group, so a literal
+/// `(` or `)` needs its own backslash; the same is true of `+ ? { } |`.
+/// This was silently GNU-extended BRE before (whatever `grep` came first
+/// on `PATH`), and never stated anywhere: measured via
+/// `scripts/grep-dialect-census.py` against every pattern ever recorded
+/// on this machine, an unescaped `|` was already the intended read
+/// (alternation) in 98 of 480 distinct patterns, against 3 that already
+/// spelled alternation the GNU-BRE way, `\|`. ERE has no way to spell
+/// "match this string of regex metacharacters literally" as a whole —
+/// for that, use `tetel run grep -P …`, whose own argv records the
+/// dialect it ran under rather than leaving it implicit.
 pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<LookOutcome, AuthoringError> {
+    if pattern.is_empty() {
+        return Err(workspace::refuse(workspace_dir, "look", "no --grep pattern given; an empty pattern searches for nothing"));
+    }
+    // BSD and GNU grep both treat a `-e` pattern with an embedded newline
+    // as more than one pattern, alternated — an implicit alternation this
+    // record has no field for and the author never typed. Verified on
+    // both, not assumed for either: BSD grep 2.6.0-FreeBSD here, and GNU
+    // grep 3.7 (Ubuntu 22.04, via Docker) — `grep -E -e $'apple\nbanana'`
+    // matches both lines on both builds. Byte-decidable malformedness,
+    // refused before anything else below runs.
+    if pattern.contains('\n') {
+        return Err(workspace::refuse(
+            workspace_dir,
+            "look",
+            "a --grep pattern cannot contain a newline: grep reads a newline inside one `-e` \
+pattern as more than one pattern, alternated together, which is not the single pattern this was \
+typed as",
+        ));
+    }
+
     let root_path = Path::new(root);
     if !root_path.exists() {
         return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
@@ -449,6 +628,12 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     if !root_path.is_dir() {
         workspace::guard_regular_file(workspace_dir, "look", root, root_path)?;
     }
+    // Before the real search: a malformed ERE must be caught here, not
+    // read off the real search's exit code below, since that code also
+    // has to mean "grep failed on the tree" — see `ere_precheck`'s doc
+    // comment for why conflating the two would be a false record either
+    // way.
+    ere_precheck(workspace_dir, pattern)?;
     // One session for the whole search: a recursive grep can match in
     // dozens of files, and each matched file resolves its own marker
     // (a search root can span a submodule or a nested worktree), but
@@ -472,6 +657,13 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     // grounding pass over TET-5's own design memo, in that memo's own
     // extent.
     args.push("-H");
+    // POSIX extended regular expressions — see this function's doc
+    // comment's "Dialect" section for why, and `Matcher::Ere` for how an
+    // extent records which grammar its pattern was read under. Must
+    // precede `-e`; the flags before it are all order-independent search
+    // options, this one is not, since `-e`'s argument is parsed under
+    // whatever dialect is in effect at that point.
+    args.push("-E");
 
     // Tetel's own output is skipped, so that a census does not read back
     // what tetel previously wrote. This is a decision about *whether* to
@@ -518,10 +710,68 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     // Before anything reads it. `printed` and the per-file entries are both
     // built from this string, so filtering once here is what keeps the
-    // return and the capture describing the same search.
+    // return and the capture describing the same search — and it has to
+    // happen before the exit-code check right below can tell a truly
+    // empty result from one that only looks empty after exclusions.
     let stdout = drop_excluded(&stdout, &exclusions);
 
+    // `pattern` already passed `ere_precheck`, so a non-clean status here
+    // — see `grep_status_is_clean` — means grep failed on the TREE: an
+    // unreadable file or subtree beneath `root`, a signal kill, or some
+    // other abnormal termination, not the query. That gap already existed
+    // under BRE (this exit-code check did not exist at all before this
+    // diff) and `-E` does not create it; what changes is that it is now
+    // caught rather than silently folded into the no-match branch below,
+    // which now sees only a clean exit.
+    //
+    // Round-2 review, F1: an earlier cut of this refused unconditionally
+    // on a non-clean status, which threw away real matches. `grep -r`
+    // exits 2 if *anything* went wrong reading the tree, even when every
+    // readable file was searched and printed its matches — a permission-
+    // denied subtree, a dangling symlink, a recursion loop — so refusing
+    // always made any such tree unsearchable outright, discarding the
+    // matches it did find with no way to recover them. The refusal's own
+    // justification is that recording a no-match here would falsely claim
+    // the pattern does not occur anywhere in the tree, and that reasoning
+    // only holds when `stdout` (after exclusions, above) is actually
+    // empty. When it isn't, the matches are real; what's false is calling
+    // the search *complete*, and that becomes an annotation carried on
+    // the record (see `partial`, below) rather than a discarded result.
+    let clean = grep_status_is_clean(&output.status);
+    if !clean && stdout.trim().is_empty() {
+        return Err(workspace::refuse(
+            workspace_dir,
+            "look",
+            format!(
+                "{} searching {root} for '{pattern}' — the pattern is a valid extended regular \
+expression (checked before running), so this is the tree, not the query: most likely a file or \
+subtree under {root} grep could not read. Recording a no-match here would claim the pattern does \
+not occur anywhere in {root}, when the search never finished reading it. grep says: {}",
+                describe_grep_status(&output.status),
+                grep_stderr_or_placeholder(&output)
+            ),
+        ));
+    }
+    // A caveat folded into `note` below (the same channel `exclusion_note`
+    // already uses to carry what a search withheld) rather than a second
+    // channel of its own — so it survives everywhere `note` already goes:
+    // the printed return *and* the whole-search extent's own label, not
+    // only stdout a caller happened to be watching.
+    let partial = (!clean).then(|| {
+        format!(
+            "PARTIAL SEARCH — {} while searching {root} for '{pattern}': the matches recorded \
+here are real, but grep did not finish reading the tree, so an unread file or subtree may hold \
+matches this search never saw. grep says: {}",
+            describe_grep_status(&output.status),
+            grep_stderr_or_placeholder(&output)
+        )
+    });
+
     let note = exclusion_note(&exclusions);
+    let note = match &partial {
+        Some(caveat) => format!("{caveat}; {note}"),
+        None => note,
+    };
     let mut printed = String::new();
     let mut buf = pending::load(workspace_dir)?;
 
@@ -535,11 +785,17 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
             captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
             key: search_key(root_path, &m.root),
-            label: format!("no-match: {pattern} in {root} — {note}"),
+            // The matcher declaration sits before `{pattern}` is
+            // interpolated, on this label and the two below, so pattern
+            // bytes can never forge it — a pattern containing text like
+            // `) (BRE): x` cannot make the label claim a grammar this
+            // search did not actually run under.
+            label: format!("no-match (ERE): {pattern} in {root} — {note}"),
             output: String::new(),
             world_root: m.root,
             world_state: m.state,
             pattern: pattern.to_string(),
+            matcher: Some(Matcher::Ere),
         });
     } else {
         printed.push_str(&stdout);
@@ -561,14 +817,17 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
             captured_at: workspace::now_unix(),
             kind: ObservationKind::Search,
             key: search_key(root_path, &m.root),
+            // Same forge-proof positioning as the no-match label above:
+            // the matcher declaration precedes `{pattern}`.
             label: format!(
-                "search: {root} (grep: {pattern}) — {files} file{} matched — {note}",
+                "search: {root} (grep (ERE): {pattern}) — {files} file{} matched — {note}",
                 if files == 1 { "" } else { "s" }
             ),
             output: String::new(),
             world_root: m.root,
             world_state: m.state,
             pattern: pattern.to_string(),
+            matcher: Some(Matcher::Ere),
         });
         for (file, matches) in by_file {
             let m = world.for_path(Path::new(&file));
@@ -576,11 +835,12 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
                 captured_at: workspace::now_unix(),
                 kind: ObservationKind::GrepMatch,
                 key: resolve_key(Path::new(&file)),
-                label: format!("{file} (grep: {pattern})"),
+                label: format!("{file} (grep (ERE): {pattern})"),
                 output: matches.join("\n"),
                 world_root: m.root,
                 world_state: m.state,
                 pattern: pattern.to_string(),
+                matcher: Some(Matcher::Ere),
             });
         }
     }
@@ -964,6 +1224,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         world_root: world.root,
         world_state: world.state,
         pattern: String::new(),
+        matcher: None,
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
