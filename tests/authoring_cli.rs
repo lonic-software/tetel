@@ -425,13 +425,19 @@ fn the_bound_kills_what_the_command_started_too() {
     // is not a bound, it is a race with process startup.
     assert_eq!(sb.run(&["config", "run.timeout_ms", "1000"]).0, 0);
     let marker = sb.dir.join("grandchild-survived");
-    let script = format!(
-        "(sleep 4; echo alive > {}) & wait",
-        marker.display()
-    );
+    // Quoted: an unquoted redirect target breaks on any path containing a
+    // space — including, on some machines, the sandbox's own temp
+    // directory — and a broken redirect makes `sh` exit nonzero with no
+    // marker written, which this test could not tell apart from the bound
+    // actually firing. The `assert!` on the refusal text below closes the
+    // same hole from the other side: it pins the claim being tested
+    // rather than a proxy for it, so an unrelated failure (a syntax
+    // error, a spawn failure) fails the test instead of passing it.
+    let script = format!("(sleep 4; echo alive > \"{}\") & wait", marker.display());
 
     let (code, err) = run_bounded(&sb, &["run", "sh", "-c", &script], 20);
     assert_ne!(code, 0, "the bound did not fire: {err}");
+    assert!(err.contains("did not finish within"), "the refusal must name the bound: {err}");
 
     // Outlives the grandchild's own sleep, so the marker's absence means
     // it was killed rather than merely not finished yet.
@@ -440,6 +446,28 @@ fn the_bound_kills_what_the_command_started_too() {
         !marker.exists(),
         "the shell was killed and its child was not — the bound stopped a process, not a command"
     );
+}
+
+/// The bound fires even when the *direct* child exits well within budget,
+/// leaving a backgrounded grandchild holding both pipes.
+///
+/// Before the join-bound fix, `run_command` bounded only `child.try_wait`.
+/// Here the direct child (`sh`) backgrounds `sleep 30` and returns in
+/// milliseconds, so `try_wait` succeeds and `timed_out` never gets set —
+/// and the `t_out.join()`/`t_err.join()` that followed were unconditional
+/// and unbounded, blocking for as long as the backgrounded `sleep` lived.
+/// That is the exact wedge this bound exists to close, reached through a
+/// path the child-exit poll does not cover: `&` in a script is a routine
+/// accident, not a deliberately non-terminating child. Without the fix
+/// this test does not fail, it hangs to `run_bounded`'s cap.
+#[test]
+fn a_fast_exiting_parent_does_not_let_its_background_child_escape_the_bound() {
+    let sb = Sandbox::new("run-timeout-background-child");
+    assert_eq!(sb.run(&["config", "run.timeout_ms", "1000"]).0, 0);
+
+    let (code, err) = run_bounded(&sb, &["run", "sh", "-c", "sleep 30 & echo started"], 20);
+    assert_ne!(code, 0, "the bound did not fire: {err}");
+    assert!(err.contains("did not finish within"), "the refusal must name the bound: {err}");
 }
 
 /// A command `run` spawns must never inherit the parent's stdin.

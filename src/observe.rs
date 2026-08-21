@@ -597,35 +597,122 @@ pub struct RunOutcome {
     pub exit_code: i32,
 }
 
-/// Kills the process group led by `pid`.
+/// Kills what `run`'s child started, so far as this platform lets it.
 ///
-/// A *group* rather than a process, and that is the whole mechanism: `run`
+/// **Unix:** kills the *group* led by the child, not just the child. `run`
 /// executes `argv` directly, so `argv[0]` is frequently a shell or a
 /// wrapper and the thing that will not stop is its child. The runaway that
 /// produced this bound was `bash -c python …` — killing bash alone leaves
 /// python holding both pipes, the drain threads reading a stream that
-/// never ends, and the call hung exactly as it was before.
+/// never ends, and the call hung exactly as it was before. A second call
+/// after the first (the join-bound path below can call this twice) is
+/// safe even once the leader has been reaped: POSIX reserves a pgid from
+/// reuse for as long as any process in that group still exists, and the
+/// call harmlessly `ESRCH`s once none does.
 ///
-/// **Unix only.** Elsewhere this is inert and a `run` is unbounded, as it
-/// was everywhere before. A signal to a negative pid is not something
-/// `std` can express, and no portable equivalent reaches a grandchild.
+/// **Elsewhere:** kills only the direct child via `std::process::Child::
+/// kill`, the one portable primitive available. A grandchild the child
+/// spawned — the same shape as the Unix runaway above — is not reached
+/// and can still hold the pipes open; that residual is real, not fixed
+/// here. What this *does* fix is the refusal's honesty: without any kill
+/// at all, the loop still declares `timed_out` at the budget and then the
+/// caller waits for the command to finish **on its own** before writing a
+/// refusal that claims it "was killed" — so a command that later
+/// completes successfully has its output discarded and a false refusal
+/// written instead. Calling `kill()` here makes the killed-child case
+/// (the common one, a bare command with no wrapper) actually match what
+/// the message says.
 #[cfg(unix)]
-fn stop_process_group(pid: u32) {
+fn stop_process_group(child: &mut std::process::Child) {
     // SAFETY: `kill` takes no pointers and is async-signal-safe. The
-    // negative pid names the group led by `pid`, which exists because the
-    // child was spawned with `process_group(0)`; `pid` has not been reaped
-    // yet at either call site, so it cannot have been recycled onto some
-    // other process. SIGKILL rather than SIGTERM because this fires only
-    // after the command has already ignored its entire budget, and a
-    // process that traps SIGTERM is precisely the case a bound must
-    // survive.
+    // negative pid names the group led by the child, which exists because
+    // it was spawned with `process_group(0)`. SIGKILL rather than SIGTERM
+    // because this fires only after the command has already ignored its
+    // entire budget, and a process that traps SIGTERM is precisely the
+    // case a bound must survive.
+    let pid = child.id();
     unsafe {
         libc::kill(-(pid as i32), libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn stop_process_group(_pid: u32) {}
+fn stop_process_group(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
+
+/// Grace window held open after the group kill has been sent, both while
+/// waiting for the child to be reaped and while waiting for the drain
+/// threads to notice EOF.
+///
+/// SIGKILL landing and a pipe read returning 0 are not instant — the
+/// kernel has to schedule the signal, tear the process down, and close
+/// its file descriptors before a blocked `read()` on the other end of a
+/// pipe unblocks. A few seconds absorbs that without holding the call
+/// open for anywhere near as long as the budget it just spent.
+const KILL_GRACE: Duration = Duration::from_secs(3);
+
+/// Polls `child` for exit up to `grace`, never blocking on `Child::wait`.
+///
+/// A blocking wait here would reintroduce the wedge this whole function
+/// exists to close: a child stuck in uninterruptible (D-state) sleep
+/// absorbs SIGKILL and never exits, so `wait()` on it never returns
+/// either. Giving up after `grace` and returning `None` accepts a zombie
+/// — a leaked pid-table entry — in exchange for the call itself
+/// returning, which is the trade made throughout this function.
+fn reap_with_grace(
+    child: &mut std::process::Child,
+    grace: Duration,
+) -> Option<std::process::ExitStatus> {
+    let deadline = Instant::now() + grace;
+    let mut nap = Duration::from_millis(1);
+    loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(nap);
+        nap = (nap * 2).min(Duration::from_millis(50));
+    }
+}
+
+/// Polls whether both drain threads have reached EOF by `deadline`,
+/// without ever calling the blocking `JoinHandle::join`.
+///
+/// `is_finished` is what makes giving up safe: it only inspects whether a
+/// thread has returned, so a `false` result here leaves both handles
+/// intact for the caller to either join (cheaply, since both are already
+/// finished) or drop — and the threads themselves keep running to their
+/// own end regardless of what this function decides.
+fn join_with_deadline(a: &thread::JoinHandle<()>, b: &thread::JoinHandle<()>, deadline: Instant) -> bool {
+    let mut nap = Duration::from_millis(1);
+    loop {
+        if a.is_finished() && b.is_finished() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(nap);
+        nap = (nap * 2).min(Duration::from_millis(50));
+    }
+}
+
+/// Formats a duration so a sub-second remainder survives, unlike
+/// `Duration::as_secs` (which truncates towards zero): with
+/// `run.timeout_ms = 1900`, the refusal must read "1.9s", not "1s" — it
+/// is the message that tells an author what to raise the bound to, and
+/// truncating it understates the bound in the one place that most needs
+/// to be exact.
+fn format_secs(d: Duration) -> String {
+    if d.subsec_millis() == 0 {
+        format!("{}s", d.as_secs())
+    } else {
+        format!("{:.1}s", d.as_secs_f64())
+    }
+}
 
 /// `tetel run <command...>` — executes `argv` directly (never through a
 /// shell), prints its combined stdout/stderr, and records `argv`'s
@@ -675,6 +762,21 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     // 1h55m was `bash -c python …`, where killing bash alone would have
     // left python holding both pipes and the drain threads reading from a
     // stream that never ends.
+    //
+    // This has a cost on an interactive terminal that it does not have on
+    // the MCP surface, which is `run`'s primary one: putting the child in
+    // its own group takes it out of the tty's *foreground* group, and a
+    // tty driver delivers SIGINT to the foreground group only. So a
+    // Ctrl-C during `tetel run cargo build` now reaches `tetel` alone —
+    // verified empirically, both directions, by sending SIGINT to
+    // tetel's own process group as a tty would: on `main`, before this
+    // change, both `tetel` and its `sleep` child died; on this branch,
+    // `tetel` dies and the child survives, orphaned, with no bound left
+    // to kill it, because the bound lived in the process that just died.
+    // Accepted rather than fixed: `run`'s primary caller is the MCP
+    // server, which has no tty, and forwarding SIGINT (or a
+    // `--foreground` escape hatch, the shape coreutils `timeout` uses)
+    // costs more than the interactive CLI case currently justifies.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -716,25 +818,75 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     // 50ms of polling latency, and a five-minute command must not wake
     // this thread twelve thousand times.
     //
-    // The clock starts only now, with both pipes already draining, so a
-    // command cannot spend its budget blocked on a full pipe buffer that
-    // nothing is reading yet.
+    // The clock started before `spawn`, not here — see `started` above —
+    // so the budget also covers process creation and this function's own
+    // setup. That is deliberate rather than incidental: a `spawn` that
+    // never returns (an exhausted process table, a stuck exec on some
+    // exotic filesystem) is a hang shaped exactly like the ones this bound
+    // exists to close, and there is no reason to leave it uncovered.
     let mut timed_out = false;
     let mut nap = Duration::from_millis(1);
     let status = loop {
         if let Some(status) = child.try_wait().map_err(|e| AuthoringError::Io(e.to_string()))? {
-            break status;
+            break Some(status);
         }
         if started.elapsed() >= budget {
-            stop_process_group(child.id());
+            stop_process_group(&mut child);
             timed_out = true;
-            break child.wait().map_err(|e| AuthoringError::Io(e.to_string()))?;
+            // Not a blocking `child.wait()`: a child stuck in
+            // uninterruptible (D-state) sleep absorbs SIGKILL and never
+            // reaps, and a blocking wait here would wedge this call
+            // exactly as the unbounded joins below used to. Poll for a
+            // short grace period instead and accept the zombie if the
+            // child never exits — that leaks a pid table entry, which is
+            // recoverable, rather than the call itself, which was not.
+            break reap_with_grace(&mut child, KILL_GRACE);
         }
         thread::sleep(nap);
         nap = (nap * 2).min(Duration::from_millis(50));
     };
-    t_out.join().ok();
-    t_err.join().ok();
+
+    // The event the budget actually bounds is *this* — the drains reaching
+    // EOF — not the child exiting. `try_wait` above answers only for the
+    // direct child; `sh -c 'sleep 120 & exit 0'` exits that child in
+    // milliseconds while a background grandchild keeps both pipes open, so
+    // without this the unconditional joins that used to sit here blocked
+    // for as long as the grandchild lived — the exact wedge this bound
+    // exists to close, reached through a path the child-exit poll never
+    // covers. The same unbounded join is also what made the two residuals
+    // above (an escaped grandchild, a D-state child) worse than they look
+    // in isolation: both leave a join sitting *before* the refusal, so the
+    // call never returns at all, and no refusal reaches `refusals.log` or
+    // the caller.
+    //
+    // The deadline is the remaining budget when the child exited on its
+    // own (so a fast child doesn't buy its background processes extra
+    // time), or a short fixed grace after a kill (SIGKILL landing and a
+    // pipe read noticing EOF is not instant, but it is not the budget's
+    // problem to wait out either).
+    let join_deadline = if timed_out {
+        Instant::now() + KILL_GRACE
+    } else {
+        Instant::now() + budget.saturating_sub(started.elapsed())
+    };
+    if join_with_deadline(&t_out, &t_err, join_deadline) {
+        t_out.join().ok();
+        t_err.join().ok();
+    } else {
+        // Whatever is still holding a pipe open outlived its budget. Kill
+        // the group again — safe even if the leader is already reaped:
+        // POSIX reserves a pgid from reuse for as long as any process in
+        // that group still exists, and the call harmlessly `ESRCH`s once
+        // none does — then abandon the threads rather than block on them.
+        // They hold their own `Arc` clone of the buffer, park in `read`,
+        // and exit whenever the writer finally dies; a leaked thread per
+        // incident in a long-lived server is bounded by incident count, a
+        // wedged session is not.
+        stop_process_group(&mut child);
+        timed_out = true;
+        drop(t_out);
+        drop(t_err);
+    }
 
     // Refused rather than recorded, and the captured bytes are dropped on
     // the floor. A killed command produced an indeterminate prefix of what
@@ -745,21 +897,22 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     // `workspace::refuse` appends it to `refusals.log`, which `check`
     // already reports for a fact's own mint window.
     if timed_out {
-        let secs = started.elapsed().as_secs();
         return Err(workspace::refuse(
             workspace_dir,
             "run",
             format!(
-                "`{cmdline}` did not finish within {}s and was killed, along with anything it \
+                "`{cmdline}` did not finish within {} and was killed, along with anything it \
                  started; nothing was captured. A command that never returns does not fail alone \
                  here — `run` waits for its child, so on the MCP surface every later call queues \
-                 behind it. Raise the bound with `tetel config {} <milliseconds>` if this command \
-                 honestly takes longer (elapsed: {secs}s).",
-                budget.as_secs(),
+                 behind it. Raise the bound with `tetel config --workspace-scope {} <milliseconds>` \
+                 if this command honestly takes longer (elapsed: {}).",
+                format_secs(budget),
                 config::KEY_RUN_TIMEOUT_MS,
+                format_secs(started.elapsed()),
             ),
         ));
     }
+    let status = status.expect("only the timed-out path can leave status unset, and that path always refuses above");
 
     let bytes = captured.lock().unwrap().clone();
     let output_text = String::from_utf8_lossy(&bytes).into_owned();
