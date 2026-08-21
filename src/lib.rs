@@ -126,7 +126,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
 
     let (evidence_records, evidence_errors) = evidence::load(path)?;
     let (ungrounded, attested_grounded, disagreements, qualified, stale, superseded) =
-        checks::analyze_ledger(&ledger.claims, &evidence_records);
+        checks::analyze_ledger(&ledger.claims, &evidence_records, path);
 
     findings.ledger_claims_found = ledger.claims.len();
     findings.ledger_errors = ledger

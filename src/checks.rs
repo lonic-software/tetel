@@ -205,11 +205,36 @@ pub struct Findings {
     /// now says. Nothing else clears it, and nothing clears it silently —
     /// the ledger is append-only, so the superseding record is added rather
     /// than the stale one edited.
+    ///
+    /// **One entry per claim, not per record.** A claim revised several
+    /// times before its first reprove can carry several stale records; the
+    /// original per-record loop pushed one row for each of them, so a busy
+    /// revision history read as that many separate machine failures. It
+    /// is one — the claim is out of proof — so it is one row.
+    ///
+    /// The aggregated row drops the per-record pass, verdict and note the
+    /// old shape inlined, and carries a `grep` pointer at the ledger in
+    /// their place (code review, F3) — this is the exit-1 partition, and
+    /// a row that says nothing but a count and a claim id gives an
+    /// author nothing to act on. See the comment in [`analyze_ledger`]
+    /// where the pointer is built for why it greps `name`, the on-disk
+    /// in-toto key, and not `claim_id`, the in-memory field.
     pub out_of_proof: Vec<String>,
     /// Records that graded an earlier wording of a claim which *has* since
     /// been reproved. Human-owed history, never a failure — the claim is
     /// back in proof, and these are the marks from before it was. See
     /// [`analyze_ledger`] on why the distinction matters.
+    ///
+    /// **One entry per claim, not per record**, for the same reason as
+    /// [`Findings::out_of_proof`]. Measured on this crate's own real
+    /// memos (TET-73): the largest, a 375-record ledger
+    /// (fork94-update-ref-audit-prune-asymmetry, 27 claims total), had
+    /// 216 stale records spread across 19 of those claims — one row
+    /// each, under the old shape, would have put 216 history entries in
+    /// front of a reader for the 19. `out_of_proof` was 0 on every real
+    /// memo checked: a memo that has been reproved at all has nothing
+    /// left out of proof, so in practice this list, not `out_of_proof`,
+    /// is where a revised memo's history actually accumulates.
     pub superseded_evidence: Vec<String>,
     /// Prose blocks whose text (or citations) postdate the settling of
     /// what they cite — see [`prose_after_proof`] for the rule and why
@@ -1080,6 +1105,17 @@ type LedgerFindings = (
     Vec<String>,
 );
 
+/// Quote `s` as one POSIX shell word: wrap it in single quotes, and
+/// escape any single quote it contains as `'\''` (close the quoted
+/// string, an escaped literal quote, reopen). A claim id comes from a
+/// markdown table cell (see [`crate::ledger::import`]) and a memo path
+/// comes from argv — neither is restricted to shell-safe characters, and
+/// the commands built with this are printed for a human to copy and run,
+/// not executed by this process, so they must be correct standing alone.
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// The checks this slice and the grounding-provenance slice on top of it
 /// add, run independently of the five `tetel`-row checks above: a claim
 /// with no evidence record at all (human-owed — absence isn't a failure);
@@ -1089,13 +1125,18 @@ type LedgerFindings = (
 /// that's two grounding passes disagreeing or a pass contradicting the
 /// author's own `Status` cell (a machine failure — an unresolved
 /// contradiction).
-pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFindings {
+pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord], memo: &Path) -> LedgerFindings {
     let mut ungrounded = Vec::new();
     let mut attested_grounded = Vec::new();
     let mut disagreements = Vec::new();
     let mut qualified = Vec::new();
     let mut out_of_proof = Vec::new();
     let mut superseded = Vec::new();
+    // The ledger a reader can `grep` for the records this pass aggregates
+    // away — computed once, from the same path `record`/`evidence::load`
+    // already derive theirs from, not a placeholder.
+    let ledger_path = crate::evidence::evidence_path(memo).display().to_string();
+    let quoted_ledger_path = shell_single_quote(&ledger_path);
 
     for claim in claims {
         let records: Vec<&EvidenceRecord> = evidence.iter().filter(|e| e.claim_id == claim.id).collect();
@@ -1130,27 +1171,56 @@ pub fn analyze_ledger(claims: &[Claim], evidence: &[EvidenceRecord]) -> LedgerFi
             .filter(|r| !r.proposition_digest.is_empty())
             .partition(|r| r.proposition_digest == current);
 
-        for r in &stale {
-            let line = format!(
-                "{} — evidence from pass {} graded different text than this claim now carries \
-(recorded digest {}…, current {}…).\n      that pass said: {} — {}",
-                claim.id,
-                r.pass,
-                &r.proposition_digest[..r.proposition_digest.len().min(12)],
-                &current[..current.len().min(12)],
-                r.verdict,
-                r.note.as_deref().unwrap_or("(no note)"),
-            );
+        // One row per *claim*, not per stale record. The first version of
+        // this loop pushed a full row — including the attacker's whole
+        // note — for every stale record on file, so a claim revised
+        // several times before its first reprove read as that many
+        // separate findings. Measured against this crate's own real
+        // memos (TET-73): the largest ledger on file (375 records,
+        // fork94-update-ref-audit-prune-asymmetry) put 216 stale records
+        // in one row each, 253,692 of the report's 303,373 characters
+        // (84%). It is one claim, one state (out of proof or
+        // superseded), and now one row.
+        if !stale.is_empty() {
+            // The on-disk key is `name` — the in-toto `subject[].name`
+            // field, per the Statement shape `evidence::parse_line` reads
+            // (`claim_id: subject.name.clone()`, src/evidence.rs). That
+            // Rust-side field is named `claim_id`; the JSON on disk never
+            // is. Printing `"claim_id":"…"` here would build a command
+            // that matches zero lines against every ledger this tool
+            // writes — verified against this crate's own fixture,
+            // `stale_evidence_aggregation.md.evidence.jsonl`.
+            //
+            // Both the id and the memo path are user-supplied text (a
+            // markdown table cell and argv, respectively) with no
+            // shell-safety guarantee, so both are quoted as one POSIX
+            // shell word via `shell_single_quote` rather than
+            // interpolated bare.
+            let quoted_pattern = shell_single_quote(&format!("\"name\":\"{}\"", claim.id));
+            let retrieval_cmd = format!("grep {quoted_pattern} {quoted_ledger_path}");
             if fresh.is_empty() {
                 out_of_proof.push(format!(
-                    "{line}\n      Out of proof: nothing grades what this claim says today. \
-Reprove it against the current wording, or restore the wording it was graded against."
+                    "{} — {} record(s) grade wording this claim no longer carries, and nothing \
+grades what it says today. The ledger keeps only a digest of the wording each record graded, not \
+the text itself, so recovering what it said means the memo's own history, not this file. Reprove \
+against the current wording, or recover the earlier wording from that history and restore it.\n      \
+Retrieve the stale records with: {retrieval_cmd}",
+                    claim.id,
+                    stale.len(),
                 ));
             } else {
+                // Digests are dropped here on purpose: several stale
+                // records can carry several different recorded digests,
+                // and once they're aggregated "the recorded digest" no
+                // longer names a single thing. A reader who needs one is
+                // going to the ledger anyway — point there instead.
                 superseded.push(format!(
-                    "{line}\n      Superseded by a later proof: {} record(s) grade the current \
-wording. Kept because it is what an earlier pass actually found, and the log is append-only.",
-                    fresh.len()
+                    "{} — {} record(s) grade wording this claim no longer carries; {} record(s) \
+grade the current wording. Kept because it is what an earlier pass actually found, and the log \
+is append-only.\n      Retrieve them with: {retrieval_cmd}",
+                    claim.id,
+                    stale.len(),
+                    fresh.len(),
                 ));
             }
         }

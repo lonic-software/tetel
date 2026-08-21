@@ -1716,6 +1716,32 @@ fn one_claim_memo(sb: &Sandbox) -> PathBuf {
     memo
 }
 
+/// Finds the "Retrieve …with: <cmd>" line printed for `claim_id` in
+/// `check`'s combined output and runs `<cmd>` for real through `sh -c`,
+/// returning its stdout lines. Executing the command rather than
+/// pattern-matching its text is the point (TET-73 code review, F1): a
+/// printed pointer that resolves to nothing would still satisfy a
+/// `contains()` assertion on the printed string.
+fn run_retrieval_command(combined: &str, claim_id: &str) -> Vec<String> {
+    let marker = format!("\"name\":\"{claim_id}\"");
+    let line = combined
+        .lines()
+        .find(|l| l.contains("Retrieve") && l.contains(&marker))
+        .unwrap_or_else(|| panic!("no retrieval line for {claim_id} in:\n{combined}"));
+    let cmd = line.split("with: ").nth(1).unwrap_or_else(|| panic!("no command on line: {line}")).trim();
+    let result = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run `{cmd}`: {e}"));
+    assert!(
+        result.status.success(),
+        "the printed command must actually succeed: `{cmd}`\nstderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8_lossy(&result.stdout).lines().map(str::to_string).collect()
+}
+
 /// `supports` beside `qualifies` is not a contradiction, and must not
 /// redden the machine partition. It is what an honest grounder produces
 /// when a claim rests on several facts and one premise holds only under
@@ -1831,7 +1857,10 @@ fn revising_a_graded_proposition_makes_its_evidence_stale() {
     let combined = format!("{report}{err}");
     assert_eq!(code, 1, "a claim out of proof must fail the machine check:\n{combined}");
     assert!(combined.contains("[out-of-proof]"), "got:\n{combined}");
-    assert!(combined.contains("graded different text"), "got:\n{combined}");
+    assert!(
+        combined.contains("record(s) grade wording this claim no longer carries"),
+        "got:\n{combined}"
+    );
     // The memo matches its snapshot, so drift is not what caught this.
     assert!(!combined.contains("[provenance-drift]"), "drift must not be the catcher:\n{combined}");
 }
@@ -1882,7 +1911,29 @@ fn a_claim_with_only_stale_evidence_still_fails() {
     let combined = format!("{report}{err}");
     assert_eq!(code, 1, "nothing grades the current wording:\n{combined}");
     assert!(combined.contains("[out-of-proof]"), "got:\n{combined}");
-    assert!(combined.contains("Out of proof: nothing grades what this claim says today"), "got:\n{combined}");
+    assert!(
+        combined.contains("nothing grades what it says today."),
+        "got:\n{combined}"
+    );
+    // TET-73 code review, F3: the ledger holds only a digest of the
+    // wording a record graded, never the text — "restore the wording"
+    // is only actionable via the memo's own history, not this file, and
+    // the row must say so rather than imply the ledger holds it.
+    assert!(
+        combined.contains("The ledger keeps only a digest of the wording each record graded, not \
+the text itself, so recovering what it said means the memo's own history, not this file."),
+        "must not imply the wording is recoverable from the ledger alone:\n{combined}"
+    );
+    assert!(
+        combined.contains("Reprove against the current wording, or recover the earlier wording \
+from that history and restore it."),
+        "got:\n{combined}"
+    );
+    // Out of proof lost its detail (pass, verdict, note, digests) with
+    // nothing substituted in the first version of this fix; it now gets
+    // the same retrieval pointer superseded does — run it for real.
+    let retrieved = run_retrieval_command(&combined, "C1");
+    assert_eq!(retrieved.len(), 1, "C1's only record is the stale one:\n{combined}");
 }
 /// The second instance of the same defect: `out-of-proof` was made
 /// digest-aware and `verdict-disagreement` was not, so a contradiction
@@ -1919,9 +1970,22 @@ fn a_contradiction_against_superseded_text_is_cleared_by_re_grounding() {
     assert_ne!(code, 1, "the current wording is unanimously supported:\n{combined}");
     assert!(!combined.contains("[verdict-disagreement]"), "got:\n{combined}");
     assert!(!combined.contains("[out-of-proof]"), "got:\n{combined}");
-    // Erasing the disagreement is not the remedy — it must still print.
+    // Erasing the disagreement is not the remedy — it must still be
+    // recoverable. The aggregated row no longer inlines the refutation's
+    // note (TET-73), so the assertion runs the pointer it prints, rather
+    // than pattern-matching the printed text: the two disagreeing records
+    // must actually come back, and one of them must carry the note.
     assert!(combined.contains("superseded evidence"), "the trail must survive:\n{combined}");
-    assert!(combined.contains("alpha.rs also defines beta()"), "the refutation's note must survive:\n{combined}");
+    let retrieved = run_retrieval_command(&combined, "C1");
+    assert_eq!(
+        retrieved.len(),
+        3,
+        "the pointer must return all 3 of C1's records (2 stale + 1 fresh):\n{combined}"
+    );
+    assert!(
+        retrieved.iter().any(|l| l.contains("alpha.rs also defines beta()")),
+        "the refutation's note must still be retrievable via the printed pointer:\n{retrieved:?}"
+    );
 }
 
 /// The converse: a contradiction among records that all grade the
@@ -1973,7 +2037,20 @@ fn a_qualification_against_superseded_text_stops_reading_as_qualified() {
     let combined = format!("{report}{err}");
     assert_ne!(code, 1, "nothing here is a machine failure:\n{combined}");
     assert!(!combined.contains("C1: QUALIFIED"), "the qualification was discharged:\n{combined}");
-    assert!(combined.contains("single-threaded path"), "but the record stays visible:\n{combined}");
+    // The aggregated row no longer inlines the note (TET-73); the pointer
+    // it prints must actually lead to the record — run it, don't just
+    // check the printed text.
+    assert!(combined.contains("superseded evidence"), "but the record stays visible:\n{combined}");
+    let retrieved = run_retrieval_command(&combined, "C1");
+    assert_eq!(
+        retrieved.len(),
+        2,
+        "the pointer must return both of C1's records (1 stale + 1 fresh):\n{combined}"
+    );
+    assert!(
+        retrieved.iter().any(|l| l.contains("holds only on the single-threaded path")),
+        "the qualification's note must still be retrievable via the printed pointer:\n{retrieved:?}"
+    );
 }
 
 #[test]

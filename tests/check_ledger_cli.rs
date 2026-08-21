@@ -143,6 +143,113 @@ fn a_citation_resolving_to_a_ledger_claim_is_not_cited_but_undefined() {
     );
 }
 
+/// TET-73: `analyze_ledger` used to push one row per *stale record*, so a
+/// claim revised several times before its first reprove read as that many
+/// separate findings — on this crate's own real memos, up to 216 rows on
+/// one memo for a fraction of that many claims. `stale_evidence_aggregation.md`
+/// carries a claim with three stale records and a fresh one (C1, which
+/// belongs in `superseded`) and a claim with two stale records and no fresh
+/// one (C2, which belongs in `out-of-proof`) — each must print as exactly
+/// one row, aggregating the record count rather than enumerating them.
+/// Finds the "Retrieve …with: <cmd>" line printed for `claim_id` and runs
+/// `<cmd>` for real through `sh -c`, returning its stdout lines. Executing
+/// the command rather than pattern-matching its text is the point: a
+/// printed pointer that resolves to nothing (TET-73 code review, F1 — the
+/// first version of this used the Rust-side field name `claim_id` instead
+/// of the on-disk JSON key `name`, and matched zero lines against every
+/// real ledger) would still have satisfied a `contains()` assertion.
+fn run_retrieval_command(out: &str, claim_id: &str) -> Vec<String> {
+    let marker = format!("\"name\":\"{claim_id}\"");
+    let line = out
+        .lines()
+        .find(|l| l.contains("Retrieve") && l.contains(&marker))
+        .unwrap_or_else(|| panic!("no retrieval line for {claim_id} in:\n{out}"));
+    let cmd = line.split("with: ").nth(1).unwrap_or_else(|| panic!("no command on line: {line}")).trim();
+    let result = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run `{cmd}`: {e}"));
+    assert!(
+        result.status.success(),
+        "the printed command must actually succeed: `{cmd}`\nstderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8_lossy(&result.stdout).lines().map(str::to_string).collect()
+}
+
+#[test]
+fn several_stale_records_on_one_claim_collapse_to_one_row_each() {
+    let (code, out) = run_check("stale_evidence_aggregation.md");
+    assert_eq!(code, 1, "C2 has nothing grading its current wording:\n{out}");
+
+    // C2: out of proof, one row, counting both of its stale records.
+    assert_eq!(
+        out.matches("[out-of-proof]").count(),
+        1,
+        "one row for C2, not one per stale record:\n{out}"
+    );
+    assert!(
+        out.contains("[out-of-proof] C2 — 2 record(s) grade wording this claim no longer carries, \
+and nothing grades what it says today."),
+        "output was:\n{out}"
+    );
+
+    // C1: superseded, one row, counting three stale against one fresh.
+    assert_eq!(
+        out.matches("superseded evidence:").count(),
+        1,
+        "one row for C1, not one per stale record:\n{out}"
+    );
+    assert!(
+        out.contains("superseded evidence: C1 — 3 record(s) grade wording this claim no longer \
+carries; 1 record(s) grade the current wording."),
+        "output was:\n{out}"
+    );
+
+    // The retrieval commands must actually retrieve the records the rows
+    // claim — run for real, not pattern-matched. C1 has 4 total records
+    // (3 stale + 1 fresh, all returned by the pointer); C2 has 2 (both
+    // stale, nothing fresh).
+    assert_eq!(
+        run_retrieval_command(&out, "C1").len(),
+        4,
+        "C1's pointer must return all 4 of its records:\n{out}"
+    );
+    assert_eq!(
+        run_retrieval_command(&out, "C2").len(),
+        2,
+        "C2's pointer must return both of its stale records:\n{out}"
+    );
+
+    // The pointer names the real fixture ledger path, not a placeholder.
+    let evidence_path = format!("{}.evidence.jsonl", fixture("stale_evidence_aggregation.md").display());
+    assert!(
+        out.contains(&evidence_path),
+        "the pointer must name this fixture's real ledger path:\n{out}"
+    );
+}
+
+/// TET-73 code review, F2: the memo path is interpolated straight from
+/// argv into the printed pointer. `tests/fixtures/dir with space/memo.md`
+/// pins the case an unquoted path breaks: `grep '"name":"C1"'
+/// tests/fixtures/dir with space/memo.md.evidence.jsonl` (no quotes)
+/// would split on the space and grep two files, neither of which is the
+/// ledger. Run the printed command for real, not a reconstruction of it.
+#[test]
+fn a_memo_path_containing_a_space_prints_a_pointer_that_actually_runs() {
+    let (code, out) = run_check("dir with space/memo.md");
+    assert_eq!(code, 0, "nothing here is a machine failure:\n{out}");
+    assert!(out.contains("superseded evidence: C1"), "output was:\n{out}");
+
+    let lines = run_retrieval_command(&out, "C1");
+    assert_eq!(
+        lines.len(),
+        2,
+        "the pointer must survive the space in its own path and return both of C1's records:\n{out}"
+    );
+}
+
 #[test]
 fn a_ledger_claim_never_cited_by_prose_still_surfaces_as_defined_uncited() {
     // The inverse of the fix above: teaching the citation check to see
