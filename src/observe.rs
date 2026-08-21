@@ -749,9 +749,13 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         // a grounding pass 92 minutes and looked like the design loop being
         // slow. Null makes those commands fail fast and empty instead.
         //
-        // Note this leaves a wider hole open: any command that blocks for some
-        // *other* reason (a lock, a network call, an interactive prompt) still
-        // takes the whole server hostage, because nothing here times out.
+        // The wider hole this used to leave open — a command that blocks for
+        // some *other* reason (a lock, a network call, an interactive
+        // prompt) — is closed by `budget` below: the poll loop kills it and
+        // refuses on the same clock regardless of why it's stuck. What
+        // remains once that fires is not a hostage server but a residual
+        // process or thread the kill couldn't reach; see `stop_process_group`
+        // and `reap_with_grace` for what that residual is.
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
