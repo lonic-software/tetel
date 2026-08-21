@@ -651,6 +651,43 @@ async fn a_relative_path_is_reported_back_as_the_absolute_one_it_resolved_to() {
     client.cancel().await.expect("clean shutdown");
 }
 
+/// `check_file` reads its memo through `workspace::read_caller_path`
+/// (TET-79), which refuses a FIFO by setting `io::ErrorKind::
+/// InvalidInput` — before this fix, `check`'s MCP handler mapped every
+/// `Err` from that read straight to `ErrorData::internal_error`, so the
+/// same defect that gets a structured refusal on `look` surfaced here as
+/// an opaque protocol-level error instead: `client.call_tool(...).await`
+/// itself would come back `Err(...)`, which is what
+/// `.expect("...protocol level")` below turns into a red assertion
+/// rather than a silent pass. `#[cfg(unix)]`: `mkfifo` is POSIX-specific,
+/// and CI (`ci.yml`) runs only macOS/Ubuntu.
+#[tokio::test]
+#[cfg(unix)]
+async fn check_on_a_fifo_returns_a_refusal_not_a_protocol_error() {
+    let sb = Sandbox::new("check-fifo-mcp");
+    let client = sb.connect().await;
+
+    let fifo = sb.dir.join("pipe.md");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status().expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+
+    let result = client
+        .call_tool(CallToolRequestParams::new("check").with_arguments(args(serde_json::json!({
+            "file": fifo.display().to_string(),
+        }))))
+        .await
+        .expect("a refusal must succeed at the protocol level, not surface as an internal error");
+
+    assert_eq!(result.is_error, Some(true), "a FIFO must be reported as a tool-level error: {result:?}");
+    let structured = result.structured_content.as_ref().expect("refusal must carry structured_content, not just prose");
+    assert_eq!(structured["error"], "refused");
+    assert_eq!(structured["command"], "check");
+    let guidance = structured["guidance"].as_str().expect("guidance must be a string an agent can read directly");
+    assert!(guidance.contains("FIFO"), "guidance must name what the path is: {guidance}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 /// Every path-taking parameter must say so, since the rule cannot be
 /// enforced — the server has no way to reject a relative path that
 /// happens to resolve to a real file.

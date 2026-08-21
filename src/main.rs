@@ -102,11 +102,16 @@ enum Command {
     /// Open a file (recording it into the pending observation buffer),
     /// or search a file/directory with `--grep`.
     Look {
-        /// The file to open (plain form), or the file/directory to
-        /// search when `--grep` is given. Must be a regular file (or a
-        /// symlink to one, resolved through) — a FIFO, socket or device
-        /// is refused rather than read, since reading one does not
-        /// behave like reading a file (TET-79).
+        /// The file to open (plain form) — must be a regular file, or a
+        /// symlink to one, resolved through; a directory is refused
+        /// there, pointing at `--grep` instead — or the file/directory
+        /// to search when `--grep` is given, where a directory is fine
+        /// (grep recurses into it) and so is a single regular file. A
+        /// FIFO, socket or device named directly as `path` is refused
+        /// in either mode, since reading one does not behave like
+        /// reading a file (TET-79) — one reached by recursing into a
+        /// searched directory is not covered, and still blocks the
+        /// search.
         path: Option<String>,
         /// A 1-based inclusive line range, `A:B`. Only valid without
         /// `--grep`.
@@ -528,10 +533,15 @@ a value `{}` accepts.",
                 }
             }
             let input_json = match &input {
-                // TET-79: `--input` names a caller-supplied path with no
-                // workspace in reach at this point in dispatch, same
-                // shape as `check`/`brief`'s memo argument.
-                Some(path) => tetel::workspace::read_caller_path(path),
+                // TET-79: `--input` names a caller-supplied path, the
+                // same free-text-carrier shape `resolve_text_value`'s
+                // `@file` branch has, not the strict-extent shape
+                // `check`/`brief`'s memo argument has — `--input
+                // <(jq …)` (bash process substitution) and `--input
+                // /dev/stdin` when stdin is piped both name a FIFO with
+                // a real writer, so this goes through the bounded-wait
+                // guard rather than refusing every FIFO outright.
+                Some(path) => tetel::workspace::read_text_carrier_path(path),
                 None => {
                     let mut buf = String::new();
                     std::io::stdin().read_to_string(&mut buf).map(|_| buf)

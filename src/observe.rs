@@ -428,6 +428,27 @@ pub fn look_grep(workspace_dir: &Path, pattern: &str, root: &str) -> Result<Look
     if !root_path.exists() {
         return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
     }
+    // The explicitly-named root is the same hazard `look_path` has
+    // (TET-79) — `grep pattern <fifo>` opens and reads it exactly as
+    // `fs::read_to_string` does, and a FIFO with no writer blocks `grep`
+    // forever below, with no bound of any kind on this call (unlike
+    // `run`, this is not spawned under `run.timeout_ms`). Guarded here,
+    // before grep ever runs, when `root` itself is not a directory.
+    //
+    // A directory root is left unguarded by this check — it is the
+    // normal recursive case, and refusing it would break every ordinary
+    // `--grep` call. This is a narrower fix than "no FIFO reachable from
+    // `look --grep` can ever hang it": measured directly against
+    // `/usr/bin/grep` (BSD grep 2.6.0-FreeBSD, the same build already
+    // cited in this file's `rendered_memos` comment), `grep -r` over a
+    // directory containing a writer-less FIFO **does** hang trying to
+    // read it — recursion does not skip a special file the way it skips
+    // nothing else here. A FIFO *inside* a recursed directory is
+    // therefore still an unaddressed hang in this function; only a FIFO
+    // named directly as `root` is closed by this guard.
+    if !root_path.is_dir() {
+        workspace::guard_regular_file(workspace_dir, "look", root, root_path)?;
+    }
     // One session for the whole search: a recursive grep can match in
     // dozens of files, and each matched file resolves its own marker
     // (a search root can span a submodule or a nested worktree), but
