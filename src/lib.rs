@@ -175,6 +175,11 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
             let trees = worldstate::tree_report(&facts);
             findings.tree_states = trees.divergent;
             findings.tree_ungradable = trees.ungradable_facts;
+            // TET-68: facts minted before `look --grep` declared its
+            // matcher, whose pattern reads differently under the dialect
+            // this build actually used. Same snapshot dependency as
+            // everything else in this block.
+            findings.pre_dialect_no_matches = checks::pre_dialect_no_matches(&facts);
         }
         // Modification targets, re-verified against the record rather
         // than trusted because the document says so. `target` refuses an

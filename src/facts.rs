@@ -129,6 +129,60 @@ impl ExtentEntry {
             && self.world_root != crate::worldstate::NO_GIT
             && self.key == self.world_root
     }
+
+    /// Whether this is a pre-dialect `NoMatch`/`Search` record — one
+    /// minted by a `look --grep` old enough to predate TET-68's declared
+    /// [`crate::pending::Matcher`] — whose `pattern` carries an unescaped
+    /// ERE metacharacter (see [`ERE_FLIPPED_METACHARS`]). Every such
+    /// record was read as GNU-extended BRE, where each of those seven
+    /// characters is literal unless individually escaped; this build reads
+    /// the same pattern as POSIX ERE, where each one is syntax instead.
+    /// The record is immutable and cannot be repaired, only pointed at.
+    ///
+    /// Round-2 review, F3: this predicate covered only `|` at first. A
+    /// pre-dialect extent with pattern `cfg(test)` searched literal
+    /// parentheses under BRE and is now read under ERE grouping by this
+    /// build's readers and by the second-model verifier — the same "the
+    /// record says a question was asked that was not asked" defect `|`
+    /// has, unreported for the other six characters. Generalised to the
+    /// full set `scripts/grep-dialect-census.py`'s `GROUPING_CHARS`
+    /// enumerates (plus `|`, which that script already tracks as its own
+    /// census row) rather than narrowing the category's wording instead:
+    /// the verifier reads these labels regardless of which character
+    /// flipped, and the cost of the wider predicate is one shared helper
+    /// — [`contains_unescaped_ere_metachar`], the same one
+    /// [`ExtentEntry::censuses`] (F2) already needed.
+    ///
+    /// `matcher.is_none()` is exactly the discriminator: every entry this
+    /// build mints carries `Some(Matcher::Ere)` (see [`crate::pending::Matcher`]'s
+    /// own doc comment for what `None` means), so `None` here can only
+    /// mean "minted before that was ever recorded" — never "recorded, and
+    /// some other dialect".
+    ///
+    /// `Search`, not only `NoMatch`: a search minted from an unescaped
+    /// metacharacter that DID match found something — the literal string
+    /// `a|b`, or the grouped-but-unrepeated `cfgtest` a search for
+    /// `cfg(test)` actually ran — so it is not a bounded negative and is
+    /// less dangerous than the no-match case. But its label carries the
+    /// pattern verbatim, fed to the second-model verifier, which reads it
+    /// as the ERE syntax it now is rather than the literal text it was
+    /// searched as. The defect is the same defect either way: the record
+    /// says a question was asked that was not asked. Counting only
+    /// `NoMatch` would report the half where nothing was found and stay
+    /// silent about the half where the wrong thing was found — see
+    /// [`crate::checks::pre_dialect_no_matches`] for how the two states
+    /// are worded apart rather than flattened into one "no-match" claim.
+    ///
+    /// The metacharacter test is a byte property — one of the seven
+    /// characters preceded by an even run of backslashes, i.e. not itself
+    /// escaped — decided the same way `scripts/grep-dialect-census.py`
+    /// decides it, never a guess at what the pattern was meant to mean.
+    pub fn pre_dialect_unescaped_ere_metachar(&self) -> bool {
+        use crate::pending::ObservationKind::{NoMatch, Search};
+        matches!(self.kind, Some(NoMatch) | Some(Search))
+            && self.matcher.is_none()
+            && contains_unescaped_ere_metachar(&self.pattern)
+    }
 }
 
 /// The seven characters GNU-extended BRE (the dialect `look --grep` used
@@ -136,8 +190,8 @@ impl ExtentEntry {
 /// ERE (the dialect it uses now) reads as syntax unless individually
 /// escaped — the full set whose *unescaped* meaning flips between the two
 /// dialects. Named once here and reused by [`ExtentEntry::censuses`] (F2)
-/// and, in a later commit, TET-68's own pre-dialect predicate, rather than
-/// restated — and kept in step by hand with
+/// and [`ExtentEntry::pre_dialect_unescaped_ere_metachar`] (F3) rather
+/// than restated — and kept in step by hand with
 /// `scripts/grep-dialect-census.py`'s `GROUPING_CHARS` (six of these
 /// seven; that script tracks `|` separately as its own census row, since
 /// this repo's census wanted alternation broken out on its own line).

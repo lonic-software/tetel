@@ -2130,6 +2130,81 @@ fn check_lists_the_refusals_recorded_in_a_facts_own_mint_window() {
     );
 }
 
+/// TET-68 commit 2: a fact minted before `look --grep` declared its
+/// matcher — `matcher` absent, `kind` `NoMatch`, pattern carrying an
+/// unescaped `|` — cannot be repaired (extents are immutable), but
+/// `check` must point at it. The pre-dialect shape is written by hand
+/// directly into `facts.jsonl`, the same way `facts.rs`'s own
+/// `window_tests::seed` writes raw events to control exactly which
+/// fields are (and are not) present, since no build of this tool can
+/// mint one going forward.
+#[test]
+fn check_reports_a_pre_dialect_no_match_extent_as_human_owed() {
+    let sb = Sandbox::new("check-pre-dialect-no-match");
+    sb.write("alpha.rs", "fn alpha() {}\n");
+    sb.run(&["look", "alpha.rs"]);
+    sb.run(&["fact", "--note", "alpha.rs defines alpha()"]);
+
+    // F2: a legacy NoMatch extent (found nothing) and F3: a legacy Search
+    // extent (matched the literal string). Both `matcher`-omitted (not
+    // `null` — the same "never recorded" shape a build before this field
+    // existed would have written), both patterns carrying an unescaped
+    // `|`. Coordinator review on this ticket: a Search that matched under
+    // the literal reading is a different state from a NoMatch that found
+    // nothing, and the report must say so honestly rather than call both
+    // "no-match".
+    let facts_path = sb.state_home().join("workspaces/default/facts.jsonl");
+    let legacy_no_match = r#"{"event":"Create","id":"F2","note":"legacy grep observation","extent":[{"key":"/repo","label":"no-match: AppImage|current-version|foo in .","world_root":"no-git-worktree","world_state":"no-git-worktree","kind":"NoMatch","pattern":"AppImage|current-version|foo","out_len":0}],"output":"","pin":"sha256:deadbeef","timestamp":1}"#;
+    let legacy_search = r#"{"event":"Create","id":"F3","note":"legacy grep observation, matched","extent":[{"key":"/repo/a.txt","label":"/repo/a.txt (grep: a|b)","world_root":"no-git-worktree","world_state":"no-git-worktree","kind":"Search","pattern":"a|b","out_len":0}],"output":"","pin":"sha256:beadfeed","timestamp":1}"#;
+    let mut existing = std::fs::read_to_string(&facts_path).unwrap();
+    existing.push_str(legacy_no_match);
+    existing.push('\n');
+    existing.push_str(legacy_search);
+    existing.push('\n');
+    std::fs::write(&facts_path, existing).unwrap();
+
+    sb.run(&["claim", "--proposition", "alpha.rs defines alpha()", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "Defines alpha().");
+    let memo = sb.dir.join("memo.md");
+    sb.run(&["render", "--out", memo.to_str().unwrap()]);
+
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    let combined = format!("{report}{err}");
+    // Human-owed: a byte property of a pattern, never a truth question,
+    // so it must never redden the machine partition.
+    assert!(
+        report.contains("machine-checked: clean"),
+        "a pre-dialect record must never fail the machine partition:\n{combined}"
+    );
+    assert!(code == 0, "human-owed findings alone must not fail the run:\n{combined}");
+    assert!(report.contains("F2"), "the pre-dialect NoMatch fact must be named:\n{combined}");
+    assert!(report.contains("F3"), "the pre-dialect Search (matched) fact must be named:\n{combined}");
+    assert!(
+        report.contains("pre-dialect record"),
+        "check must point at the pre-dialect record:\n{combined}"
+    );
+    assert!(
+        report.contains("AppImage|current-version|foo"),
+        "the offending NoMatch pattern should be shown:\n{combined}"
+    );
+    assert!(report.contains("matched `a|b`"), "the offending Search pattern should be shown, described as matched, not empty:\n{combined}");
+    // The wording must tell the two states apart, never call a matched
+    // extent a "no matches"/empty one.
+    let f3_line = report.lines().find(|l| l.contains("F3")).expect("F3's line must exist");
+    assert!(
+        !f3_line.contains("found nothing") && !f3_line.contains("no matches"),
+        "F3 matched under the literal reading; its line must not claim the extent is empty:\n{f3_line}"
+    );
+    assert!(f3_line.contains("matched"), "F3's line must say it matched: {f3_line}");
+    let f2_line = report.lines().find(|l| l.contains("F2")).expect("F2's line must exist");
+    assert!(f2_line.contains("found nothing"), "F2 found nothing; its line must say so: {f2_line}");
+    // The category must be advertised in the preamble too.
+    assert!(
+        report.contains("a pre-dialect extent — no-match or match — whose pattern contains an unescaped ERE metacharacter (| + ? ( ) { })"),
+        "the preamble must name the category it prints:\n{combined}"
+    );
+}
+
 /// A memo whose facts were minted with nothing refused says nothing
 /// about mint windows — the same reason the mint-time line is silent.
 #[test]
@@ -3366,7 +3441,6 @@ the search was worktree-rooted and the pattern is byte-equal to the symbol"
 not misdiagnose this as a narrow-root or missing-search failure: {err}"
     );
 }
-
 
 #[test]
 fn a_census_pattern_must_be_the_symbol_itself() {

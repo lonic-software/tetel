@@ -67,6 +67,7 @@ pub const HUMAN_OWED_CATEGORIES: &[&str] = &[
     "prose whose revised-after-proof listing was acknowledged",
     "whether a claim was graded by the workspace that authored it or an independent one",
     "a missing snapshot",
+    "a pre-dialect extent — no-match or match — whose pattern contains an unescaped ERE metacharacter (| + ? ( ) { })",
     "tetel's own standing non-coverage",
 ];
 
@@ -521,6 +522,9 @@ drawn about code this fact never opened\n",
             o.mentioned,
             o.extent_labels.join("; ")
         ));
+    }
+    for line in &findings.pre_dialect_no_matches {
+        out.push_str(&format!("  - {line}\n"));
     }
     if matches!(findings.provenance, Provenance::Missing) && findings.cites_something {
         out.push_str(
