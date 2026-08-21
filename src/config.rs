@@ -266,7 +266,9 @@ generous",
     KeyDef {
         name: KEY_VERIFY_VERBS,
         summary: "which authoring verbs are verified, comma-separated from fact, claim, prose \
-(default: claim alone — see the design memo for why the other two are off)",
+(default: claim and fact, measured at 83% and 88% precision with the refuter on). The empty list \
+turns verification off without unsetting the rest. prose is off by default: 80% with the strict \
+refuter and 44% with a looser one, on the highest-volume verb of the three",
         accepts: Accepts::SubsetOf(VERIFY_VERBS),
     },
     KeyDef {
@@ -508,10 +510,17 @@ pub fn verify_timeout_ms(workspace_dir: Option<&Path>) -> Option<u64> {
 
 /// [`resolve`] for [`KEY_VERIFY_VERBS`], parsed.
 ///
-/// The default is `claim` alone. `fact` is half covered already, for free
-/// and deterministically, by [`crate::scope`]; `prose` is the
-/// highest-volume verb and the least-evidenced comparison. Both are one
-/// `config` line away for anyone who wants them.
+/// The default is `claim` and `fact`. `claim` because it is the comparison
+/// nothing else in tetel performs. `fact` because the reason it used to be
+/// off has gone: at 63% precision it was below the bar for a printed
+/// warning, and with its own prompt, `overreaches` dropped and a refuter
+/// behind it, it measures 88% — above `claim`'s 83%. Keeping the
+/// better-scoring verb off while the refuter that earned it defaults on
+/// would be inheriting a default rather than holding one.
+///
+/// `prose` stays off. It reaches 80% only with the strict refuter, it is
+/// the highest-volume verb of the three, and 80% is the floor of what is
+/// worth printing rather than a margin over it.
 pub fn verify_verbs(workspace_dir: Option<&Path>) -> Vec<String> {
     match resolve(KEY_VERIFY_VERBS, workspace_dir).0 {
         Some(raw) => split_list(&raw)
@@ -519,7 +528,7 @@ pub fn verify_verbs(workspace_dir: Option<&Path>) -> Vec<String> {
             .map(|v| v.to_ascii_lowercase())
             .filter(|v| VERIFY_VERBS.contains(&v.as_str()))
             .collect(),
-        None => vec!["claim".to_string()],
+        None => vec!["claim".to_string(), "fact".to_string()],
     }
 }
 
@@ -909,6 +918,19 @@ fn header(scope: Scope) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_empty_verb_list_is_a_value_and_not_an_absence() {
+        // Documented as the way to verify nothing without unsetting the
+        // model, the approach and the refuter. It works only because
+        // `resolve` returns the empty string as a value rather than
+        // treating it as a missing key, and because `split_list` drops
+        // empty elements — two behaviours in different functions, neither
+        // written for this, so the guarantee needs its own assertion.
+        assert!(accepted(&Accepts::SubsetOf(VERIFY_VERBS), ""));
+        assert!(split_list("").is_empty());
+        assert_eq!(split_list("claim, ,fact"), vec!["claim", "fact"]);
+    }
 
     #[test]
     fn the_refuter_accepts_a_model_or_the_word_off_and_nothing_else() {
