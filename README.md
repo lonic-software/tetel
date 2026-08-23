@@ -142,7 +142,9 @@ Two labelled partitions, each stating its own scope, and **never a single docume
   own mint window, prose revised after the claims it cites settled, prose whose revised-after-proof
   listing was acknowledged, whether a claim was graded by the workspace that authored it or an
   independent one, a missing snapshot, a pre-dialect extent — no-match or match — whose pattern
-  contains an unescaped ERE metacharacter (| + ? ( ) { }), and tetel's own standing non-coverage. **None of it is settled by a passing check**,
+  contains an unescaped ERE metacharacter (| + ? ( ) { }), the distinct roots this memo's relative
+  extent labels are anchored to, a relative extent label carrying no root-relative marker, and
+  tetel's own standing non-coverage. **None of it is settled by a passing check**,
   and none of it fails the run.
 
 Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean

@@ -249,12 +249,16 @@ fn fenced(text: &str) -> String {
 ///
 /// # What is deliberately not here
 ///
-/// The `key` is always an absolute machine-local path — `ExtentEntry::
-/// censuses` compares it against `world_root`, so relativizing it would
-/// silently uncensus every modification target on file — and this table
-/// never renders it. Only the `label` is rendered, exactly as stored; this
-/// function derives nothing from it. Relativization, when it happens,
-/// happened once, at capture, in `observe.rs` (TET-42) — never here.
+/// The `key` is `resolve_key`/`search_key`'s canonical form of what was
+/// observed — absolute except on the rare canonicalization-failure
+/// fallback, which keeps the caller's own (possibly relative) spelling
+/// instead of losing the observation over it — and `ExtentEntry::censuses`
+/// compares it against `world_root`, so relativizing it on purpose would
+/// silently uncensus every modification target on file. This table never
+/// renders it either way. Only the `label` is rendered, exactly as
+/// stored; this function derives nothing from it. Relativization, when it
+/// happens, happened once, at capture, in `observe.rs` (TET-42) — never
+/// here.
 ///
 /// That capture-time contract is narrower than "a committed document does
 /// not carry `/Users/<someone>/...`", the claim this comment used to make

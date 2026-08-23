@@ -147,13 +147,14 @@ pub struct Findings {
     /// a symlink), reported rather than fixed. Same snapshot dependency as
     /// `tree_states`.
     pub relative_label_roots: Vec<String>,
-    /// TET-42's fourth promise, second half: `(fact id, label)` pairs for
-    /// a relative-looking label carrying no `root_relative` marker — see
+    /// TET-42's fourth promise, second half: `(fact id, labels)` — one
+    /// row per fact, not per entry — for relative-looking labels carrying
+    /// no `root_relative` marker — see
     /// [`crate::worldstate::TreeReport::unmarked_relative_labels`].
     /// Human-owed, never a failure: this ticket does not absolutize a
     /// caller's own relative spelling, so the residue is surfaced rather
     /// than repaired. Same snapshot dependency as `tree_states`.
-    pub unmarked_relative_labels: Vec<(String, String)>,
+    pub unmarked_relative_labels: Vec<(String, Vec<String>)>,
     /// Declared modification targets whose cited fact does not census
     /// them, re-verified against the shipped snapshot — a **machine
     /// failure**.

@@ -243,10 +243,11 @@ pub struct TreeReport {
     /// this memo's relative labels do not all resolve against the tree a
     /// reader who clones it once will have.
     pub relative_label_roots: Vec<String>,
-    /// TET-42's fourth promise, second half: `(fact id, label)` for every
-    /// plain single-file label (a `Path` or `GrepMatch` observation) that
-    /// reads relative — does not begin with `/` — yet carries no
-    /// `root_relative` marker.
+    /// TET-42's fourth promise, second half: `(fact id, labels)` — every
+    /// plain single-file label (a `Path` or `GrepMatch` observation) on
+    /// that fact that reads relative — does not begin with `/` — yet
+    /// carries no `root_relative` marker, grouped one row per fact rather
+    /// than one row per entry.
     ///
     /// This is the residue TET-42 explicitly declined to absolutize: a
     /// caller who spelled a path relative and failed the caller-spelling
@@ -256,7 +257,15 @@ pub struct TreeReport {
     /// snapshot field, and neither render site prints it. Reported here
     /// rather than fixed, because fixing it means absolutizing a spelling
     /// this ticket deliberately leaves alone.
-    pub unmarked_relative_labels: Vec<(String, String)>,
+    ///
+    /// **One entry per fact, not per extent entry** — the same aggregation
+    /// `out_of_proof`/`superseded_evidence` already apply to a claim's
+    /// stale records, for the analogous reason: a `look --grep` with an
+    /// absolute root through a symlinked ancestor fails condition three
+    /// for every file it matched, and all of those land on one fact's
+    /// extent once `tetel fact` folds them, so an unaggregated list turns
+    /// one 200-file search into 200 lines here for a single finding.
+    pub unmarked_relative_labels: Vec<(String, Vec<String>)>,
 }
 
 /// Which working trees this memo's facts saw in more than one state.
@@ -279,7 +288,7 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
     let mut by_root: HashMap<String, Vec<(String, Vec<String>)>> = HashMap::new();
     let mut ungradable: Vec<String> = Vec::new();
     let mut relative_label_roots: Vec<String> = Vec::new();
-    let mut unmarked_relative_labels: Vec<(String, String)> = Vec::new();
+    let mut unmarked_relative_labels: Vec<(String, Vec<String>)> = Vec::new();
 
     for fact in facts {
         let mut ungraded_here = false;
@@ -306,7 +315,13 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
                 && !entry.label.is_empty()
                 && !entry.label.starts_with('/')
             {
-                unmarked_relative_labels.push((fact.id.clone(), entry.label.clone()));
+                // One row per fact, not per entry — see this field's
+                // own doc comment for why an unaggregated list is unsound
+                // at the volume a single big search can produce.
+                match unmarked_relative_labels.iter_mut().find(|(id, _)| *id == fact.id) {
+                    Some((_, labels)) => labels.push(entry.label.clone()),
+                    None => unmarked_relative_labels.push((fact.id.clone(), vec![entry.label.clone()])),
+                }
             }
             if entry.world_root.is_empty() {
                 if !ungraded_here {
@@ -382,20 +397,34 @@ mod tests {
         root_relative: bool,
         world_root: &str,
     ) -> crate::facts::Fact {
+        fact_with_entries(id, &[(kind, label, root_relative, world_root)])
+    }
+
+    /// A fact carrying several extent entries at once — what a single
+    /// `look --grep` folds into one fact when it matches more than one
+    /// file, and what the aggregation test below needs to construct the
+    /// shape it is pinning.
+    fn fact_with_entries(
+        id: &str,
+        entries: &[(crate::pending::ObservationKind, &str, bool, &str)],
+    ) -> crate::facts::Fact {
         crate::facts::Fact {
             id: id.to_string(),
             note: String::new(),
-            extent: vec![crate::facts::ExtentEntry {
-                key: String::new(),
-                label: label.to_string(),
-                world_root: world_root.to_string(),
-                world_state: String::new(),
-                kind: Some(kind),
-                pattern: String::new(),
-                out_len: None,
-                matcher: None,
-                root_relative,
-            }],
+            extent: entries
+                .iter()
+                .map(|(kind, label, root_relative, world_root)| crate::facts::ExtentEntry {
+                    key: String::new(),
+                    label: label.to_string(),
+                    world_root: world_root.to_string(),
+                    world_state: String::new(),
+                    kind: Some(*kind),
+                    pattern: String::new(),
+                    out_len: None,
+                    matcher: None,
+                    root_relative: *root_relative,
+                })
+                .collect(),
             output: String::new(),
             pin: String::new(),
             revisions: 0,
@@ -430,7 +459,32 @@ mod tests {
         // like a root-relative one — the marker is the only thing that
         // tells them apart, and this is what surfaces its absence.
         let r = tree_report(&[fact_with_label("F1", Path, "../otherrepo/x.txt", false, "/otherrepo")]);
-        assert_eq!(r.unmarked_relative_labels, vec![("F1".to_string(), "../otherrepo/x.txt".to_string())]);
+        assert_eq!(r.unmarked_relative_labels, vec![("F1".to_string(), vec!["../otherrepo/x.txt".to_string()])]);
+    }
+
+    #[test]
+    fn unmarked_relative_labels_groups_by_fact_not_by_entry() {
+        use crate::pending::ObservationKind::{GrepMatch, Path};
+        // The shape a single big `look --grep` produces: many matched
+        // files, each its own extent entry, all folded into one fact by
+        // `tetel fact`. An unaggregated list would print one line per
+        // entry here; the aggregated report owes exactly one row for F1.
+        let r = tree_report(&[
+            fact_with_entries(
+                "F1",
+                &[
+                    (Path, "a.txt", false, "/repo"),
+                    (GrepMatch, "b.txt", false, "/repo"),
+                    (GrepMatch, "c.txt", false, "/repo"),
+                ],
+            ),
+            fact_with_label("F2", Path, "d.txt", false, "/repo"),
+        ]);
+        assert_eq!(r.unmarked_relative_labels.len(), 2, "one row per fact: {:?}", r.unmarked_relative_labels);
+        let f1 = r.unmarked_relative_labels.iter().find(|(id, _)| id == "F1").unwrap();
+        assert_eq!(f1.1, vec!["a.txt".to_string(), "b.txt".to_string(), "c.txt".to_string()]);
+        let f2 = r.unmarked_relative_labels.iter().find(|(id, _)| id == "F2").unwrap();
+        assert_eq!(f2.1, vec!["d.txt".to_string()]);
     }
 
     #[test]

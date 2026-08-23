@@ -73,15 +73,44 @@ pub struct LookOutcome {
 /// Whether `candidate` — an absolute string — sits at or under `root`, on a
 /// literal `/` component boundary rather than a bare string prefix.
 ///
-/// Shared by both halves of [`relativize_label`]'s test: the canonical key
-/// against `world_root` (condition two, "at or under"), and the caller's
-/// own resolved spelling against `world_root` (condition three, "under").
-/// The two conditions differ in whether equality counts, which callers
-/// decide for themselves rather than this function guessing — `censuses`'
-/// own equality test on the key is untouched here, and every caller below
-/// is explicit about which arm it wants.
+/// Used by [`relativize_label`]'s condition two: the canonical key against
+/// `world_root`. The design memo's own wording for condition two is "at or
+/// under" — deliberately wider than condition three's "under" — because a
+/// whole-search record's key can legitimately equal `world_root` itself.
+/// That equal case, in this codebase, is intercepted by
+/// [`relativize_search_root`]'s own inline check and spelled `.` *before*
+/// [`relativize_label`] is ever called, so on every caller of
+/// [`relativize_label`] reachable today (`look_path`'s single file,
+/// `exclusion_note`'s enumerated paths, a `GrepMatch`'s own key), `key`
+/// names something strictly under `world_root`, never `world_root` itself
+/// — a file cannot be the same path as the directory that contains it.
+/// This function's equality arm therefore matches the memo's stated
+/// contract rather than anything exercised through this call today; see
+/// [`strictly_under`]'s doc comment for the sibling case that is not
+/// equivalent by construction and had to be fixed to match. Condition
+/// three does *not* call this — it needs the strictly-under reading.
 fn at_or_under(candidate: &str, root: &str) -> bool {
     candidate == root || candidate.starts_with(&format!("{root}/"))
+}
+
+/// Whether `candidate` — an absolute string — sits strictly under `root`:
+/// under a literal `/` component boundary, and never merely equal to it.
+///
+/// Used by [`relativize_label`]'s condition three, the caller's own
+/// resolved spelling against `world_root`. The design memo's own wording
+/// for this condition is "lies under", never "at or under" — unlike
+/// condition two, there is no "at" arm here: a caller's own spelling that
+/// resolves to exactly `world_root` names no file at all on any of
+/// [`relativize_label`]'s call sites today (`look_path` refuses a
+/// directory before this runs; a `look --grep` match is never a directory
+/// either; the whole-search root's own "at" case is decided by
+/// [`relativize_search_root`] before this function is ever reached, from
+/// `key`, never from a caller spelling). So today the strict and loose
+/// readings agree on every reachable input, and this is the one the
+/// design memo's own wording commits to rather than the one that merely
+/// happens not to matter yet.
+fn strictly_under(candidate: &str, root: &str) -> bool {
+    candidate != root && candidate.starts_with(&format!("{root}/"))
 }
 
 /// The caller's own spelling of an observed path, resolved exactly as
@@ -150,13 +179,11 @@ fn relativize_label(caller_spelling: &str, key: &str, world_root: &str) -> (Stri
     let Some(resolved) = callers_spelling(caller_spelling) else {
         return (caller_spelling.to_string(), false);
     };
-    // Condition three is "under", not "at or under" — see this function's
-    // doc comment. A caller spelling that lands exactly on `world_root`
-    // itself never arises for a single observed file (it would have to
-    // name no path at all), so the stricter test costs nothing real and
-    // matches the design memo's own wording rather than silently widening
-    // it to match condition two.
-    if resolved != world_root && !resolved.starts_with(&format!("{world_root}/")) {
+    // Condition three is "under", not "at or under" — see `strictly_under`'s
+    // doc comment for why this calls it rather than `at_or_under`, and for
+    // the equality case it excludes not actually arising on any call site
+    // reachable today.
+    if !strictly_under(&resolved, world_root) {
         return (caller_spelling.to_string(), false);
     }
     let relative = if key == world_root { ".".to_string() } else { key[world_root.len() + 1..].to_string() };
