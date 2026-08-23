@@ -4225,3 +4225,284 @@ fn reading_an_unknown_setting_is_refused_not_reported_as_unset() {
     assert!(err.contains("unknown setting"), "got:\n{err}");
     assert!(!out.contains("(unset)"), "a typo read as a real, unset key:\n{out}");
 }
+
+// --- TET-42: a label is spelled relative to `world_root` only under three
+// conditions held together at capture ------------------------------------
+
+/// Every `Path`/`GrepMatch`/`Search`/`NoMatch`/`Proc` entry in a workspace's
+/// pending buffer, as `(label, root_relative)` — what capture actually
+/// wrote, read through the buffer rather than the fact log.
+fn pending_labels(sb: &Sandbox, workspace: &str) -> Vec<(String, bool)> {
+    let raw = std::fs::read_to_string(sb.state_home().join(format!("workspaces/{workspace}/pending.json")))
+        .expect("pending buffer must exist");
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["label"].as_str().unwrap_or_default().to_string(), e["root_relative"].as_bool().unwrap_or(false)))
+        .collect()
+}
+
+fn run_in(sb: &Sandbox, dir: &std::path::Path, args: &[&str]) {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+    c.args(args).current_dir(dir).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
+    let o = c.output().unwrap();
+    assert!(o.status.success(), "{args:?} in {}: {}", dir.display(), String::from_utf8_lossy(&o.stderr));
+}
+
+#[test]
+fn tet42_controls_all_relativize_from_an_absolute_or_repo_root_relative_spelling() {
+    let sb = Sandbox::new("tet42-controls");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/f.txt"), "OUTER x\n").unwrap();
+    std::fs::write(repo.join("x.txt"), "root x\n").unwrap();
+    // Canonicalized before building the "abs" case's literal caller
+    // spelling: on macOS the sandbox lives under `/var/folders/...`, itself
+    // a symlink to `/private/var/folders/...`, and `world_root` is always
+    // the canonicalized spelling (`Session::for_path` canonicalizes before
+    // asking git). An absolute spelling is taken literally, by design — see
+    // `relativize_label`'s doc comment — so an *uncanonicalized* absolute
+    // path through that symlink would legitimately fail condition three
+    // without that being any defect in the file it names. This is the
+    // control for "an absolute path already spelled the way `world_root`
+    // is", not a test of symlink resolution, which is what canonicalizing
+    // first keeps it measuring.
+    let repo = std::fs::canonicalize(&repo).unwrap();
+
+    // Control: an absolute in-repo path.
+    run_in(&sb, &repo, &["look", "--workspace", "abs", repo.join("sub/f.txt").to_str().unwrap()]);
+    // Controls: relative spellings issued from the repo root itself, where
+    // condition three is trivially satisfied — see `observe.rs`'s
+    // `relativize_label` doc comment on why `cwd == world_root` makes any
+    // embedded `.`/`//` harmless, unlike the nested-repo case below.
+    run_in(&sb, &repo, &["look", "--workspace", "bare", "sub/f.txt"]);
+    run_in(&sb, &repo, &["look", "--workspace", "dslash", "sub//f.txt"]);
+    run_in(&sb, &repo, &["look", "--workspace", "dot", "sub/./f.txt"]);
+    run_in(&sb, &repo, &["look", "--workspace", "leading-dot", "./x.txt"]);
+
+    for (w, want) in [("abs", "sub/f.txt"), ("bare", "sub/f.txt"), ("dslash", "sub/f.txt"), ("dot", "sub/f.txt"), ("leading-dot", "x.txt")]
+    {
+        let e = pending_labels(&sb, w);
+        assert_eq!(e.len(), 1, "{w}: {e:?}");
+        assert_eq!(e[0].0, want, "{w}: must relativize to the key-derived form");
+        assert!(e[0].1, "{w}: must carry the root-relative marker");
+    }
+}
+
+#[test]
+fn tet42_leaves_a_path_outside_any_repository_absolute_and_unmarked() {
+    let sb = Sandbox::new("tet42-no-repo");
+    let outside = sb.dir.join("no-repo-here");
+    std::fs::create_dir_all(&outside).unwrap();
+    let f = outside.join("f.txt");
+    std::fs::write(&f, "content\n").unwrap();
+
+    run_in(&sb, &sb.dir.clone(), &["look", f.to_str().unwrap()]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].0, f.to_str().unwrap(), "no root to relativize against: label stays exactly as given");
+    assert!(!e[0].1, "world_root degraded to no-git-worktree; must not carry the marker");
+}
+
+#[test]
+fn tet42_a_symlink_escape_spelled_in_the_path_does_not_relativize() {
+    // The forgery this ticket's third condition exists to close: the key
+    // sits under the *escaped-to* repository's own root (condition two
+    // alone would relativize), but the caller's own absolute spelling
+    // names a path under the shipping repo, not under that root — so
+    // condition three refuses, and the label is left exactly as typed
+    // rather than minting a bare, wrong-tree-relative citation.
+    let sb = Sandbox::new("tet42-symlink-escape");
+    let outer = sb.dir.join("outer");
+    let otherrepo = sb.dir.join("otherrepo");
+    init_repo(&outer);
+    init_repo(&otherrepo);
+    std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
+
+    let escape = outer.join("link/x.txt");
+    run_in(&sb, &outer, &["look", escape.to_str().unwrap()]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].0, escape.to_str().unwrap(), "must stay exactly as the caller spelled it");
+    assert!(!e[0].1, "must not mint a bare root-relative label for a file in another tree");
+}
+
+#[test]
+fn tet42_a_dotdot_escape_to_a_different_repository_is_left_relative_and_unmarked() {
+    // The collapsing-vs-concatenating witness: a caller who types
+    // `../otherrepo/x.txt` from inside `outer` gets that string back
+    // verbatim, never the bare `x.txt` a `..`-collapsing rule would mint
+    // (which would resolve, in the shipping tree, to a different file
+    // than the one actually opened).
+    let sb = Sandbox::new("tet42-dotdot-escape");
+    let outer = sb.dir.join("outer");
+    let otherrepo = sb.dir.join("otherrepo");
+    init_repo(&outer);
+    init_repo(&otherrepo);
+    std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
+
+    run_in(&sb, &outer, &["look", "../otherrepo/x.txt"]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].0, "../otherrepo/x.txt", "must stay exactly as typed, not collapsed and not stripped");
+    assert!(!e[0].1, "the concatenated spelling does not carry otherrepo/ as a literal prefix");
+}
+
+#[test]
+fn tet42_a_dotdot_that_returns_into_the_same_repo_via_symlink_still_relativizes() {
+    // What the concatenating rule buys over collapsing: `<repo>/c` is a
+    // symlink back *inside* the same repository, so `../c/f.txt` from
+    // `<repo>/outer` concatenates to `<repo>/outer/../c/f.txt`, which does
+    // carry `<repo>/outer/` as a literal prefix — a collapsing rule would
+    // refuse this one (it collapses to `<repo>/c/f.txt`, not under
+    // `<repo>/outer`), losing a harmless in-repo citation.
+    let sb = Sandbox::new("tet42-dotdot-reentry");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("outer")).unwrap();
+    std::fs::write(repo.join("f.txt"), "reentry\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&repo, repo.join("c")).unwrap();
+
+    let outer_dir = repo.join("outer");
+    run_in(&sb, &outer_dir, &["look", "../c/f.txt"]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].0, "f.txt", "must relativize to the key-derived form");
+    assert!(e[0].1);
+}
+
+#[test]
+fn tet42_a_nested_repo_reached_by_a_dot_prefixed_spelling_does_not_relativize() {
+    // From a directory in no repository, `./outer/x.txt` passes condition
+    // two (the key sits under `outer`'s own root) but fails condition
+    // three: `cwd + "/" + "./outer/x.txt"` does not carry `<outer>/` as a
+    // literal prefix, because the redundant `./` lands exactly where the
+    // root's own name would need to appear. The bare `outer/x.txt` control
+    // has no such component and does relativize.
+    let sb = Sandbox::new("tet42-nested-dot-prefix");
+    let scratch = sb.dir.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let outer = scratch.join("outer");
+    init_repo(&outer);
+    std::fs::write(outer.join("x.txt"), "dummy\n").unwrap();
+
+    run_in(&sb, &scratch, &["look", "--workspace", "bare", "outer/x.txt"]);
+    run_in(&sb, &scratch, &["look", "--workspace", "dotted", "./outer/x.txt"]);
+
+    let bare = pending_labels(&sb, "bare");
+    assert_eq!(bare[0], ("x.txt".to_string(), true), "bare control must relativize: {bare:?}");
+    let dotted = pending_labels(&sb, "dotted");
+    assert_eq!(dotted[0], ("./outer/x.txt".to_string(), false), "the `./` prefix must refuse condition three: {dotted:?}");
+}
+
+#[test]
+fn tet42_a_working_directory_reached_through_a_symlink_mints_a_bare_label_anchored_elsewhere() {
+    // The one shape this design does not close at capture, stated as such
+    // rather than silently passing: `cd`-ing through a symlink into
+    // another repository, then looking a bare relative path, produces a
+    // label shape-identical to a sound one — because the physical
+    // `current_dir()` this rule reads has already had the symlink resolved
+    // out from under it. `worldstate::tree_report`'s anchoring-root check
+    // is where this is meant to surface, not here; this test only pins
+    // that the open gap behaves exactly as documented.
+    let sb = Sandbox::new("tet42-cwd-symlink");
+    let outer = sb.dir.join("outer");
+    let otherrepo = sb.dir.join("otherrepo");
+    init_repo(&outer);
+    init_repo(&otherrepo);
+    std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
+
+    let link_dir = outer.join("link");
+    run_in(&sb, &link_dir, &["look", "x.txt"]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].0, "x.txt", "the label minted is shape-identical to a sound one");
+    assert!(e[0].1, "all three conditions read as satisfied from inside the resolved cwd");
+
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let root = v[0]["world_root"].as_str().unwrap();
+    assert!(root.ends_with("otherrepo"), "anchored to the repo the symlink resolves into, not the one holding it: {root}");
+}
+
+#[test]
+fn tet42_a_whole_search_rooted_at_the_worktree_is_spelled_dot() {
+    let sb = Sandbox::new("tet42-search-dot");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/f.txt"), "NEEDLE\n").unwrap();
+
+    run_in(&sb, &repo, &["look", "--workspace", "hit", "--grep", "NEEDLE", "."]);
+    run_in(&sb, &repo, &["look", "--workspace", "miss", "--grep", "NOWHERE", "."]);
+    run_in(&sb, &repo, &["look", "--workspace", "subdir", "--grep", "NEEDLE", "sub"]);
+
+    let hit = pending_labels(&sb, "hit");
+    assert!(hit.iter().any(|(l, r)| l.starts_with("search: . (") && *r), "{hit:?}");
+    assert!(hit.iter().any(|(l, r)| l == "sub/f.txt (grep (ERE): NEEDLE)" && *r), "{hit:?}");
+    let miss = pending_labels(&sb, "miss");
+    assert!(miss.iter().any(|(l, r)| l.starts_with("no-match (ERE): NOWHERE in . ") && *r), "{miss:?}");
+    // A subdirectory search's key is strictly under the root, not equal
+    // to it, so it never takes the unconditional `.` arm — it still
+    // relativizes, but through the ordinary rule, to the subdirectory's
+    // own key-derived spelling.
+    let subdir = pending_labels(&sb, "subdir");
+    assert!(subdir.iter().any(|(l, r)| l.starts_with("search: sub (") && *r), "{subdir:?}");
+}
+
+#[test]
+fn tet42_a_proc_label_never_relativizes() {
+    let sb = Sandbox::new("tet42-proc");
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    run_in(&sb, &repo, &["run", "--", "echo", "hi"]);
+    let e = pending_labels(&sb, "default");
+    assert_eq!(e.len(), 1);
+    assert!(e[0].0.starts_with("proc: echo hi"));
+    assert!(!e[0].1, "a command line is never a candidate for relativization");
+}
+
+#[test]
+fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels() {
+    // End-to-end: two facts whose labels relativize against two different
+    // repositories (one via the open cwd-symlink gap) must show up in
+    // `check`'s two new TET-42 rows, and never move `render`'s own output
+    // — TET-43 must not fire.
+    let sb = Sandbox::new("tet42-check-anchors");
+    let outer = sb.dir.join("outer");
+    let otherrepo = sb.dir.join("otherrepo");
+    init_repo(&outer);
+    init_repo(&otherrepo);
+    std::fs::create_dir_all(outer.join("sub")).unwrap();
+    std::fs::write(outer.join("sub/f.txt"), "OUTER x\n").unwrap();
+    std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
+
+    run_in(&sb, &outer, &["look", "sub/f.txt"]);
+    run_in(&sb, &outer, &["fact", "--note", "anchored to outer"]);
+    run_in(&sb, &outer.join("link"), &["look", "x.txt"]);
+    run_in(&sb, &outer, &["fact", "--note", "anchored to otherrepo via the cwd-symlink gap"]);
+    run_in(&sb, &outer, &["claim", "--cites", "F1,F2", "--proposition", "two facts, two anchoring roots"]);
+    run_in(&sb, &outer, &["prose", "--text", "TET-42 anchoring-root fixture.", "--cites", "C1"]);
+
+    let memo = outer.join("memo.md");
+    run_in(&sb, &outer, &["render", "--out", memo.to_str().unwrap()]);
+
+    let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+    c.args(["check", memo.to_str().unwrap()])
+        .current_dir(&outer)
+        .env("TETEL_STATE_HOME", sb.state_home())
+        .env("TETEL_CONFIG_HOME", sb.config_home());
+    let out = c.output().unwrap();
+    let report = String::from_utf8_lossy(&out.stdout);
+    assert!(report.contains("2 different roots"), "{report}");
+    assert!(!report.contains("provenance-drift"), "TET-42 must not reach render: {report}");
+}

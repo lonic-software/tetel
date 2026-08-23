@@ -70,6 +70,123 @@ pub struct LookOutcome {
     pub printed: String,
 }
 
+/// Whether `candidate` — an absolute string — sits at or under `root`, on a
+/// literal `/` component boundary rather than a bare string prefix.
+///
+/// Shared by both halves of [`relativize_label`]'s test: the canonical key
+/// against `world_root` (condition two, "at or under"), and the caller's
+/// own resolved spelling against `world_root` (condition three, "under").
+/// The two conditions differ in whether equality counts, which callers
+/// decide for themselves rather than this function guessing — `censuses`'
+/// own equality test on the key is untouched here, and every caller below
+/// is explicit about which arm it wants.
+fn at_or_under(candidate: &str, root: &str) -> bool {
+    candidate == root || candidate.starts_with(&format!("{root}/"))
+}
+
+/// The caller's own spelling of an observed path, resolved exactly as
+/// TET-42's third condition defines it — never as a general-purpose path
+/// join.
+///
+/// An absolute spelling is the literal string the caller typed, unchanged.
+/// A relative spelling is [`std::env::current_dir`] — the *physical*
+/// working directory, the getcwd(3) the kernel reports with every symlink
+/// already resolved out of it — concatenated with the caller's string and
+/// one `/` between them: nothing is collapsed, no symlink is walked, no
+/// filesystem call is made beyond the one to learn the directory itself.
+///
+/// This is deliberately not `Path::join` followed by a normalizing
+/// canonicalize. A `..` component is left exactly where the caller put it,
+/// which is what makes the condition this feeds a test of the caller's own
+/// frame of reference rather than of where the path ends up after the
+/// shell's `..` is silently walked away — see `observe.rs`'s module design
+/// memo (TET-42) for the two witnesses that make collapsing accept the
+/// escape this condition exists to refuse, and refuse the harmless
+/// still-inside-the-repo case it exists to allow.
+///
+/// Returns `None` only when `current_dir()` itself fails (an unlinked or
+/// unreadable cwd) — the one case with no honest spelling to resolve
+/// against.
+fn callers_spelling(caller_spelling: &str) -> Option<String> {
+    if Path::new(caller_spelling).is_absolute() {
+        return Some(caller_spelling.to_string());
+    }
+    let cwd = std::env::current_dir().ok()?;
+    Some(format!("{}/{}", cwd.display(), caller_spelling))
+}
+
+/// TET-42's three-condition rule for a single label: relativize
+/// `caller_spelling` against `world_root` when
+///
+/// 1. `world_root` resolved to a repository (non-empty, not
+///    [`worldstate::NO_GIT`]);
+/// 2. `key` — the canonical form of what was observed — sits at or under
+///    that root;
+/// 3. the caller's own spelling, resolved by [`callers_spelling`], also
+///    lies under that same root.
+///
+/// All three have to hold together. Condition two alone is defeated by an
+/// ordinary symlink into a *different* repository (the key sits under its
+/// own `world_root` and a bare relative label is minted for a file the
+/// memo never names); condition three is what catches that, by insisting
+/// the path the caller actually typed was itself inside the tree the
+/// answer is being spelled against. See the module design memo (TET-42)
+/// for the constructed attack this closes and the one shape — a working
+/// directory reached through a symlink rather than a path spelled through
+/// one — that it does not, which is routed to `check`'s anchoring-root
+/// report instead of being closed here.
+///
+/// Returns `(label, true)` when relativized, `(caller_spelling, false)`
+/// otherwise — never a guess, never an absolutization. A caller spelling
+/// that fails this test is left exactly as typed; this function never
+/// invents an absolute form for it either.
+fn relativize_label(caller_spelling: &str, key: &str, world_root: &str) -> (String, bool) {
+    if world_root.is_empty() || world_root == worldstate::NO_GIT {
+        return (caller_spelling.to_string(), false);
+    }
+    if !at_or_under(key, world_root) {
+        return (caller_spelling.to_string(), false);
+    }
+    let Some(resolved) = callers_spelling(caller_spelling) else {
+        return (caller_spelling.to_string(), false);
+    };
+    // Condition three is "under", not "at or under" — see this function's
+    // doc comment. A caller spelling that lands exactly on `world_root`
+    // itself never arises for a single observed file (it would have to
+    // name no path at all), so the stricter test costs nothing real and
+    // matches the design memo's own wording rather than silently widening
+    // it to match condition two.
+    if resolved != world_root && !resolved.starts_with(&format!("{world_root}/")) {
+        return (caller_spelling.to_string(), false);
+    }
+    let relative = if key == world_root { ".".to_string() } else { key[world_root.len() + 1..].to_string() };
+    (relative, true)
+}
+
+/// The whole-search decision: a search root whose key reconciles to
+/// `world_root` itself is spelled `.` unconditionally — no caller-spelling
+/// test, unlike [`relativize_label`]. That is deliberate, not an oversight:
+/// `key == world_root` here can only happen because [`search_key`] already
+/// reconciled two *tool*-computed spellings of one canonical directory (its
+/// own `fs::canonicalize` against git's `--show-toplevel`), never from
+/// anything the caller typed, so there is no caller frame of reference for
+/// condition three to test. `.` asserts only "this search was rooted at the
+/// top of the tree this extent's own `world_root` names" — true by
+/// construction whenever the key reconciled — and carries no claim about
+/// *which* tree that is; a search rooted at some other repository entirely
+/// still says `.`, honestly, and the check-time anchoring-root report is
+/// where that surfaces.
+///
+/// A search root that is a genuine subdirectory of the tree (key strictly
+/// under, not equal to, `world_root`) is not this case at all and falls
+/// through to the ordinary rule.
+fn relativize_search_root(caller_spelling: &str, key: &str, world_root: &str) -> (String, bool) {
+    if !world_root.is_empty() && world_root != worldstate::NO_GIT && key == world_root {
+        return (".".to_string(), true);
+    }
+    relativize_label(caller_spelling, key, world_root)
+}
+
 /// Does `root` name a path inside tetel's own output?
 ///
 /// One component test, and it is the *entire* root predicate. The obvious
@@ -201,10 +318,20 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
 /// The memo paths are listed rather than counted, deliberately. A count
 /// would let two searches over different memo sets of the same size pin
 /// identically, which is the property this text exists to provide.
-fn exclusion_note(exclusions: &Exclusions) -> String {
+///
+/// Each enumerated path is put through [`relativize_label`], the same rule
+/// as any other label, independently — this note names in-repo paths, not
+/// the search root itself, so it takes no part in [`relativize_search_root`]'s
+/// unconditional `.` arm. TET-42's whole-search decision.
+fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> String {
+    let relativize_note_path = |path: &str| -> String {
+        let key = resolve_key(Path::new(path));
+        relativize_label(path, &key, world_root).0
+    };
     match exclusions {
         Exclusions::None { why } => format!("no exclusions: {why}"),
         Exclusions::Applied { memos, ignored } => {
+            let memos: Vec<String> = memos.iter().map(|m| relativize_note_path(m)).collect();
             let mut s = String::from("skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl");
             if memos.is_empty() {
                 s.push_str(", and no rendered memo");
@@ -222,7 +349,7 @@ fn exclusion_note(exclusions: &Exclusions) -> String {
             if ignored.is_empty() {
                 s.push_str("; git-ignored paths: none, or the root is outside a repository");
             } else {
-                let names: Vec<&str> = ignored.iter().map(|(_, p)| p.as_str()).collect();
+                let names: Vec<String> = ignored.iter().map(|(_, p)| relativize_note_path(p)).collect();
                 s.push_str(&format!(
                     "; and {} git-ignored path{} ({})",
                     names.len(),
@@ -370,9 +497,14 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
     // Resolved from the file being read, never from this process's working
     // directory — see `worldstate.rs` for the measurement that forced this.
     let world = worldstate::Session::new().for_path(p);
+    // TET-42: the label is spelled relative to `world_root` when the three
+    // conditions hold — see `relativize_label`'s doc comment. Computed
+    // once and reused across all three arms below, since every arm's label
+    // differs only in its line-range suffix, never in this leading path.
+    let (display_path, root_relative) = relativize_label(path, &key, &world.root);
 
     let (shown, label) = match lines {
-        None => (contents.clone(), path.to_string()),
+        None => (contents.clone(), display_path.clone()),
         Some((a, b)) => {
             if a < 1 || a > b {
                 return Err(workspace::refuse(workspace_dir, "look", format!("invalid --lines range {a}:{b}")));
@@ -380,10 +512,10 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
             let all: Vec<&str> = contents.lines().collect();
             let total = all.len();
             if a > total {
-                (String::new(), format!("{path} lines {a}-{b} (file has {total} line(s); nothing in range)"))
+                (String::new(), format!("{display_path} lines {a}-{b} (file has {total} line(s); nothing in range)"))
             } else {
                 let end = b.min(total);
-                (all[a - 1..end].join("\n"), format!("{path} lines {a}-{end}"))
+                (all[a - 1..end].join("\n"), format!("{display_path} lines {a}-{end}"))
             }
         }
     };
@@ -405,6 +537,7 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         captured_at: workspace::now_unix(),
         pattern: String::new(),
         matcher: None,
+        root_relative,
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
@@ -767,35 +900,45 @@ matches this search never saw. grep says: {}",
         )
     });
 
-    let note = exclusion_note(&exclusions);
+    // A bounded negative and a whole-search record are both about the tree
+    // that was searched, so both their markers and their key come from the
+    // search root — computed once here and shared by whichever branch
+    // below fires, and by `exclusion_note`'s own relativization of the
+    // paths it enumerates.
+    let m = world.for_path(root_path);
+    let key = search_key(root_path, &m.root);
+    let note = exclusion_note(&exclusions, &m.root);
     let note = match &partial {
         Some(caveat) => format!("{caveat}; {note}"),
         None => note,
     };
+    // TET-42: `.` when the search was rooted at the top of `m.root` itself
+    // (the reconciled `key == m.root` case `search_key` exists to produce),
+    // the ordinary rule otherwise. See `relativize_search_root`'s doc
+    // comment for why the two are not the same test.
+    let (root_display, root_relative) = relativize_search_root(root, &key, &m.root);
     let mut printed = String::new();
     let mut buf = pending::load(workspace_dir)?;
 
     if stdout.trim().is_empty() {
-        // A bounded negative is about the tree it searched, so its marker
-        // comes from the search root.
-        let m = world.for_path(root_path);
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
         printed.push_str(&format!("({note})\n"));
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
-            key: search_key(root_path, &m.root),
+            key,
             // The matcher declaration sits before `{pattern}` is
             // interpolated, on this label and the two below, so pattern
             // bytes can never forge it — a pattern containing text like
             // `) (BRE): x` cannot make the label claim a grammar this
             // search did not actually run under.
-            label: format!("no-match (ERE): {pattern} in {root} — {note}"),
+            label: format!("no-match (ERE): {pattern} in {root_display} — {note}"),
             output: String::new(),
             world_root: m.root,
             world_state: m.state,
             pattern: pattern.to_string(),
             matcher: Some(Matcher::Ere),
+            root_relative,
         });
     } else {
         printed.push_str(&stdout);
@@ -811,16 +954,15 @@ matches this search never saw. grep says: {}",
         // was rooted — the thing a census turns on — is unrecoverable.
         // Its marker comes from the search root, exactly as the
         // zero-match record's always has.
-        let m = world.for_path(root_path);
         let files = by_file.len();
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
             kind: ObservationKind::Search,
-            key: search_key(root_path, &m.root),
+            key,
             // Same forge-proof positioning as the no-match label above:
             // the matcher declaration precedes `{pattern}`.
             label: format!(
-                "search: {root} (grep (ERE): {pattern}) — {files} file{} matched — {note}",
+                "search: {root_display} (grep (ERE): {pattern}) — {files} file{} matched — {note}",
                 if files == 1 { "" } else { "s" }
             ),
             output: String::new(),
@@ -828,19 +970,29 @@ matches this search never saw. grep says: {}",
             world_state: m.state,
             pattern: pattern.to_string(),
             matcher: Some(Matcher::Ere),
+            root_relative,
         });
         for (file, matches) in by_file {
             let m = world.for_path(Path::new(&file));
+            let file_key = resolve_key(Path::new(&file));
+            // Every per-file hit gets its own relativization, independent
+            // of the whole-search record's: a search rooted at the
+            // worktree can still match inside a nested repository or
+            // outside the tree entirely (a symlinked file), and each
+            // match's own key and marker are what this decides against —
+            // never the search root's.
+            let (file_display, file_root_relative) = relativize_label(&file, &file_key, &m.root);
             buf.push(PendingEntry {
                 captured_at: workspace::now_unix(),
                 kind: ObservationKind::GrepMatch,
-                key: resolve_key(Path::new(&file)),
-                label: format!("{file} (grep (ERE): {pattern})"),
+                key: file_key,
+                label: format!("{file_display} (grep (ERE): {pattern})"),
                 output: matches.join("\n"),
                 world_root: m.root,
                 world_state: m.state,
                 pattern: pattern.to_string(),
                 matcher: Some(Matcher::Ere),
+                root_relative: file_root_relative,
             });
         }
     }
@@ -1225,6 +1377,10 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         world_state: world.state,
         pattern: String::new(),
         matcher: None,
+        // A `proc:` label is the command line as it ran, never a path —
+        // TET-42 leaves it untouched: rewriting any part of it would make
+        // the record assert that a different command was run.
+        root_relative: false,
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);

@@ -512,6 +512,34 @@ record is not a matching one. Re-observing under the current build is the only r
             findings.tree_ungradable.join(", ")
         ));
     }
+    if findings.relative_label_roots.len() > 1 {
+        out.push_str(&format!(
+            "  - this memo's relative extent labels are anchored to {} different roots: {}. A \
+relative label only opens against the tree it was taken from — cloning this repository resolves \
+labels anchored here, and nothing else. Not a defect the tool can repair: a repository elsewhere on \
+the machine, one nested beneath this worktree, or a working directory reached through a symlink into \
+another repository all capture correctly and relativize correctly, against a root this document does \
+not otherwise name\n",
+            findings.relative_label_roots.len(),
+            findings.relative_label_roots.join(", ")
+        ));
+    } else if let [root] = findings.relative_label_roots.as_slice() {
+        out.push_str(&format!(
+            "  - this memo's relative extent labels are anchored to one root: {root}. Cloning this \
+repository at any path resolves them; a reader without the clone still depends on the author-typed \
+pin claim, since a relative label does not name its own anchor\n"
+        ));
+    }
+    if !findings.unmarked_relative_labels.is_empty() {
+        out.push_str(
+            "  - relative labels carrying no root-relative marker (spelled relative by the caller, \
+not by this tool, or minted before the marker existed — shape-identical to a root-relative label \
+once rendered, and not resolvable against any root this document declares):\n",
+        );
+        for (id, label) in &findings.unmarked_relative_labels {
+            out.push_str(&format!("      {id}: {label}\n"));
+        }
+    }
     for o in &findings.notes_outside_extent {
         out.push_str(&format!(
             "  - {}: its note names {}, which this fact's extent does not cover (extent: {}) — \

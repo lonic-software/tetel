@@ -229,6 +229,34 @@ pub struct TreeReport {
     /// working directory rather than from what they read, so it is
     /// comparable with nothing.
     pub ungradable_facts: Vec<String>,
+    /// TET-42's fourth promise, first half: every distinct `world_root`
+    /// behind at least one extent entry whose label was actually computed
+    /// root-relative (`ExtentEntry::root_relative`), in first-seen order.
+    ///
+    /// A per-entry rule cannot see this on its own — every entry can
+    /// relativize correctly against its own root while the roots
+    /// disagree with each other, which happens for three shapes capture
+    /// time cannot close: a repository elsewhere on the machine observed
+    /// directly, a repository nested beneath the shipping worktree, and a
+    /// working directory that reached another repository through a
+    /// symlink. Zero or one root is the ordinary case; more than one means
+    /// this memo's relative labels do not all resolve against the tree a
+    /// reader who clones it once will have.
+    pub relative_label_roots: Vec<String>,
+    /// TET-42's fourth promise, second half: `(fact id, label)` for every
+    /// plain single-file label (a `Path` or `GrepMatch` observation) that
+    /// reads relative — does not begin with `/` — yet carries no
+    /// `root_relative` marker.
+    ///
+    /// This is the residue TET-42 explicitly declined to absolutize: a
+    /// caller who spelled a path relative and failed the caller-spelling
+    /// condition keeps that relative label verbatim, and a relative label
+    /// this design's rule never touched is shape-identical, once
+    /// rendered, to one it minted — the marker that tells them apart is a
+    /// snapshot field, and neither render site prints it. Reported here
+    /// rather than fixed, because fixing it means absolutizing a spelling
+    /// this ticket deliberately leaves alone.
+    pub unmarked_relative_labels: Vec<(String, String)>,
 }
 
 /// Which working trees this memo's facts saw in more than one state.
@@ -250,10 +278,36 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
     let mut order: Vec<String> = Vec::new();
     let mut by_root: HashMap<String, Vec<(String, Vec<String>)>> = HashMap::new();
     let mut ungradable: Vec<String> = Vec::new();
+    let mut relative_label_roots: Vec<String> = Vec::new();
+    let mut unmarked_relative_labels: Vec<(String, String)> = Vec::new();
 
     for fact in facts {
         let mut ungraded_here = false;
         for entry in &fact.extent {
+            // TET-42, first half: every root behind an actually-relativized
+            // label — independent of the divergence/ungradable bookkeeping
+            // below, which is about `world_state`, not about labels.
+            if entry.root_relative && !entry.world_root.is_empty() && !relative_label_roots.contains(&entry.world_root)
+            {
+                relative_label_roots.push(entry.world_root.clone());
+            }
+            // TET-42, second half: a plain single-file label reading
+            // relative with no marker — restricted to `Path`/`GrepMatch`,
+            // whose whole label *is* the path (plus an optional line-range
+            // suffix). A `Search`/`NoMatch` label is a sentence embedding a
+            // root, not a bare path, and would misreport as "relative"
+            // merely for not opening with `/`; a `Proc` label is a command
+            // line, to which relative/absolute does not apply at all.
+            if !entry.root_relative
+                && matches!(
+                    entry.kind,
+                    Some(crate::pending::ObservationKind::Path) | Some(crate::pending::ObservationKind::GrepMatch)
+                )
+                && !entry.label.is_empty()
+                && !entry.label.starts_with('/')
+            {
+                unmarked_relative_labels.push((fact.id.clone(), entry.label.clone()));
+            }
             if entry.world_root.is_empty() {
                 if !ungraded_here {
                     ungradable.push(fact.id.clone());
@@ -287,7 +341,7 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
         })
         .collect();
 
-    TreeReport { divergent, ungradable_facts: ungradable }
+    TreeReport { divergent, ungradable_facts: ungradable, relative_label_roots, unmarked_relative_labels }
 }
 
 #[cfg(test)]
@@ -309,12 +363,98 @@ mod tests {
                     pattern: String::new(),
                     out_len: None,
                     matcher: None,
+                    root_relative: false,
                 })
                 .collect(),
             output: String::new(),
             pin: String::new(),
             revisions: 0,
         }
+    }
+
+    /// A fact carrying one extent entry with an explicit `kind`, `label`
+    /// and `root_relative` marker — what [`tree_report`]'s TET-42 rows
+    /// actually read, as opposed to [`fact`]'s bare `(root, state)` pairs.
+    fn fact_with_label(
+        id: &str,
+        kind: crate::pending::ObservationKind,
+        label: &str,
+        root_relative: bool,
+        world_root: &str,
+    ) -> crate::facts::Fact {
+        crate::facts::Fact {
+            id: id.to_string(),
+            note: String::new(),
+            extent: vec![crate::facts::ExtentEntry {
+                key: String::new(),
+                label: label.to_string(),
+                world_root: world_root.to_string(),
+                world_state: String::new(),
+                kind: Some(kind),
+                pattern: String::new(),
+                out_len: None,
+                matcher: None,
+                root_relative,
+            }],
+            output: String::new(),
+            pin: String::new(),
+            revisions: 0,
+        }
+    }
+
+    #[test]
+    fn relative_label_roots_lists_every_distinct_root_behind_a_relativized_label() {
+        use crate::pending::ObservationKind::Path;
+        let r = tree_report(&[
+            fact_with_label("F1", Path, "sub/f.txt", true, "/repoA"),
+            fact_with_label("F2", Path, "x.txt", true, "/repoB"),
+            // A second entry anchored to the same root as F1 must not
+            // duplicate it.
+            fact_with_label("F3", Path, "sub/g.txt", true, "/repoA"),
+        ]);
+        assert_eq!(r.relative_label_roots, vec!["/repoA".to_string(), "/repoB".to_string()]);
+    }
+
+    #[test]
+    fn relative_label_roots_is_empty_when_nothing_was_relativized() {
+        use crate::pending::ObservationKind::Path;
+        let r = tree_report(&[fact_with_label("F1", Path, "/abs/f.txt", false, "/repoA")]);
+        assert!(r.relative_label_roots.is_empty());
+    }
+
+    #[test]
+    fn unmarked_relative_labels_flags_a_bare_relative_path_with_no_marker() {
+        use crate::pending::ObservationKind::Path;
+        // TET-42's own declined promise: a caller-spelled relative label
+        // this design's rule never touched reads, once rendered, exactly
+        // like a root-relative one — the marker is the only thing that
+        // tells them apart, and this is what surfaces its absence.
+        let r = tree_report(&[fact_with_label("F1", Path, "../otherrepo/x.txt", false, "/otherrepo")]);
+        assert_eq!(r.unmarked_relative_labels, vec![("F1".to_string(), "../otherrepo/x.txt".to_string())]);
+    }
+
+    #[test]
+    fn unmarked_relative_labels_ignores_an_absolute_label() {
+        use crate::pending::ObservationKind::Path;
+        let r = tree_report(&[fact_with_label("F1", Path, "/abs/f.txt", false, "no-git-worktree")]);
+        assert!(r.unmarked_relative_labels.is_empty());
+    }
+
+    #[test]
+    fn unmarked_relative_labels_ignores_search_no_match_and_proc_labels() {
+        // A `Search`/`NoMatch` label is a sentence embedding a root, not a
+        // bare path — it would misreport as "relative" merely for not
+        // opening with `/`. A `Proc` label is a command line, to which
+        // relative/absolute does not apply at all. Neither is a candidate
+        // for this check, regardless of what its `root_relative` marker
+        // says or what its label text looks like.
+        use crate::pending::ObservationKind::{NoMatch, Proc, Search};
+        let r = tree_report(&[
+            fact_with_label("F1", Search, "search: . (grep (ERE): x) — 0 files matched — no exclusions", false, "/repo"),
+            fact_with_label("F2", NoMatch, "no-match (ERE): x in . — no exclusions", false, "/repo"),
+            fact_with_label("F3", Proc, "proc: echo hi (exit 0)", false, "no-git-worktree"),
+        ]);
+        assert!(r.unmarked_relative_labels.is_empty(), "{:?}", r.unmarked_relative_labels);
     }
 
     #[test]
