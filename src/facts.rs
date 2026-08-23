@@ -89,6 +89,18 @@ pub struct ExtentEntry {
     /// whether an old `NoMatch` extent's absence is trustworthy needs it.
     #[serde(default)]
     pub matcher: Option<crate::pending::Matcher>,
+    /// Whether [`ExtentEntry::label`] was computed relative to
+    /// [`ExtentEntry::world_root`] at capture time — carried through the
+    /// fold in [`mint`] verbatim from [`crate::pending::PendingEntry::root_relative`].
+    ///
+    /// Same discipline as `kind`/`out_len`/`matcher` above, but a `bool`
+    /// rather than an `Option`: `false` never needs telling apart from
+    /// *absent*, because both mean exactly the same thing — the label is
+    /// spelled as the caller typed it, with no resolvability guarantee —
+    /// whether relativization was tried and declined or the entry predates
+    /// this field. `true` is the only claim this field ever makes.
+    #[serde(default)]
+    pub root_relative: bool,
 }
 
 impl ExtentEntry {
@@ -219,6 +231,23 @@ pub(crate) fn contains_unescaped_ere_metachar(pattern: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod extent_entry_tests {
+    use super::*;
+
+    /// `root_relative` follows the same discipline as `kind`/`out_len`/
+    /// `matcher`: an entry minted before TET-42 carries no such field at
+    /// all, and that absence must deserialize to `false` — "spelled as
+    /// the caller typed it, no resolvability guarantee" — never to a
+    /// guessed default.
+    #[test]
+    fn root_relative_defaults_to_false_on_a_pre_tet42_entry() {
+        let json = r#"{"key":"/a/b.txt","label":"/a/b.txt","world_root":"","world_state":""}"#;
+        let e: ExtentEntry = serde_json::from_str(json).unwrap();
+        assert!(!e.root_relative, "absence must never read as a positive claim");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -527,6 +556,7 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
             pattern: e.pattern.clone(),
             out_len: Some(e.output.len()),
             matcher: e.matcher,
+            root_relative: e.root_relative,
         })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");

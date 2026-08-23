@@ -249,10 +249,39 @@ fn fenced(text: &str) -> String {
 ///
 /// # What is deliberately not here
 ///
-/// The `key` is an absolute machine-local path; the `label` is
-/// repo-relative. Only the label is rendered — a committed document
-/// should not carry `/Users/<someone>/...`, and the label is what a
-/// reader can act on anyway.
+/// The `key` is `resolve_key`/`search_key`'s canonical form of what was
+/// observed — absolute except on the rare canonicalization-failure
+/// fallback, which keeps the caller's own (possibly relative) spelling
+/// instead of losing the observation over it — and `ExtentEntry::censuses`
+/// compares it against `world_root`, so relativizing it on purpose would
+/// silently uncensus every modification target on file. This table never
+/// renders it either way. Only the `label` is rendered, exactly as
+/// stored; this function derives nothing from it. Relativization, when it
+/// happens, happened once, at capture, in `observe.rs` (TET-42) — never
+/// here.
+///
+/// That capture-time contract is narrower than "a committed document does
+/// not carry `/Users/<someone>/...`", the claim this comment used to make
+/// and which the committed corpus itself refuted. A label is spelled
+/// relative to its observation's own `world_root` only when three
+/// conditions held together at capture: the root resolved to a
+/// repository, the canonical key sat at or under it, and the path as the
+/// caller spelled it did too — see `observe.rs`'s `relativize_label` for
+/// the rule and why every one of the three is load-bearing. Outside those
+/// conditions a label is left exactly as the caller spelled it, which may
+/// itself already be relative and carry no marker of that; this table
+/// cannot tell such a label apart from a root-relative one — only `tetel
+/// check` can, from the snapshot (see `worldstate::TreeReport`).
+///
+/// A table built under this contract still carries absolute, machine-local
+/// paths, by design and not by omission. A `proc:` label is the command
+/// line as it ran, never a path, and rewriting any part of it would
+/// falsify the record of what executed. A label whose entry's world marker
+/// degraded to `no-git-worktree` has no root to anchor against and stays
+/// absolute even when the file sits physically inside the checkout this
+/// memo ships in. And the Note column beside Extent is text an author
+/// wrote, never derived from an observation, so it carries whatever path
+/// the author typed regardless of what its own row's Extent column says.
 ///
 /// Captured output is not rendered either. It is unbounded (a `run` can
 /// capture megabytes), it is in the snapshot for anyone who needs it, and

@@ -118,6 +118,19 @@ pub struct PendingEntry {
     /// one already established for `kind`/`out_len`: observe again.
     #[serde(default)]
     pub matcher: Option<Matcher>,
+    /// Whether [`PendingEntry::label`] was computed relative to
+    /// [`PendingEntry::world_root`] at capture time, under TET-42's three
+    /// conditions (see `observe.rs`'s label-relativization rule).
+    ///
+    /// Unlike `kind`/`out_len`/`matcher` above, this is a `bool` rather
+    /// than an `Option`, and deliberately: `false` never needs to be told
+    /// apart from *absent*, because the two cases already say the same
+    /// thing — "spelled as the caller typed it, with no resolvability
+    /// guarantee" — whether that is because relativization was tried and
+    /// declined, or because the entry predates this field entirely. `true`
+    /// is the only claim this field ever makes, and it is never a default.
+    #[serde(default)]
+    pub root_relative: bool,
 }
 
 fn path(workspace_dir: &Path) -> PathBuf {

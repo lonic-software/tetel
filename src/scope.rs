@@ -412,6 +412,7 @@ pub(crate) mod tests_support {
                     pattern: String::new(),
                     out_len: None,
                     matcher: None,
+                    root_relative: false,
                 })
                 .collect(),
             output: String::new(),

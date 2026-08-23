@@ -68,6 +68,8 @@ pub const HUMAN_OWED_CATEGORIES: &[&str] = &[
     "whether a claim was graded by the workspace that authored it or an independent one",
     "a missing snapshot",
     "a pre-dialect extent — no-match or match — whose pattern contains an unescaped ERE metacharacter (| + ? ( ) { })",
+    "the distinct roots this memo's relative extent labels are anchored to",
+    "a relative extent label carrying no root-relative marker",
     "tetel's own standing non-coverage",
 ];
 
@@ -511,6 +513,56 @@ read. Nothing can be compared against it — reported rather than passed over, b
 record is not a matching one. Re-observing under the current build is the only repair\n",
             findings.tree_ungradable.join(", ")
         ));
+    }
+    if findings.relative_label_roots.len() > 1 {
+        // "Cloning one of these roots resolves only the labels anchored to
+        // it" — not "cloning this repository", which has no single referent
+        // once there is more than one root, and which the single-root
+        // branch below was found to overclaim even with one.
+        out.push_str(&format!(
+            "  - this memo's relative extent labels are anchored to {} different roots: {}. A \
+relative label only opens against the root it is anchored to — cloning one of the roots listed \
+resolves only the labels anchored there, never the ones anchored to a different root in the list. \
+Not a defect the tool can repair: a repository elsewhere on the machine, one nested beneath this \
+worktree, or a working directory reached through a symlink into another repository all capture \
+correctly and relativize correctly, against a root this document does not otherwise name\n",
+            findings.relative_label_roots.len(),
+            findings.relative_label_roots.join(", ")
+        ));
+    } else if let [root] = findings.relative_label_roots.as_slice() {
+        // Deliberately not "cloning this repository resolves them": `check`
+        // has no way to tell whether `root` is the tree this document ships
+        // in — a memo authored entirely through the cwd-symlink gap (see
+        // `worldstate::TreeReport::relative_label_roots`'s doc comment) has
+        // exactly one root here too, and it is the wrong one. Naming the
+        // root is what this row is for; resolving it is the reader's job,
+        // same as the multi-root branch above.
+        out.push_str(&format!(
+            "  - this memo's relative extent labels are anchored to one root: {root}. A relative \
+label only opens against that tree — whether `root` is the tree this document itself ships in is \
+not something `check` verifies, since a relative label does not name its own anchor; the \
+author-typed pin claim is what a reader depends on for that\n"
+        ));
+    }
+    if !findings.unmarked_relative_labels.is_empty() {
+        out.push_str(
+            "  - relative labels carrying no root-relative marker (spelled relative by the caller, \
+not by this tool, or minted before the marker existed — shape-identical to a root-relative label \
+once rendered, and not resolvable against any root this document declares):\n",
+        );
+        // One row per fact, not per label — see
+        // `worldstate::TreeReport::unmarked_relative_labels`'s doc comment
+        // for why: a single big `look --grep` folds every matched file's
+        // flagged label into one fact's extent, and an unaggregated list
+        // would turn that one finding into as many lines as it matched.
+        for (id, labels) in &findings.unmarked_relative_labels {
+            out.push_str(&format!(
+                "      {id} ({} label{}): {}\n",
+                labels.len(),
+                if labels.len() == 1 { "" } else { "s" },
+                labels.join(", ")
+            ));
+        }
     }
     for o in &findings.notes_outside_extent {
         out.push_str(&format!(

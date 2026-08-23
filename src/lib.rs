@@ -175,6 +175,11 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
             let trees = worldstate::tree_report(&facts);
             findings.tree_states = trees.divergent;
             findings.tree_ungradable = trees.ungradable_facts;
+            // TET-42's fourth promise: a per-entry relativization rule
+            // cannot see either of these on its own — see
+            // `worldstate::TreeReport`'s doc comments on both fields.
+            findings.relative_label_roots = trees.relative_label_roots;
+            findings.unmarked_relative_labels = trees.unmarked_relative_labels;
             // TET-68: facts minted before `look --grep` declared its
             // matcher, whose pattern reads differently under the dialect
             // this build actually used. Same snapshot dependency as

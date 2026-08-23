@@ -138,6 +138,23 @@ pub struct Findings {
     /// they read. Reported rather than passed over: an ungradable record
     /// is not a matching one.
     pub tree_ungradable: Vec<String>,
+    /// TET-42's fourth promise, first half: the distinct roots this memo's
+    /// relativized labels are anchored to — see
+    /// [`crate::worldstate::TreeReport::relative_label_roots`]. Human-owed,
+    /// never a failure: more than one root is the residue three shapes
+    /// capture time cannot close (a repository elsewhere, one nested
+    /// beneath the shipping worktree, a working directory reached through
+    /// a symlink), reported rather than fixed. Same snapshot dependency as
+    /// `tree_states`.
+    pub relative_label_roots: Vec<String>,
+    /// TET-42's fourth promise, second half: `(fact id, labels)` — one
+    /// row per fact, not per entry — for relative-looking labels carrying
+    /// no `root_relative` marker — see
+    /// [`crate::worldstate::TreeReport::unmarked_relative_labels`].
+    /// Human-owed, never a failure: this ticket does not absolutize a
+    /// caller's own relative spelling, so the residue is surfaced rather
+    /// than repaired. Same snapshot dependency as `tree_states`.
+    pub unmarked_relative_labels: Vec<(String, Vec<String>)>,
     /// Declared modification targets whose cited fact does not census
     /// them, re-verified against the shipped snapshot — a **machine
     /// failure**.
@@ -1051,6 +1068,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         pre_dialect_no_matches: Vec::new(),
         tree_states: Vec::new(),
         tree_ungradable: Vec::new(),
+        relative_label_roots: Vec::new(),
+        unmarked_relative_labels: Vec::new(),
         uncensused_targets: Vec::new(),
         unverifiable_targets: Vec::new(),
         unquoted_premises: Vec::new(),
