@@ -1,0 +1,7 @@
+{"event":"Declare","id":"T1","symbol":"render_facts","from":"F13","timestamp":1787396876}
+{"event":"Declare","id":"T2","symbol":"PendingEntry","from":"F14","timestamp":1787396898}
+{"event":"Declare","id":"T3","symbol":"ExtentEntry","from":"F15","timestamp":1787396930}
+{"event":"Declare","id":"T4","symbol":"search_key","from":"F20","timestamp":1787398497}
+{"event":"Declare","id":"T5","symbol":"exclusion_note","from":"F20","timestamp":1787398501}
+{"event":"Declare","id":"T6","symbol":"tree_report","from":"F25","timestamp":1787400682}
+{"event":"Declare","id":"T7","symbol":"look_path","from":"F35","timestamp":1787407529}

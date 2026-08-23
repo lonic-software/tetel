@@ -1,0 +1,8 @@
+1787406892	run	`python3 -c import os,json,glob
+hits=glob.glob(os.path.expanduser('~/**/tet42r5scratch/facts.jsonl'),recursive=True)+glob.glob(os.path.expanduser('~/Library/**/tet42r5scratch/facts.jsonl'),recursive=True)
+print(hits)
+for h in set(hits):
+    for l in open(h):
+        ev=json.loads(l); f=ev.get('fact') or ev
+        for e in (f.get('extent') or []): print(json.dumps(e,indent=1))
+` did not finish within 300s and was killed, along with anything it started; nothing was captured. A command that never returns does not fail alone here — `run` waits for its child, so on the MCP surface every later call queues behind it. Raise the bound with `tetel config --workspace-scope run.timeout_ms <milliseconds>` if this command honestly takes longer (elapsed: 300.0s).

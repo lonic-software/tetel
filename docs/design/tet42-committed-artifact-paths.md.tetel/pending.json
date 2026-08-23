@@ -1,0 +1,57 @@
+[
+  {
+    "kind": "Proc",
+    "key": "sh -c jq -r 'select(.id==\"C32\") | .cites' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl 2>/dev/null | head; echo ---; jq -c 'select(.id==\"C32\") | {id, cites, keys: (.|keys)}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl 2>/dev/null | head -3",
+    "label": "proc: sh -c jq -r 'select(.id==\"C32\") | .cites' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl 2>/dev/null | head; echo ---; jq -c 'select(.id==\"C32\") | {id, cites, keys: (.|keys)}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl 2>/dev/null | head -3 (exit 0)",
+    "output": "null\nnull\nnull\n---\n{\"id\":\"C32\",\"cites\":null,\"keys\":[\"event\",\"from\",\"id\",\"prop\",\"timestamp\"]}\n{\"id\":\"C32\",\"cites\":null,\"keys\":[\"event\",\"from\",\"id\",\"prop\",\"timestamp\",\"why\"]}\n{\"id\":\"C32\",\"cites\":null,\"keys\":[\"event\",\"from\",\"id\",\"prop\",\"timestamp\",\"why\"]}\n",
+    "world_root": "/Volumes/SSD/Documents/lonic/tetel",
+    "world_state": "git:38982b25e8a83eb4048e74893038cedef0b270d7d829cd7efe8af891497aede2",
+    "captured_at": 1787413215,
+    "pattern": "",
+    "matcher": null
+  },
+  {
+    "kind": "Proc",
+    "key": "sh -c jq -r 'select(.id==\"C32\") | .event + \" from=\" + (.from|tostring)' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl",
+    "label": "proc: sh -c jq -r 'select(.id==\"C32\") | .event + \" from=\" + (.from|tostring)' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/claims.jsonl (exit 0)",
+    "output": "Create from=[\"F33\",\"F32\",\"F27\"]\nRevise from=[\"F33\",\"F32\",\"F27\",\"F36\",\"F37\"]\nRevise from=[\"F33\",\"F32\",\"F27\",\"F36\",\"F37\",\"F39\"]\n",
+    "world_root": "/Volumes/SSD/Documents/lonic/tetel",
+    "world_state": "git:38982b25e8a83eb4048e74893038cedef0b270d7d829cd7efe8af891497aede2",
+    "captured_at": 1787413220,
+    "pattern": "",
+    "matcher": null
+  },
+  {
+    "kind": "Proc",
+    "key": "sh -c grep -rn 'adds nothing over condition two' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl | cut -c1-200",
+    "label": "proc: sh -c grep -rn 'adds nothing over condition two' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl | cut -c1-200 (exit 0)",
+    "output": "/Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl:117:{\"event\":\"Revise\",\"id\":\"P46\",\"text\":\"That leaves the rule itself, and it has to be decided rather\n",
+    "world_root": "/Volumes/SSD/Documents/lonic/tetel",
+    "world_state": "git:38982b25e8a83eb4048e74893038cedef0b270d7d829cd7efe8af891497aede2",
+    "captured_at": 1787413239,
+    "pattern": "",
+    "matcher": null
+  },
+  {
+    "kind": "Proc",
+    "key": "sh -c grep -rno 'neither a `\\.\\.` component[^\"]\\{0,160\\}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl | cut -c1-300",
+    "label": "proc: sh -c grep -rno 'neither a `\\.\\.` component[^\"]\\{0,160\\}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl | cut -c1-300 (exit 0)",
+    "output": "/Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md.tetel/prose.jsonl:117:neither a `..` component nor a symlink component. Refusing at all does cost delivered share in principle, so the cost is measured rather than waved at: across the eight committed snaps\n",
+    "world_root": "/Volumes/SSD/Documents/lonic/tetel",
+    "world_state": "git:38982b25e8a83eb4048e74893038cedef0b270d7d829cd7efe8af891497aede2",
+    "captured_at": 1787413245,
+    "pattern": "",
+    "matcher": null
+  },
+  {
+    "kind": "Proc",
+    "key": "sh -c grep -no 'redundan[a-z]*[^.]\\{0,180\\}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md",
+    "label": "proc: sh -c grep -no 'redundan[a-z]*[^.]\\{0,180\\}' /Volumes/SSD/Documents/lonic/tetel/docs/design/tet42-committed-artifact-paths.md (exit 0)",
+    "output": "15:redundant and is not; the section on the forgery surface below shows the ordinary symlink that satisfies the first two and defeats the guarantee without it — and also shows the variant of t\n23:redundant for, because an earlier draft got the boundary wrong: it does not merely catch `\n238:redundancy survives only because condition three is a literal-prefix test, which all three still pass, and not because the two strings coincide\n285:redundancy over condition two for such spellings rests on the concatenation staying UNDER the root — condition three being a literal-prefix test — and not on the concatenation equalling the \n",
+    "world_root": "/Volumes/SSD/Documents/lonic/tetel",
+    "world_state": "git:38982b25e8a83eb4048e74893038cedef0b270d7d829cd7efe8af891497aede2",
+    "captured_at": 1787413284,
+    "pattern": "",
+    "matcher": null
+  }
+]
