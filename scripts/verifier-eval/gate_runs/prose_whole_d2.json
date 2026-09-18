@@ -1,0 +1,1898 @@
+{
+ "verb": "prose",
+ "variant": "whole",
+ "draw": 2,
+ "source": "prose_v1.json",
+ "model": "jev-latest",
+ "cost": 0.019650497999999995,
+ "n": 112,
+ "errors": 0,
+ "latency_s": {
+  "median": 0.8646748065948486,
+  "max": 2.1521871089935303
+ },
+ "rows": [
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P3",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.27,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 4516,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "The ticket's premise that this is computable from data tetel already holds survives contact with the code for every input this design needs"
+    }
+   ]
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P5",
+   "gate": {
+    "score": 0.51,
+    "parts": {
+     "any": 0.51,
+     "contradicts": 0.31,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 6388,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P7",
+   "gate": {
+    "score": 0.74,
+    "parts": {
+     "any": 0.74,
+     "contradicts": 0.73,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 8248,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P8",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.23,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 7002,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "nothing here measures it"
+    }
+   ]
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P9",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.26,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 9946,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P11",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.16,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 6118,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "where every existing comparison has stayed inside one"
+    },
+    {
+     "kind": "overreaches",
+     "clause": "where every check that could have compared a claim against its evidence used a digest instead"
+    }
+   ]
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P12",
+   "gate": {
+    "score": 0.29,
+    "parts": {
+     "any": 0.29,
+     "contradicts": 0.18,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 5085,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P13",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.27,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 7556,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P15",
+   "gate": {
+    "score": 0.56,
+    "parts": {
+     "any": 0.56,
+     "contradicts": 0.31,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 4710,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P17",
+   "gate": {
+    "score": 0.46,
+    "parts": {
+     "any": 0.46,
+     "contradicts": 0.42,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 10104,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P18",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.26,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 7747,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P20",
+   "gate": {
+    "score": 0.79,
+    "parts": {
+     "any": 0.79,
+     "contradicts": 0.79,
+     "overreaches": 0.78
+    }
+   },
+   "input_tokens": 10981,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "tet29's longest is 57249 bytes"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "tet28's 34477"
+    }
+   ]
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P21",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.05,
+     "overreaches": 0.83
+    }
+   },
+   "input_tokens": 1006,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "Every observation in this memo was taken against the tetel repository at commit e19a4694bedd1bd2bda91626362f9c2d05f35274"
+    },
+    {
+     "kind": "overreaches",
+     "clause": "every claim below describes that tree, with one exception"
+    },
+    {
+     "kind": "overreaches",
+     "clause": "no tet30 file exists at that commit"
+    }
+   ]
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P22",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.24,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 9181,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P2",
+   "gate": {
+    "score": 0.25,
+    "parts": {
+     "any": 0.25,
+     "contradicts": 0.05,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 921,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P4",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.34,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 3878,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth"
+    }
+   ]
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P5",
+   "gate": {
+    "score": 0.16,
+    "parts": {
+     "any": 0.16,
+     "contradicts": 0.18,
+     "overreaches": 0.7
+    }
+   },
+   "input_tokens": 3506,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P6",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.38,
+     "overreaches": 0.76
+    }
+   },
+   "input_tokens": 1703,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "with a relative root an absolute-path pattern excludes nothing whatsoever"
+    },
+    {
+     "kind": "overreaches",
+     "clause": "the search silently returns everything"
+    },
+    {
+     "kind": "overreaches",
+     "clause": "it is a glob that matches that basename anywhere in the tree"
+    }
+   ]
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P8",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.22,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 2011,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P10",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.32,
+     "overreaches": 0.45
+    }
+   },
+   "input_tokens": 2454,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P11",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.37,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 2486,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P13",
+   "gate": {
+    "score": 0.72,
+    "parts": {
+     "any": 0.72,
+     "contradicts": 0.63,
+     "overreaches": 0.8
+    }
+   },
+   "input_tokens": 1255,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P14",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.36,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 5787,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P17",
+   "gate": {
+    "score": 0.44,
+    "parts": {
+     "any": 0.44,
+     "contradicts": 0.37,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 5842,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P18",
+   "gate": {
+    "score": 0.5,
+    "parts": {
+     "any": 0.5,
+     "contradicts": 0.28,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 5811,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P19",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.36,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 5165,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P21",
+   "gate": {
+    "score": 0.2,
+    "parts": {
+     "any": 0.2,
+     "contradicts": 0.17,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 3101,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P22",
+   "gate": {
+    "score": 0.24,
+    "parts": {
+     "any": 0.24,
+     "contradicts": 0.17,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 1228,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P24",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.3,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 4591,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "it happens to be a rule `look_path` has always satisfied trivially"
+    }
+   ]
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P26",
+   "gate": {
+    "score": 0.27,
+    "parts": {
+     "any": 0.27,
+     "contradicts": 0.26,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 4213,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P27",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.31,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 2078,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P29",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.22,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 3190,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P31",
+   "gate": {
+    "score": 0.16,
+    "parts": {
+     "any": 0.16,
+     "contradicts": 0.11,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 1598,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "two exhaustive greps of the whole source tree find `Command::new` in only `observe.rs` \u2014 the grep inside `look_grep`, and `run_command`'s child \u2014 and `worldstate.rs`, where it runs git"
+    }
+   ]
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P32",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.57,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 2396,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P33",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.14,
+     "overreaches": 0.43
+    }
+   },
+   "input_tokens": 1813,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P2",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.27,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 1344,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P4",
+   "gate": {
+    "score": 0.1,
+    "parts": {
+     "any": 0.1,
+     "contradicts": 0.08,
+     "overreaches": 0.37
+    }
+   },
+   "input_tokens": 1568,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P5",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.15,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 1513,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P7",
+   "gate": {
+    "score": 0.55,
+    "parts": {
+     "any": 0.55,
+     "contradicts": 0.34,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 4222,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P8",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.16,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 4630,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P10",
+   "gate": {
+    "score": 0.5,
+    "parts": {
+     "any": 0.5,
+     "contradicts": 0.3,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 5469,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "the comparison fires on every claim always where a claim pin exists"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P11",
+   "gate": {
+    "score": 0.28,
+    "parts": {
+     "any": 0.28,
+     "contradicts": 0.15,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 1702,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P12",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.41,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 2353,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "every witnessed record does carry the world markers of the tree its pass stood in"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "all five memos here carry markers belonging to still-reachable commits"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P13",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.29,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 4287,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P15",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.29,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 4657,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P16",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.18,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 2537,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P18",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.2,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 2993,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P20",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.27,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 2609,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P21",
+   "gate": {
+    "score": 0.6,
+    "parts": {
+     "any": 0.6,
+     "contradicts": 0.45,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 3474,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "nobody can count twice the same way"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P22",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.26,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 3332,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P24",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.25,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 4202,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P26",
+   "gate": {
+    "score": 0.29,
+    "parts": {
+     "any": 0.29,
+     "contradicts": 0.18,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 4826,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P27",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.28,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 5890,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P29",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.25,
+     "overreaches": 0.43
+    }
+   },
+   "input_tokens": 2841,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P30",
+   "gate": {
+    "score": 0.2,
+    "parts": {
+     "any": 0.2,
+     "contradicts": 0.23,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 1873,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P32",
+   "gate": {
+    "score": 0.44,
+    "parts": {
+     "any": 0.44,
+     "contradicts": 0.34,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 6139,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P35",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.46,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 3215,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P36",
+   "gate": {
+    "score": 0.74,
+    "parts": {
+     "any": 0.74,
+     "contradicts": 0.66,
+     "overreaches": 0.23
+    }
+   },
+   "input_tokens": 1950,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P37",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.28,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 3437,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P39",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.25,
+     "overreaches": 0.22
+    }
+   },
+   "input_tokens": 2057,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P40",
+   "gate": {
+    "score": 0.14,
+    "parts": {
+     "any": 0.14,
+     "contradicts": 0.09,
+     "overreaches": 0.75
+    }
+   },
+   "input_tokens": 2095,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "every further step buys less for more"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P42",
+   "gate": {
+    "score": 0.52,
+    "parts": {
+     "any": 0.52,
+     "contradicts": 0.23,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 4691,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P44",
+   "gate": {
+    "score": 0.24,
+    "parts": {
+     "any": 0.24,
+     "contradicts": 0.14,
+     "overreaches": 0.31
+    }
+   },
+   "input_tokens": 2042,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P45",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.22,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4053,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P46",
+   "gate": {
+    "score": 0.56,
+    "parts": {
+     "any": 0.56,
+     "contradicts": 0.49,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 5779,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P47",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.21,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 2233,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P48",
+   "gate": {
+    "score": 0.17,
+    "parts": {
+     "any": 0.17,
+     "contradicts": 0.3,
+     "overreaches": 0.3
+    }
+   },
+   "input_tokens": 3637,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "A workspace identity is minted on first use of a name its caller chose"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P49",
+   "gate": {
+    "score": 0.79,
+    "parts": {
+     "any": 0.79,
+     "contradicts": 0.73,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 4176,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "Every figure in the replay counts gradings not performed"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P50",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.23,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 4003,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "The count admits only records matching a claim's current digest"
+    }
+   ]
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P51",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.32,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 3538,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P2",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.17,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 1873,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P4",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.21,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4751,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "which today is grep's stdout verbatim followed by a parenthesised exclusion note"
+    }
+   ]
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P6",
+   "gate": {
+    "score": 0.27,
+    "parts": {
+     "any": 0.27,
+     "contradicts": 0.16,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 4346,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P7",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.4,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 7163,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P9",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.17,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 2621,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P10",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.18,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 2144,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P11",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.28,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 2157,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P12",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.19,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 1580,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P14",
+   "gate": {
+    "score": 0.29,
+    "parts": {
+     "any": 0.29,
+     "contradicts": 0.3,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 1675,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "A whole-worktree census of `look_grep` finds five occurrences in two source files \u2014 the definition, one call site in `dispatch`, three doc comments"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "No test, no binary and no other module names either of them."
+    }
+   ]
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P16",
+   "gate": {
+    "score": 0.21,
+    "parts": {
+     "any": 0.21,
+     "contradicts": 0.2,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 3161,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P17",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.23,
+     "overreaches": 0.77
+    }
+   },
+   "input_tokens": 5983,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "every refusal in this crate's source is of that kind, a missing input or a forbidden flag combination"
+    }
+   ]
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P19",
+   "gate": {
+    "score": 0.25,
+    "parts": {
+     "any": 0.25,
+     "contradicts": 0.22,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 5691,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P20",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.18,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 4737,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P21",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.32,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 4126,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "On this HEAD that census is 883 matching lines across 70 files \u2014"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "`look --lines` annotates a range only when it had to clamp one."
+    }
+   ]
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "gate": {
+    "score": 0.29,
+    "parts": {
+     "any": 0.29,
+     "contradicts": 0.28,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 7018,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "A line longer than the budget is never returned whole by any call"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "most ranges containing it return none of it"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "a range only reaches that line's floored prefix if the line is the *first* one it selects"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "the return is lines 12, 13 and 14 and not one byte of line 15"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "exactly one range start \u2014 the line's own position \u2014 yields the prefix"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "no argument to `look` reaches the remainder past the cut"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "it reports how many of the selected lines were shown"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "on a floored return the byte counts of the line it cut"
+    }
+   ]
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P24",
+   "gate": {
+    "score": 0.53,
+    "parts": {
+     "any": 0.53,
+     "contradicts": 0.28,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 5270,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P26",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.34,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 4405,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P27",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.35,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 7837,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P28",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.35,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 7633,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P29",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.26,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 3555,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P2",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.15,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 952,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "The pin record at the head of this memo's evidence captured `git status` printing nothing at all"
+    }
+   ]
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P4",
+   "gate": {
+    "score": 0.16,
+    "parts": {
+     "any": 0.16,
+     "contradicts": 0.14,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 3917,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "overreaches",
+     "clause": "For each non-heading block with a non-empty citation list, the check derives an anchor \u2014 the latest moment at which any of the block's cited claims first entered proof"
+    }
+   ]
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P6",
+   "gate": {
+    "score": 0.63,
+    "parts": {
+     "any": 0.63,
+     "contradicts": 0.56,
+     "overreaches": 0.79
+    }
+   },
+   "input_tokens": 4239,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P7",
+   "gate": {
+    "score": 0.63,
+    "parts": {
+     "any": 0.63,
+     "contradicts": 0.64,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 6860,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P9",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.23,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 4148,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P11",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.12,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 2071,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P12",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.22,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 4342,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P14",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.21,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4650,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P15",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.19,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 4451,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P17",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.23,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 5429,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P18",
+   "gate": {
+    "score": 0.45,
+    "parts": {
+     "any": 0.45,
+     "contradicts": 0.27,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 5789,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P20",
+   "gate": {
+    "score": 0.65,
+    "parts": {
+     "any": 0.65,
+     "contradicts": 0.51,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 4810,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P21",
+   "gate": {
+    "score": 0.56,
+    "parts": {
+     "any": 0.56,
+     "contradicts": 0.45,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 4943,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P23",
+   "gate": {
+    "score": 0.27,
+    "parts": {
+     "any": 0.27,
+     "contradicts": 0.18,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 1806,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P25",
+   "gate": {
+    "score": 0.71,
+    "parts": {
+     "any": 0.71,
+     "contradicts": 0.7,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 5903,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "Matching is existential over keys"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "a later ack with a different key simply does not match"
+    },
+    {
+     "kind": "contradicts",
+     "clause": "a duplicate ack for the same key cannot change whether a block is suppressed"
+    }
+   ]
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P27",
+   "gate": {
+    "score": 0.66,
+    "parts": {
+     "any": 0.66,
+     "contradicts": 0.52,
+     "overreaches": 0.75
+    }
+   },
+   "input_tokens": 10397,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "the front ends had already drifted on whether text is required"
+    }
+   ]
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P28",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.31,
+     "overreaches": 0.75
+    }
+   },
+   "input_tokens": 6723,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P31",
+   "gate": {
+    "score": 0.5,
+    "parts": {
+     "any": 0.5,
+     "contradicts": 0.26,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 1901,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P32",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.25,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 2864,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P34",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.21,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 3910,
+   "llm_status": "ok",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P35",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.13,
+     "overreaches": 0.39
+    }
+   },
+   "input_tokens": 1640,
+   "llm_status": "ok",
+   "llm_findings": [
+    {
+     "kind": "contradicts",
+     "clause": "such a warning today could name no act"
+    }
+   ]
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P36",
+   "gate": {
+    "score": 0.54,
+    "parts": {
+     "any": 0.54,
+     "contradicts": 0.54,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 5416,
+   "llm_status": "ok",
+   "llm_findings": []
+  }
+ ]
+}

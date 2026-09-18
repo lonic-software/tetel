@@ -1,0 +1,2448 @@
+{
+ "verb": "claim",
+ "variant": "whole",
+ "draw": 2,
+ "source": "claims",
+ "model": "jev-latest",
+ "cost": 0.045965094,
+ "n": 152,
+ "errors": 0,
+ "latency_s": {
+  "median": 0.9077849388122559,
+  "max": 7.498914957046509
+ },
+ "rows": [
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.07,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 855,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.22,
+     "overreaches": 0.77
+    }
+   },
+   "input_tokens": 4341,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.2,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 4298,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.17,
+     "overreaches": 0.51
+    }
+   },
+   "input_tokens": 4322,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.22,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4586,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.26,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 4494,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.28,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4497,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.33,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 4510,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.22,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 4755,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.12,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 4467,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.25,
+    "parts": {
+     "any": 0.25,
+     "contradicts": 0.16,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 4423,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.18,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 4525,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.24,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 4524,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet28-modification-target-census.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.27,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 4625,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.45,
+    "parts": {
+     "any": 0.45,
+     "contradicts": 0.11,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 894,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.18,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 4477,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.22,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 4522,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.21,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 4592,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.17,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 4486,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.21,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 4576,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.45,
+    "parts": {
+     "any": 0.45,
+     "contradicts": 0.21,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 4494,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.21,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 4071,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.46,
+    "parts": {
+     "any": 0.46,
+     "contradicts": 0.27,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 4808,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.19,
+    "parts": {
+     "any": 0.19,
+     "contradicts": 0.19,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 2411,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.24,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 4376,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.53,
+    "parts": {
+     "any": 0.53,
+     "contradicts": 0.54,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 4434,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.24,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 4586,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet29-imported-mechanism-premises.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.44,
+    "parts": {
+     "any": 0.44,
+     "contradicts": 0.24,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 4591,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.11,
+    "parts": {
+     "any": 0.11,
+     "contradicts": 0.05,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 843,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.31,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 6457,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.55,
+    "parts": {
+     "any": 0.55,
+     "contradicts": 0.54,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 8459,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.44,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 8834,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.23,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 8654,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.26,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 11219,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.31,
+     "overreaches": 0.49
+    }
+   },
+   "input_tokens": 8039,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.22,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 8229,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.29,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 9421,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.62,
+    "parts": {
+     "any": 0.62,
+     "contradicts": 0.5,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 7859,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.39,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 8284,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.46,
+    "parts": {
+     "any": 0.46,
+     "contradicts": 0.35,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 9616,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.73,
+    "parts": {
+     "any": 0.73,
+     "contradicts": 0.84,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 9720,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.64,
+    "parts": {
+     "any": 0.64,
+     "contradicts": 0.45,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 4862,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.66,
+    "parts": {
+     "any": 0.66,
+     "contradicts": 0.89,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 11134,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.19,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 1450,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.34,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 17679,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.22,
+     "overreaches": 0.43
+    }
+   },
+   "input_tokens": 13578,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.25,
+     "overreaches": 0.7
+    }
+   },
+   "input_tokens": 17716,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.54,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 13421,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.74,
+    "parts": {
+     "any": 0.74,
+     "contradicts": 0.64,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 26520,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.38,
+    "parts": {
+     "any": 0.38,
+     "contradicts": 0.38,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 26480,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.46,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 11527,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.2,
+    "parts": {
+     "any": 0.2,
+     "contradicts": 0.17,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 10879,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.27,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 10872,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.49,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 10923,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.59,
+    "parts": {
+     "any": 0.59,
+     "contradicts": 0.55,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 16608,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C15",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.24,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 16677,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C16",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.43,
+     "overreaches": 0.77
+    }
+   },
+   "input_tokens": 20297,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C17",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.35,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 14585,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C18",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.34,
+     "overreaches": 0.7
+    }
+   },
+   "input_tokens": 14615,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C19",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.35,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 20504,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C20",
+   "gate": {
+    "score": 0.56,
+    "parts": {
+     "any": 0.56,
+     "contradicts": 0.65,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 23025,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C21",
+   "gate": {
+    "score": 0.28,
+    "parts": {
+     "any": 0.28,
+     "contradicts": 0.33,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 10586,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C22",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.34,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 24163,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C23",
+   "gate": {
+    "score": 0.52,
+    "parts": {
+     "any": 0.52,
+     "contradicts": 0.41,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 1953,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C24",
+   "gate": {
+    "score": 0.5,
+    "parts": {
+     "any": 0.5,
+     "contradicts": 0.36,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 19336,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C25",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.3,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 17767,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C26",
+   "gate": {
+    "score": 0.46,
+    "parts": {
+     "any": 0.46,
+     "contradicts": 0.36,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 26482,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet42-committed-artifact-paths.md",
+   "id": "C27",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.35,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 18605,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.18,
+    "parts": {
+     "any": 0.18,
+     "contradicts": 0.03,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 897,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.42,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 3768,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.13,
+    "parts": {
+     "any": 0.13,
+     "contradicts": 0.16,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 3421,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.71,
+    "parts": {
+     "any": 0.71,
+     "contradicts": 0.72,
+     "overreaches": 0.75
+    }
+   },
+   "input_tokens": 1658,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.33,
+    "parts": {
+     "any": 0.33,
+     "contradicts": 0.21,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 3281,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.28,
+    "parts": {
+     "any": 0.28,
+     "contradicts": 0.33,
+     "overreaches": 0.42
+    }
+   },
+   "input_tokens": 2417,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.37,
+     "overreaches": 0.37
+    }
+   },
+   "input_tokens": 2416,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.22,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 5777,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.31,
+     "overreaches": 0.43
+    }
+   },
+   "input_tokens": 1223,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.43,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 6429,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.37,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 7214,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.41,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 6471,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.21,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 6094,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.66,
+    "parts": {
+     "any": 0.66,
+     "contradicts": 0.51,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 5566,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C15",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.43,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 6644,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C16",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.33,
+     "overreaches": 0.7
+    }
+   },
+   "input_tokens": 6745,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C17",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.19,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 4518,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C18",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.28,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 2059,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "C19",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.14,
+     "overreaches": 0.27
+    }
+   },
+   "input_tokens": 1819,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.1,
+    "parts": {
+     "any": 0.1,
+     "contradicts": 0.03,
+     "overreaches": 0.7
+    }
+   },
+   "input_tokens": 838,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.08,
+    "parts": {
+     "any": 0.08,
+     "contradicts": 0.12,
+     "overreaches": 0.35
+    }
+   },
+   "input_tokens": 2052,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.24,
+    "parts": {
+     "any": 0.24,
+     "contradicts": 0.14,
+     "overreaches": 0.4
+    }
+   },
+   "input_tokens": 2033,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.4,
+     "overreaches": 0.51
+    }
+   },
+   "input_tokens": 5513,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.22,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 5510,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.59,
+    "parts": {
+     "any": 0.59,
+     "contradicts": 0.41,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 5588,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.11,
+    "parts": {
+     "any": 0.11,
+     "contradicts": 0.13,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 1980,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.35,
+    "parts": {
+     "any": 0.35,
+     "contradicts": 0.25,
+     "overreaches": 0.69
+    }
+   },
+   "input_tokens": 1941,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.28,
+    "parts": {
+     "any": 0.28,
+     "contradicts": 0.23,
+     "overreaches": 0.39
+    }
+   },
+   "input_tokens": 5458,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.49,
+    "parts": {
+     "any": 0.49,
+     "contradicts": 0.28,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 5524,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.58,
+    "parts": {
+     "any": 0.58,
+     "contradicts": 0.39,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 6352,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.28,
+     "overreaches": 0.74
+    }
+   },
+   "input_tokens": 1692,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.19,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 1651,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.27,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 5670,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C15",
+   "gate": {
+    "score": 0.25,
+    "parts": {
+     "any": 0.25,
+     "contradicts": 0.21,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 2561,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C16",
+   "gate": {
+    "score": 0.37,
+    "parts": {
+     "any": 0.37,
+     "contradicts": 0.24,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 3890,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C17",
+   "gate": {
+    "score": 0.69,
+    "parts": {
+     "any": 0.69,
+     "contradicts": 0.44,
+     "overreaches": 0.5
+    }
+   },
+   "input_tokens": 5499,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C18",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.42,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 6801,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C19",
+   "gate": {
+    "score": 0.51,
+    "parts": {
+     "any": 0.51,
+     "contradicts": 0.61,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 6897,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C20",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.26,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 5495,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C21",
+   "gate": {
+    "score": 0.42,
+    "parts": {
+     "any": 0.42,
+     "contradicts": 0.28,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 5524,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C22",
+   "gate": {
+    "score": 0.13,
+    "parts": {
+     "any": 0.13,
+     "contradicts": 0.16,
+     "overreaches": 0.28
+    }
+   },
+   "input_tokens": 1973,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C23",
+   "gate": {
+    "score": 0.11,
+    "parts": {
+     "any": 0.11,
+     "contradicts": 0.09,
+     "overreaches": 0.25
+    }
+   },
+   "input_tokens": 1977,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C24",
+   "gate": {
+    "score": 0.5,
+    "parts": {
+     "any": 0.5,
+     "contradicts": 0.31,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 6373,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C25",
+   "gate": {
+    "score": 0.53,
+    "parts": {
+     "any": 0.53,
+     "contradicts": 0.39,
+     "overreaches": 0.66
+    }
+   },
+   "input_tokens": 1935,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "C26",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.25,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 5420,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.87,
+    "parts": {
+     "any": 0.87,
+     "contradicts": 0.78,
+     "overreaches": 0.44
+    }
+   },
+   "input_tokens": 1201,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.3,
+    "parts": {
+     "any": 0.3,
+     "contradicts": 0.24,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 6537,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.3,
+     "overreaches": 0.51
+    }
+   },
+   "input_tokens": 6544,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.22,
+    "parts": {
+     "any": 0.22,
+     "contradicts": 0.27,
+     "overreaches": 0.49
+    }
+   },
+   "input_tokens": 1386,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.24,
+    "parts": {
+     "any": 0.24,
+     "contradicts": 0.25,
+     "overreaches": 0.55
+    }
+   },
+   "input_tokens": 6794,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.31,
+    "parts": {
+     "any": 0.31,
+     "contradicts": 0.23,
+     "overreaches": 0.61
+    }
+   },
+   "input_tokens": 5566,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.24,
+    "parts": {
+     "any": 0.24,
+     "contradicts": 0.18,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 5240,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.55,
+    "parts": {
+     "any": 0.55,
+     "contradicts": 0.45,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 5877,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.26,
+    "parts": {
+     "any": 0.26,
+     "contradicts": 0.24,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 6522,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.21,
+    "parts": {
+     "any": 0.21,
+     "contradicts": 0.21,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 6512,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.47,
+    "parts": {
+     "any": 0.47,
+     "contradicts": 0.53,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 6851,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.29,
+    "parts": {
+     "any": 0.29,
+     "contradicts": 0.24,
+     "overreaches": 0.62
+    }
+   },
+   "input_tokens": 6498,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.7,
+    "parts": {
+     "any": 0.7,
+     "contradicts": 0.5,
+     "overreaches": 0.64
+    }
+   },
+   "input_tokens": 6546,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.27,
+    "parts": {
+     "any": 0.27,
+     "contradicts": 0.24,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 6534,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C15",
+   "gate": {
+    "score": 0.2,
+    "parts": {
+     "any": 0.2,
+     "contradicts": 0.26,
+     "overreaches": 0.53
+    }
+   },
+   "input_tokens": 5806,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C16",
+   "gate": {
+    "score": 0.2,
+    "parts": {
+     "any": 0.2,
+     "contradicts": 0.25,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 6837,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C17",
+   "gate": {
+    "score": 0.34,
+    "parts": {
+     "any": 0.34,
+     "contradicts": 0.3,
+     "overreaches": 0.63
+    }
+   },
+   "input_tokens": 6922,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C18",
+   "gate": {
+    "score": 0.25,
+    "parts": {
+     "any": 0.25,
+     "contradicts": 0.29,
+     "overreaches": 0.59
+    }
+   },
+   "input_tokens": 6562,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "C19",
+   "gate": {
+    "score": 0.23,
+    "parts": {
+     "any": 0.23,
+     "contradicts": 0.21,
+     "overreaches": 0.47
+    }
+   },
+   "input_tokens": 6518,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C1",
+   "gate": {
+    "score": 0.39,
+    "parts": {
+     "any": 0.39,
+     "contradicts": 0.07,
+     "overreaches": 0.43
+    }
+   },
+   "input_tokens": 880,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C2",
+   "gate": {
+    "score": 0.27,
+    "parts": {
+     "any": 0.27,
+     "contradicts": 0.31,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 7837,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C3",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.38,
+     "overreaches": 0.73
+    }
+   },
+   "input_tokens": 8647,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C4",
+   "gate": {
+    "score": 0.52,
+    "parts": {
+     "any": 0.52,
+     "contradicts": 0.59,
+     "overreaches": 0.75
+    }
+   },
+   "input_tokens": 8620,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C5",
+   "gate": {
+    "score": 0.51,
+    "parts": {
+     "any": 0.51,
+     "contradicts": 0.32,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 7357,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C6",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.2,
+     "overreaches": 0.57
+    }
+   },
+   "input_tokens": 6895,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C7",
+   "gate": {
+    "score": 0.53,
+    "parts": {
+     "any": 0.53,
+     "contradicts": 0.34,
+     "overreaches": 0.52
+    }
+   },
+   "input_tokens": 6899,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C8",
+   "gate": {
+    "score": 0.54,
+    "parts": {
+     "any": 0.54,
+     "contradicts": 0.36,
+     "overreaches": 0.6
+    }
+   },
+   "input_tokens": 9317,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C9",
+   "gate": {
+    "score": 0.43,
+    "parts": {
+     "any": 0.43,
+     "contradicts": 0.28,
+     "overreaches": 0.72
+    }
+   },
+   "input_tokens": 9281,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C10",
+   "gate": {
+    "score": 0.46,
+    "parts": {
+     "any": 0.46,
+     "contradicts": 0.29,
+     "overreaches": 0.67
+    }
+   },
+   "input_tokens": 9365,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C11",
+   "gate": {
+    "score": 0.41,
+    "parts": {
+     "any": 0.41,
+     "contradicts": 0.25,
+     "overreaches": 0.68
+    }
+   },
+   "input_tokens": 7731,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C12",
+   "gate": {
+    "score": 0.54,
+    "parts": {
+     "any": 0.54,
+     "contradicts": 0.46,
+     "overreaches": 0.56
+    }
+   },
+   "input_tokens": 7592,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C13",
+   "gate": {
+    "score": 0.4,
+    "parts": {
+     "any": 0.4,
+     "contradicts": 0.44,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 9319,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C14",
+   "gate": {
+    "score": 0.74,
+    "parts": {
+     "any": 0.74,
+     "contradicts": 0.69,
+     "overreaches": 0.54
+    }
+   },
+   "input_tokens": 8834,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C15",
+   "gate": {
+    "score": 0.71,
+    "parts": {
+     "any": 0.71,
+     "contradicts": 0.65,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 10240,
+   "label": "refuted",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C16",
+   "gate": {
+    "score": 0.6,
+    "parts": {
+     "any": 0.6,
+     "contradicts": 0.36,
+     "overreaches": 0.71
+    }
+   },
+   "input_tokens": 6378,
+   "label": "qualified",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C17",
+   "gate": {
+    "score": 0.52,
+    "parts": {
+     "any": 0.52,
+     "contradicts": 0.44,
+     "overreaches": 0.65
+    }
+   },
+   "input_tokens": 6939,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C18",
+   "gate": {
+    "score": 0.32,
+    "parts": {
+     "any": 0.32,
+     "contradicts": 0.26,
+     "overreaches": 0.48
+    }
+   },
+   "input_tokens": 6905,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C19",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.3,
+     "overreaches": 0.58
+    }
+   },
+   "input_tokens": 7838,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "C20",
+   "gate": {
+    "score": 0.36,
+    "parts": {
+     "any": 0.36,
+     "contradicts": 0.46,
+     "overreaches": 0.36
+    }
+   },
+   "input_tokens": 7298,
+   "label": "supports_only",
+   "llm_status": "absent",
+   "llm_findings": []
+  }
+ ]
+}

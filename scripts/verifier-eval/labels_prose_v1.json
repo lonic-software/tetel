@@ -1,0 +1,317 @@
+{
+ "source": "prose_v1_adjudicated.md",
+ "grades": "all 44 findings of prose_v1.json, 6 correct / 38 wrong",
+ "adjudicator": "Opus, one reader \u2014 same standard as the two fact sets",
+ "note": "no LLM refutation exists on this population: prose_refuted*.json refute prose_classify_v1.json (24 findings), which shares only 6",
+ "key": "memo|id|clause",
+ "labels": [
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P3",
+   "clause": "The ticket's premise that this is computable from data tetel already holds survives contact with the code for every input this design needs",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P8",
+   "clause": "nothing here measures it",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P11",
+   "clause": "where every existing comparison has stayed inside one",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P11",
+   "clause": "where every check that could have compared a claim against its evidence used a digest instead",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P20",
+   "clause": "tet29's longest is 57249 bytes",
+   "kind": "contradicts",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P20",
+   "clause": "tet28's 34477",
+   "kind": "contradicts",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P21",
+   "clause": "Every observation in this memo was taken against the tetel repository at commit e19a4694bedd1bd2bda91626362f9c2d05f35274",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P21",
+   "clause": "every claim below describes that tree, with one exception",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "P21",
+   "clause": "no tet30 file exists at that commit",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P4",
+   "clause": "`--exclude-dir='*.tetel'` prunes snapshot directories at any depth",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P6",
+   "clause": "with a relative root an absolute-path pattern excludes nothing whatsoever",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P6",
+   "clause": "the search silently returns everything",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P6",
+   "clause": "it is a glob that matches that basename anywhere in the tree",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P24",
+   "clause": "it happens to be a rule `look_path` has always satisfied trivially",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "P31",
+   "clause": "two exhaustive greps of the whole source tree find `Command::new` in only `observe.rs` \u2014 the grep inside `look_grep`, and `run_command`'s child \u2014 and `worldstate.rs`, where it runs git",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P10",
+   "clause": "the comparison fires on every claim always where a claim pin exists",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P12",
+   "clause": "every witnessed record does carry the world markers of the tree its pass stood in",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P12",
+   "clause": "all five memos here carry markers belonging to still-reachable commits",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P21",
+   "clause": "nobody can count twice the same way",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P40",
+   "clause": "every further step buys less for more",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P48",
+   "clause": "A workspace identity is minted on first use of a name its caller chose",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P49",
+   "clause": "Every figure in the replay counts gradings not performed",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "P50",
+   "clause": "The count admits only records matching a claim's current digest",
+   "kind": "contradicts",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P4",
+   "clause": "which today is grep's stdout verbatim followed by a parenthesised exclusion note",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P14",
+   "clause": "A whole-worktree census of `look_grep` finds five occurrences in two source files \u2014 the definition, one call site in `dispatch`, three doc comments",
+   "kind": "overreaches",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P14",
+   "clause": "No test, no binary and no other module names either of them.",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P17",
+   "clause": "every refusal in this crate's source is of that kind, a missing input or a forbidden flag combination",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P21",
+   "clause": "On this HEAD that census is 883 matching lines across 70 files \u2014",
+   "kind": "contradicts",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P21",
+   "clause": "`look --lines` annotates a range only when it had to clamp one.",
+   "kind": "contradicts",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "A line longer than the budget is never returned whole by any call",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "most ranges containing it return none of it",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "a range only reaches that line's floored prefix if the line is the *first* one it selects",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "the return is lines 12, 13 and 14 and not one byte of line 15",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "exactly one range start \u2014 the line's own position \u2014 yields the prefix",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "no argument to `look` reaches the remainder past the cut",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "it reports how many of the selected lines were shown",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "P23",
+   "clause": "on a floored return the byte counts of the line it cut",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P2",
+   "clause": "The pin record at the head of this memo's evidence captured `git status` printing nothing at all",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P4",
+   "clause": "For each non-heading block with a non-empty citation list, the check derives an anchor \u2014 the latest moment at which any of the block's cited claims first entered proof",
+   "kind": "overreaches",
+   "label": "CORRECT"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P25",
+   "clause": "Matching is existential over keys",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P25",
+   "clause": "a later ack with a different key simply does not match",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P25",
+   "clause": "a duplicate ack for the same key cannot change whether a block is suppressed",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P27",
+   "clause": "the front ends had already drifted on whether text is required",
+   "kind": "contradicts",
+   "label": "WRONG"
+  },
+  {
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "P35",
+   "clause": "such a warning today could name no act",
+   "kind": "contradicts",
+   "label": "WRONG"
+  }
+ ]
+}

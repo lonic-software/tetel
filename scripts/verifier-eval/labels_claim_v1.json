@@ -1,0 +1,156 @@
+{
+ "source": "claim_flagged_adjudicated.md",
+ "grades": "claims, not findings: the 23 claims the shipped check leg flags by majority of retro_full125x3's three draws. CORRECT if any finding raised on the claim, in any draw, really disagrees with the capture in the way and of the kind claimed \u2014 i.e. skipping the claim would lose a warning worth printing",
+ "standard": "REFUTE_SYSTEM's, as the fact and prose adjudications",
+ "adjudicator": "Opus, one reader, with the later grounding passes' notes read as a second opinion \u2014 not the three-refuter vote",
+ "labels": [
+  {
+   "memo": "tet28",
+   "id": "C14",
+   "label": "CORRECT",
+   "severity": "minor",
+   "why": "\"a claim is only { id, proposition, cited fact ids, withdrawn }\" \u2014 the captured struct also carries `revisions`; three grounding passes qualified on the same word"
+  },
+  {
+   "memo": "tet30",
+   "id": "C12",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"without inspecting a single character of prose or proposition text\" \u2014 the executed rule hashes `c['prop']` and compares `e['text']`; the author later rewrote it as \"the one place text is consumed\""
+  },
+  {
+   "memo": "tet30",
+   "id": "C3",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"918 seconds apart\" \u2014 the captured timestamps differ by 910; grounding passes found the same"
+  },
+  {
+   "memo": "tet30",
+   "id": "C7",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"byte-identical in the two places it is defined\" \u2014 one is `pub fn` on one line, the other a private `fn` over four; the author revised to \"token-for-token\""
+  },
+  {
+   "memo": "tet47",
+   "id": "C18",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"with no test or fixture depending on its wording\" \u2014 a captured test asserts `SELF-GROUNDED`; a grounder named this clause false and the author revised to name the dependents (1 of 3 draws raised it)"
+  },
+  {
+   "memo": "tet47",
+   "id": "C6",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"Every evidence record already stores a pin\" \u2014 `pin: Option<String>`; a grounder confirms the ingested path can leave it unset. Not the defect the grounding refutation named"
+  },
+  {
+   "memo": "tet56",
+   "id": "C1",
+   "label": "CORRECT",
+   "severity": "minor",
+   "why": "\"with a clean working tree\" \u2014 the captured status lists the memo untracked; a grounder qualified the same, and the sibling tet61 memo revised its wording to name its untracked outputs"
+  },
+  {
+   "memo": "tet56",
+   "id": "C3",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"the `Search` observation's label is the only part of a grep census that reaches a committed memo\" \u2014 per-file `GrepMatch` labels are joined into the Extent column too; a grounder qualified on exactly this"
+  },
+  {
+   "memo": "tet56",
+   "id": "C9",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"the returned bytes and the captured `output` are the same value `shown`\" \u2014 `printed` prepends a header; the premise the refutation dismantled, and `fact` tet56 F9 on the same code"
+  },
+  {
+   "memo": "tet61",
+   "id": "C15",
+   "label": "CORRECT",
+   "severity": "real",
+   "why": "\"the other 31 occurrences\" \u2014 the capture enumerates 32; a grounder made the same count"
+  },
+  {
+   "memo": "tet30",
+   "id": "C1",
+   "label": "WRONG",
+   "why": "insufficiency: pin statement's \"every claim below\""
+  },
+  {
+   "memo": "tet30",
+   "id": "C5",
+   "label": "WRONG",
+   "why": "misread referent: objects that `Block` has no timestamp; the claim is about prose events, which do"
+  },
+  {
+   "memo": "tet46",
+   "id": "C2",
+   "label": "WRONG",
+   "why": "insufficiency: \"at any depth\" against a sampled run"
+  },
+  {
+   "memo": "tet47",
+   "id": "C1",
+   "label": "WRONG",
+   "why": "insufficiency: pin statement's \"every observation\""
+  },
+  {
+   "memo": "tet47",
+   "id": "C12",
+   "label": "WRONG",
+   "why": "scope fixed by its own sentence: \"id-shape-agnostic\" is glossed by the parenthetical as relative to `C\\d+`"
+  },
+  {
+   "memo": "tet47",
+   "id": "C19",
+   "label": "WRONG",
+   "why": "insufficiency: the capture disclosed its exclusions and the objection's whole content is that they were not searched"
+  },
+  {
+   "memo": "tet47",
+   "id": "C4",
+   "label": "WRONG",
+   "why": "reason misreads the evidence: an empty digest also differs from the current one. The clause IS inexact in the other direction (grounders), so the warning lands on the right words for the wrong reason"
+  },
+  {
+   "memo": "tet47",
+   "id": "C7",
+   "label": "WRONG",
+   "why": "insufficiency, and an objection to the ticket premise the claim itself calls false"
+  },
+  {
+   "memo": "tet56",
+   "id": "C11",
+   "label": "WRONG",
+   "why": "proposal read as current: the bound is what the design adds"
+  },
+  {
+   "memo": "tet56",
+   "id": "C19",
+   "label": "WRONG",
+   "why": "proposal read as current: under the design the return is cut and the capture is not"
+  },
+  {
+   "memo": "tet56",
+   "id": "C8",
+   "label": "WRONG",
+   "why": "proposal read as current: \"return bounded\" is the design's consequence, not today's code"
+  },
+  {
+   "memo": "tet61",
+   "id": "C1",
+   "label": "WRONG",
+   "why": "insufficiency: pin statement's \"every observation\""
+  },
+  {
+   "memo": "tet61",
+   "id": "C12",
+   "label": "WRONG",
+   "why": "insufficiency: one workspace listing against \"an authoring workspace\""
+  }
+ ]
+}

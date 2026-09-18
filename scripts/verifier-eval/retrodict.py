@@ -227,7 +227,13 @@ def load_memo(memo):
             continue
         created.setdefault(d["id"], d["timestamp"])
         if d["timestamp"] <= t0:
-            at_t0[d["id"]] = (d["prop"], d.get("from") or [])
+            # A Revise carries `prop: null` when only the cites changed and
+            # `from: null` when only the text did: null means UNCHANGED, not
+            # empty. Taking it literally fed 3 claims to the model as the text
+            # "None" and 11 against no evidence at all (found 2026-09-18).
+            prev_prop, prev_from = at_t0.get(d["id"], (None, []))
+            at_t0[d["id"]] = (d["prop"] if d.get("prop") is not None else prev_prop,
+                              d["from"] if d.get("from") is not None else prev_from)
 
     facts = {}
     for l in open(os.path.join(snap, "facts.jsonl")):
@@ -323,7 +329,23 @@ def judge(url, model, case, arm, timeout, max_tokens, effort):
     return out, c1 + c2 + c3, blob
 
 
-def split_check(url, model, case, arm, timeout, max_tokens, effort, context="full"):
+def jev_assertions(prop):
+    """The classify call answered by Jev instead (classify_jev.py, 2026-09-18).
+
+    Clauses cut mechanically outside brackets and code spans, one `choice` per
+    clause over CLASSIFY_SYSTEM's own three definitions, and a clause called
+    `current` whenever P(current) >= 0.4 — the configuration that kept all 10
+    adjudicated warnings and kept 2 of 3 proposal false alarms from the check
+    in every draw. Returns what the LLM path returns: assertions and a cost.
+    """
+    import classify_jev as CJ, jev
+    got, cost = CJ.classify_one(jev.api_key(), prop, "clause0")
+    return [{"text": u["text"], "label": CJ.jev_label(u, 0.4) or ""}
+            for u in got["units"]], cost
+
+
+def split_check(url, model, case, arm, timeout, max_tokens, effort, context="full",
+                classifier="llm"):
     """Classify the claim's assertions, then check only the checkable ones.
 
     The previous single-prompt attempt merged both questions and the model
@@ -334,10 +356,14 @@ def split_check(url, model, case, arm, timeout, max_tokens, effort, context="ful
     inside a verdict.
     """
     labels, blob = evidence_text(case, arm)
-    raw, c1 = one_call(url, model, CLASSIFY_SYSTEM, "CLAIM:\n" + case["prop"],
-                       timeout, max_tokens, effort)
-    assertions = []
-    m = re.search(r"\{.*\}", raw, re.S)
+    if classifier == "jev":
+        assertions, c1 = jev_assertions(case["prop"])
+        m = None
+    else:
+        raw, c1 = one_call(url, model, CLASSIFY_SYSTEM, "CLAIM:\n" + case["prop"],
+                           timeout, max_tokens, effort)
+        assertions = []
+        m = re.search(r"\{.*\}", raw, re.S)
     if m:
         try:
             for x in (json.loads(m.group(0)).get("assertions") or []):
@@ -435,6 +461,8 @@ def main():
     ap.add_argument("--split-context", choices=["filtered", "full"], default="full",
                     help="what the check sees: only the `current` assertions, or the whole claim with labels")
     ap.add_argument("--subset", help="json file of {memo,id} objects — run only those cases")
+    ap.add_argument("--classifier", choices=["llm", "jev"], default="llm",
+                    help="who answers the split's classify call; the check call is unchanged")
     ap.add_argument("--question", choices=["support", "scope", "judge", "split"], default="support",
                     help="`support`: does the evidence state the claim (the original, a truth check). "
                          "`scope`: does the claim contradict or overreach what was captured.")
@@ -479,7 +507,7 @@ def main():
             if a.question == "split":
                 raw, cost, blob, assertions = split_check(a.url, a.model, case, a.arm, a.timeout,
                                                           a.max_tokens, a.reasoning_effort,
-                                                          a.split_context)
+                                                          a.split_context, a.classifier)
             elif a.question == "judge":
                 raw, cost, blob = judge(a.url, a.model, case, a.arm, a.timeout,
                                         a.max_tokens, a.reasoning_effort)

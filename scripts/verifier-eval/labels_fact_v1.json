@@ -1,0 +1,120 @@
+{
+ "source": "fact_v1_contradicts_adjudicated.md",
+ "grades": "the 16 contradicts findings of fact_v1.json, 10 CORRECT / 6 WRONG",
+ "adjudicator": "Opus, one reader \u2014 not the three-refuter vote",
+ "key": "memo|id|clause (clause is the author's verbatim text; unique across the 16)",
+ "labels": [
+  {
+   "n": 1,
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F2",
+   "clause": "A rendered memo's snapshot `<memo>.tetel/` ships exactly 9 enumerated files",
+   "label": "CORRECT"
+  },
+  {
+   "n": 2,
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F4",
+   "clause": "Document order is the replayed insertion order (`before` anchors), not event order.",
+   "label": "WRONG"
+  },
+  {
+   "n": 3,
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F7",
+   "clause": "Every multi-record group shows the SAME digest graded by two or three distinct passes.",
+   "label": "CORRECT"
+  },
+  {
+   "n": 4,
+   "memo": "tet30-prose-revised-since-grounding.md",
+   "id": "F8",
+   "clause": "every one of those claims is in proof (some record's digest equals sha256 of its current proposition)",
+   "label": "CORRECT"
+  },
+  {
+   "n": 5,
+   "memo": "tet46-look-never-returns-tetel-content.md",
+   "id": "F8",
+   "clause": "taken while docs/design/ held exactly three snapshot directories (tet28, tet29, tet30)",
+   "label": "WRONG"
+  },
+  {
+   "n": 6,
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F30",
+   "clause": "FOUR hits, not three",
+   "label": "CORRECT"
+  },
+  {
+   "n": 7,
+   "memo": "tet47-ground-what-is-owed.md",
+   "id": "F30",
+   "clause": "tet47 C4 -> C5 (this memo's own) is the one unambiguous intra-ledger reference.",
+   "label": "CORRECT"
+  },
+  {
+   "n": 8,
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F9",
+   "clause": "Return and capture are the same bytes here, unlike `look_grep`.",
+   "label": "CORRECT"
+  },
+  {
+   "n": 9,
+   "memo": "tet56-bounded-grep-return.md",
+   "id": "F25",
+   "clause": "The fact's `extent` is built by copying each pending entry's `key`, `label`, `world_root`, `world_state`, `kind`, `pattern` and `out_len`",
+   "label": "WRONG"
+  },
+  {
+   "n": 10,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F4",
+   "clause": "the guarantee this design breaks",
+   "label": "WRONG"
+  },
+  {
+   "n": 11,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F6",
+   "clause": "not into the rendered memo.",
+   "label": "WRONG"
+  },
+  {
+   "n": 12,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F7",
+   "clause": "Every refusal in both functions is format-level",
+   "label": "WRONG"
+  },
+  {
+   "n": 13,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F14",
+   "clause": "`ProseRequest` \u2014 12 occurrences in four files",
+   "label": "CORRECT"
+  },
+  {
+   "n": 14,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F18",
+   "clause": "Twenty are `remove_dir_all` on a local `dir`/`base` binding in the idiom `let _ = std::fs::remove_dir_all(&dir);`;",
+   "label": "CORRECT"
+  },
+  {
+   "n": 15,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F20",
+   "clause": "The others are two lines of a test fixture (tests/fixtures/scratch-memo-A.md:117-119)",
+   "label": "CORRECT"
+  },
+  {
+   "n": 16,
+   "memo": "tet61-residue-scoped-acknowledgement.md",
+   "id": "F21",
+   "clause": "A search of src/ for `mod tests {` returns 15 lines: brief.rs:225, ledger.rs:354, review.rs:152, checks.rs:1482, buildid.rs:216, compose.rs:366, worldstate.rs:294, citations.rs:338, report.rs:497, scope.rs:425 (plus `pub(crate) mod tests_support {` at scope.rs:397), evidence.rs:576, snapshot.rs:210, workspace.rs:477, observe.rs:624.",
+   "label": "CORRECT"
+  }
+ ]
+}
