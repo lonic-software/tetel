@@ -1,0 +1,13 @@
+{"event":"Declare","id":"T1","symbol":"ENDPOINT","from":"F16","timestamp":1789743834}
+{"event":"Declare","id":"T2","symbol":"KEY_VARS","from":"F16","timestamp":1789743835}
+{"event":"Declare","id":"T3","symbol":"Settings","from":"F16","timestamp":1789743836}
+{"event":"Declare","id":"T4","symbol":"expected_calls","from":"F16","timestamp":1789743838}
+{"event":"Declare","id":"T5","symbol":"refute_findings","from":"F16","timestamp":1789743839}
+{"event":"Declare","id":"T6","symbol":"literal_findings","from":"F16","timestamp":1789743841}
+{"event":"Declare","id":"T7","symbol":"KEYS","from":"F16","timestamp":1789743843}
+{"event":"Declare","id":"T8","symbol":"Accepts","from":"F16","timestamp":1789743845}
+{"event":"Declare","id":"T9","symbol":"DEFAULT_MS_PER_LEG","from":"F16","timestamp":1789743846}
+{"event":"Declare","id":"T10","symbol":"Status","from":"F16","timestamp":1789743848}
+{"event":"Declare","id":"T11","symbol":"settings","from":"F19","timestamp":1789902765}
+{"event":"Declare","id":"T12","symbol":"Telemetry","from":"F26","timestamp":1789908721}
+{"event":"Declare","id":"T13","symbol":"report_text","from":"F26","timestamp":1789908725}

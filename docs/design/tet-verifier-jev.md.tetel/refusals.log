@@ -1,0 +1,3 @@
+1789742923	fact	pending observation buffer is empty; run `tetel look` or `tetel run` first, then `tetel fact`
+1789743635	claim	cited fact(s) do not exist: C2; try `tetel query facts` to see what exists
+1789743638	claim	cited fact(s) do not exist: C4, C5, C9; try `tetel query facts` to see what exists
