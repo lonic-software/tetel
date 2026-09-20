@@ -36,7 +36,7 @@ by the same join that reproduces the two rows below it.
 | `anthropic/claude-sonnet-4.5` | 8 / 10 | **89%** | $0.0228 | — |
 | `google/gemini-2.5-pro` | **10 / 10** | 77% | $0.0184 | — |
 | **`jev-latest`, 3-draw majority** | 8 / 10 | 80% | **$0.00034** | **0.72s** |
-| `jev-latest`, single draw | 8 / 10 | 80% | $0.00011 | 0.69s |
+| `jev-latest`, single draw | 7 / 10 | 70% | $0.00011 | 0.69s |
 
 **It lands between the two LLMs at a sixty-seventh of the cost.** Sonnet's
 recall with nine points less precision; Gemini's precision with two fewer
@@ -289,7 +289,7 @@ Combining variants by rank average bought at most one point and was not pursued.
   "the text says less than the evidence shows" is not a disagreement. The gate
   was told to score it low and did. Rewriting for recall (`pick_recall`) was the
   principled fix and **measured worse on both corpora**: it raised negatives
-  faster than positives. P4 stays at 0.28–0.46 under every variant.
+  faster than positives. P4 scores between 0.14 and 0.46 across all ten variants.
 - **The classifier is too strict for prose.** It marked *"The count admits
   only records matching a claim's current digest"* 0.34 CURRENT because the
   sentence sits inside an argument — and it is `tet47` P50's defect. Discounting
@@ -530,6 +530,12 @@ of the check calls. The gate's 18 → 15 is not a lost correct warning — this
 join credits a flag on any claim later qualified, and the three it drops are
 warnings `labels_claim_v1.json` grades WRONG. Each sound claim is 2.6 points
 of that rate, so the line sits one claim away either way.
+
+This table was first computed inline and the commands below did not print it;
+`score_bundle.py` now does, from committed files only, and adds the variant
+where the gate also skips the literal leg (19 of 50, 4 of 38).
+
+    python3 score_bundle.py
 
     python3 literals_jev.py --draws 3 --out literals_runs/jev_x3.json
     python3 literals_jev.py --summarise literals_runs/jev_x3.json --q 0.7 --c 0.5
@@ -818,6 +824,7 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 | `gate_runs/` | every draw of every gate variant, three per variant per corpus |
 | `defects_v1.json` | subject-level ground truth for a gate: the union of all three adjudications |
 | `classify_jev.py` / `classify_runs/` | the classify leg asked of Jev: mechanical clauses, one `choice` each |
+| `score_bundle.py` | the literal leg joined with the check leg and the claim gate — the table "what it adds" rests on |
 | `score_classify_ab.py` / `retro_classify_{llm,jev}_x3.json` | the check leg fed LLM labels vs Jev labels, same day, same claims, every flag graded |
 | `literals_jev.py` / `literals_runs/` | the literal leg asked of Jev: code proposes, shipped filters, two nouls per survivor |
 | `claim_flagged_adjudicated.md` / `labels_claim_v1.json` | the 23 claims the claim check leg flags, graded: 10 warnings worth printing, 13 false alarms |
