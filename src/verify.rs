@@ -3801,9 +3801,11 @@ mod tests {
         for refuter in [None, Some(crate::config::DEFAULT_REFUTER.to_string())] {
             for verb in ["fact", "claim", "prose"] {
                 let s = Settings { refuter: refuter.clone(), verbs: vec![verb.into()], ..settings_fixture() };
-                let b = block(&s, verb, None, Trigger::NotAttempted);
+                // Not `NotAttempted`: with the verb on, that is `unauthorized`,
+                // whose `detail` depends on what the environment holds.
+                let b = block(&s, verb, None, Trigger::NothingToCompare);
                 assert_eq!(keys_of(&b), untyped_keys(false), "{verb} {refuter:?}: {b}");
-                let b = block(&s, verb, Some(&record_fixture()), Trigger::NotAttempted);
+                let b = block(&s, verb, Some(&record_fixture()), Trigger::NothingToCompare);
                 assert_eq!(keys_of(&b), untyped_keys(true), "{verb} {refuter:?}: {b}");
             }
         }
