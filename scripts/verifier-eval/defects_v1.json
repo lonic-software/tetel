@@ -1,0 +1,35 @@
+{
+ "grades": "subjects, not findings: a subject is a defect if any adjudicated run graded a finding on it CORRECT",
+ "why": "A gate decides whether to spend the check leg on a subject. What it must not skip is a subject with a real defect, whichever LLM run happened to find it. Finding-level labels (labels_*_v1.json) key on one run's clause wording and so undercount what a gate is protecting.",
+ "adjudicator": "Opus, one reader, same standard across all three adjudications",
+ "fact": {
+  "sources": ["fact_v1_contradicts_adjudicated.md (10 CORRECT over 9 subjects)",
+              "fact_shipped_contradicts_adjudicated.md, 'The 11 correct' (adds tet30 F6, tet47 F6, tet56 F29)"],
+  "subjects": [
+   ["tet30", "F2"],
+   ["tet30", "F6"],
+   ["tet30", "F7"],
+   ["tet30", "F8"],
+   ["tet47", "F6"],
+   ["tet47", "F30"],
+   ["tet56", "F9"],
+   ["tet56", "F29"],
+   ["tet61", "F14"],
+   ["tet61", "F18"],
+   ["tet61", "F20"],
+   ["tet61", "F21"]
+  ]
+ },
+ "prose": {
+  "sources": ["prose_v1_adjudicated.md, 'The 6 correct' (4 subjects)",
+              "prose_v1_adjudicated.md, 'Measured, 2026-08-16' (adds tet56 P27 from prose_classify_v1.json)"],
+  "subjects": [
+   ["tet30", "P20"],
+   ["tet47", "P50"],
+   ["tet56", "P21"],
+   ["tet56", "P27"],
+   ["tet61", "P4"]
+  ]
+ },
+ "memo_match": "a memo is named by its tetNN prefix; the corpus has one memo per prefix"
+}

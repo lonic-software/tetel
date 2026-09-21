@@ -128,7 +128,13 @@ def load_memo(memo):
             continue
         created.setdefault(d["id"], d["timestamp"])
         if d["timestamp"] <= t0:
-            at_t0[d["id"]] = (d["prop"], d.get("from") or [])
+            # A Revise carries `prop: null` when only the cites changed and
+            # `from: null` when only the text did: null means UNCHANGED, not
+            # empty. Taking it literally fed 3 claims to the model as the text
+            # "None" and 11 against no evidence at all (found 2026-09-18).
+            prev_prop, prev_from = at_t0.get(d["id"], (None, []))
+            at_t0[d["id"]] = (d["prop"] if d.get("prop") is not None else prev_prop,
+                              d["from"] if d.get("from") is not None else prev_from)
 
     facts = {}
     for l in open(os.path.join(snap, "facts.jsonl")):
