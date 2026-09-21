@@ -130,6 +130,32 @@ names the model version that answered, and the `verify` object prints it as
 `typed_model_versions`; the results above were measured on `jev-1.13.0`, and any other version is
 flagged `typed_model_unmeasured: true`.
 
+### Jev as a gate, on `fact` and `claim`
+
+`verify.typed_model` names a TypeSafe model — `typesafe/jev-latest` — and nothing else: `tetel config`
+refuses any other vendor, since a gate is a set of typed questions and an OpenRouter model answers
+prompts. Unset, which is the default, nothing below happens.
+
+Set, it runs first on `fact` and `claim`. It cuts your text into sentences (on `claim`, into clauses
+as well), and asks Jev in one question which of them, if any, disagrees with the evidence — "none"
+being an option. On `fact` it also asks what kind of sentence each one is, and discounts sentences
+that describe what a design proposes rather than what exists. A subject that scores below the verb's
+threshold is reported **`gated`**: nothing else runs, no finding is produced, and there is no
+`findings` key. Measured 2026-09-21, that skipped **58%** of the check's cost on `fact` and **21%** on
+`claim` without skipping any adjudicated defect. The thresholds were fitted on 12 and 10 positives
+with nothing held out, so treat the zero as the number the fit produced, not as a guarantee.
+
+A gate call that fails never skips. If TypeSafe is unreachable, refuses, or answers without the
+probabilities the score needs, the check runs as if no gate were configured, and the `ok` that
+results carries `gate_incomplete` naming what went wrong — so "the gate let it through" and "the
+gate could not answer" stay different payloads. A text with no sentence long enough to offer is
+checked without asking.
+
+`prose` has no gate: none was measured on it. The gate needs `TYPESAFE_API_KEY`, and is
+`unauthorized` without it on the two verbs it runs on. It can name the same model as a `typesafe/`
+refuter: the gate reads your text, the refuter reads the LLM's findings, and neither judges its own
+output.
+
 ### Why the overlap set is in there
 
 For a `claim`, the captured side is deliberately **not** just the facts you cited. It is those facts
@@ -202,10 +228,11 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model`, never `typesafe/` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate and 60s for `literals` — 240s at the shipped defaults |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate, 60s for `literals` and 10s for a gate — 240s at the shipped defaults |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
 | `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above. A `typesafe/` model runs on `fact` only |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
+| `verify.typed_model` | `typesafe/model` only | *(none)* | the TypeSafe model that gates `fact` and `claim` before the check — see above |
 
 ### `approach`
 
@@ -300,7 +327,9 @@ with the refuter charged a flat two legs and `literals` one — 240s for the shi
 Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
 budget would have left `split` no headroom and four legs none at all. A TypeSafe leg is charged 10s,
 since Jev answers in about one; the count is per verb, so a `typesafe/` refuter adds 20s on `fact`
-and nothing on the verbs it does not run on.
+and nothing on the verbs it does not run on, and `verify.typed_model` adds 10s for the gate on `fact`
+and `claim`. The gate is charged one call: it asks at most 40 questions a call, and no measured
+subject needed a second.
 Set it explicitly and your number is used as-is:
 
 ```sh
@@ -348,10 +377,11 @@ unreadable, and an empty array would read as a clean bill in every one of those 
 | status | meaning |
 |---|---|
 | `off` | disabled, or this verb is not in `verify.verbs` |
-| `unauthorized` | on, but nothing to call with. `detail` names every gap — an unset `verify.model`, one a settings file sets to a value it refuses, a missing OpenRouter key, or a missing `TYPESAFE_API_KEY` for a `typesafe/` refuter on `fact` |
+| `unauthorized` | on, but nothing to call with. `detail` names every gap — an unset `verify.model`, one a settings file sets to a value it refuses, a missing OpenRouter key, or a missing `TYPESAFE_API_KEY` for a `typesafe/` refuter on `fact` or for `verify.typed_model` on `fact` and `claim` |
 | `queued` | a verification started for this mint. `queued_for` names it. Ask again on your next call |
 | `skipped` | the verb is on, but this call had nothing to compare — a heading, a block citing no claim, a withdrawal, or a revision that left the compared text unchanged |
 | `ok` | a verification completed. **`findings` is meaningful only here** |
+| `gated` | the gate (`verify.typed_model`) judged there was nothing to find, and nothing was compared |
 | `unavailable` | transport failure, a non-2xx reply, or a draw that came back empty |
 | `timeout` | the budget expired |
 | `unparsable` | a good reply whose content was not a usable answer |
@@ -360,7 +390,7 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`, and `refuter_model` — `null` when it is `off`) plus `deterministic: false` and a
+`literals`, `refuter_model` — `null` when it is `off` — and `typed_model`, present only when set) plus `deterministic: false` and a
 `guidance` string — because tetel only admits a setting that is visible in the output it affects,
 and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
 here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the
@@ -371,8 +401,9 @@ verb, the value and the reason instead. On a reply that delivers a finished
 verification, those two keys describe that verification — the refuter that ran on its findings, and
 its verb — which need not be the verb or the settings of the call delivering it.
 
-A few keys appear only when they have something to say. `literals_incomplete` and
-`refuter_incomplete` qualify an `ok` whose literal leg or refuter call did not complete.
+A few keys appear only when they have something to say. `literals_incomplete`,
+`refuter_incomplete` and `gate_incomplete` qualify an `ok` whose literal leg, refuter call or gate
+did not complete.
 `typed_model_versions` lists the TypeSafe versions that answered, on any status, once a TypeSafe
 call has returned, and `typed_model_unmeasured: true` sits beside it when one of them is not the
 version the typed legs were measured on.

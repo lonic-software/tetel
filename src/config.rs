@@ -128,6 +128,12 @@ pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
 /// [`REFUTER_OFF`] means no refutation leg at all. It must not be
 /// [`KEY_VERIFY_MODEL`]'s value — see `verify::refute`.
 pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
+/// Which TypeSafe model runs the typed legs the verb's row in
+/// `verify::TYPED_LEGS` names, as `typesafe/model`. Unset means none run —
+/// and, with no `typesafe/` value on [`KEY_VERIFY_REFUTER`] either,
+/// nothing changes. Only a [`TYPED_VENDOR`] model: see
+/// [`Accepts::TypedModelName`].
+pub const KEY_VERIFY_TYPED_MODEL: &str = "verify.typed_model";
 
 /// The refuter in force when [`KEY_VERIFY_REFUTER`] is unset.
 ///
@@ -265,6 +271,11 @@ enum Accepts {
     /// included — or the word [`REFUTER_OFF`]. The credential rule holds unchanged: `off` is not
     /// a shape any key resembles.
     ModelNameOrOff,
+    /// A model identifier as [`Accepts::ModelName`] that routes to TypeSafe
+    /// ([`is_typed_model`]), and nothing else. The one key taking this,
+    /// [`KEY_VERIFY_TYPED_MODEL`], only ever asks typed questions; an
+    /// OpenRouter model there would name a leg that cannot be asked of it.
+    TypedModelName,
 }
 
 struct KeyDef {
@@ -317,8 +328,8 @@ call `direct` makes does both jobs",
 (milliseconds, at least 1000). Unset, it is worked out per verb from the calls that verb would \
 make: 60000 for each OpenRouter call and 10000 for each typesafe/ one, since Jev answers in about \
 a second where a reasoning model can take fifty. That is 60s for `direct` and 120s for `split`, \
-plus 60s for `verify.literals` and room for two refuter calls at the refuter's rate — 240s at the \
-shipped defaults. It does not sit in front of a reply, so it can be generous",
+plus 60s for `verify.literals`, room for two refuter calls at the refuter's rate, and 10s for the \
+gate where `verify.typed_model` runs one — 240s at the shipped defaults. It does not sit in front of a reply, so it can be generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
@@ -341,6 +352,17 @@ that price is this refuter's, not refutation's: google/gemini-2.5-pro over the s
 same model refuting itself scored 17%, near-random, because finding and checking are only \
 different questions when someone else asks the second one",
         accepts: Accepts::ModelNameOrOff,
+    },
+    KeyDef {
+        name: KEY_VERIFY_TYPED_MODEL,
+        summary: "which TypeSafe model runs the typed legs, as typesafe/model (unset: none run). \
+On `fact` and `claim` it asks, before anything else, whether any sentence or clause disagrees \
+with the evidence, and a subject it scores below that verb's threshold is reported `gated` and \
+not checked: measured 2026-09-21, 58% of the check's cost saved on fact and 21% on claim, with \
+no adjudicated defect skipped — fitted on 12 and 10 positives with nothing held out. A gate call \
+that fails never skips: the check runs and the response says `gate_incomplete`. Needs \
+TYPESAFE_API_KEY in the environment. Only a typesafe/ model",
+        accepts: Accepts::TypedModelName,
     },
     KeyDef {
         name: KEY_VERIFY_LITERALS,
@@ -377,7 +399,7 @@ fn key_def(name: &str) -> Option<&'static KeyDef> {
 pub fn hides_rejected_value(key: &str, raw: &str) -> bool {
     matches!(
         key_def(key).map(|d| &d.accepts),
-        Some(Accepts::ModelName | Accepts::ModelNameOrOff)
+        Some(Accepts::ModelName | Accepts::ModelNameOrOff | Accepts::TypedModelName)
     ) && !is_model_name(raw.trim())
 }
 
@@ -541,6 +563,12 @@ pub fn verify_refuter(workspace_dir: Option<&Path>) -> Option<String> {
     }
 }
 
+/// [`resolve`] for [`KEY_VERIFY_TYPED_MODEL`]. Absent means no typed leg
+/// runs on its account.
+pub fn verify_typed_model(workspace_dir: Option<&Path>) -> Option<String> {
+    resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir).0
+}
+
 /// [`resolve`] for [`KEY_VERIFY_LITERALS`], parsed. Absent means off.
 ///
 /// The one verify key whose default is off *while the feature is on*, and
@@ -625,6 +653,7 @@ fn accepted(accepts: &Accepts, raw: &str) -> bool {
         Accepts::ModelNameOrOff => {
             raw.trim().eq_ignore_ascii_case(REFUTER_OFF) || is_model_name(raw)
         }
+        Accepts::TypedModelName => is_model_name(raw) && is_typed_model(raw),
     }
 }
 
@@ -741,19 +770,24 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                 Accepts::ModelName if is_model_name(value.trim()) => {
                     typed_model_refusal(key, value.trim())
                 }
+                Accepts::TypedModelName if is_model_name(value.trim()) => format!(
+                    "`{key}` takes a `{TYPED_VENDOR}/` model, such as {TYPED_VENDOR}/jev-1.13.0; \
+`{}` routes to OpenRouter, which answers prompts rather than the typed questions this key asks",
+                    value.trim()
+                ),
                 // Deliberately does not echo the value back. If an author
                 // did paste a credential here, repeating it into a
                 // terminal, a log or a bug report is the harm this rule
                 // exists to prevent.
-                Accepts::ModelName | Accepts::ModelNameOrOff => format!(
+                Accepts::ModelName | Accepts::ModelNameOrOff | Accepts::TypedModelName => format!(
                     "`{key}` takes a model identifier as vendor/model, such as \
-openai/gpt-5.6-luna{}. The value given is not one, and is not echoed here in case it \
+{}. The value given is not one, and is not echoed here in case it \
 is a credential: API keys are read from the environment and never stored in a config \
 file, which is shared, committed and pasted into issues",
-                    if matches!(def.accepts, Accepts::ModelNameOrOff) {
-                        format!(", or `{REFUTER_OFF}`")
-                    } else {
-                        String::new()
+                    match def.accepts {
+                        Accepts::ModelNameOrOff => format!("openai/gpt-5.6-luna, or `{REFUTER_OFF}`"),
+                        Accepts::TypedModelName => format!("{TYPED_VENDOR}/jev-1.13.0"),
+                        _ => "openai/gpt-5.6-luna".to_string(),
                     }
                 ),
             },
