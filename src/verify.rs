@@ -797,7 +797,10 @@ pub struct Record {
     #[serde(default)]
     pub not_verbatim: u32,
     /// [`Telemetry::literals_refuted`], persisted — the only accuracy
-    /// signal the `unevidenced` kind has, since no eval has scored it.
+    /// signal the `unevidenced` kind has, since no eval has scored it. On a
+    /// record whose literal leg was Jev's
+    /// ([`typed_literal_calls`](Self::typed_literal_calls)), it counts
+    /// code-proposed candidates instead, and the report leaves it out.
     #[serde(default)]
     pub literals_refuted: u32,
     /// [`Telemetry::not_a_quantity`], persisted.
@@ -1423,7 +1426,8 @@ pub struct Telemetry {
     /// `unevidenced` findings dropped because the literal turned out to be
     /// in the capture after all. The model's claim was checkable and
     /// checked; this counts how often it was wrong, which is the only
-    /// accuracy signal that kind has.
+    /// accuracy signal that kind has. Jev's literal leg counts its
+    /// code-proposed candidates here instead — see [`Record::literals_refuted`].
     pub literals_refuted: u32,
     /// Findings dropped because the literal named no quantity — the model
     /// reaching for a symbol, a flag, a path or a quantifier. Counted
@@ -2235,6 +2239,12 @@ fn literal_candidates(text: &str) -> Vec<&str> {
 ///
 /// `(?<![\w.:/#-])\d[\d,_]*(?:\.\d+)?%?(?![\w])`, then, case-insensitively,
 /// `(?<![\w-])(?:zero|one|…|twelve)(?![\w-])`.
+///
+/// `\d` is read as an ASCII digit where Python reads any decimal digit.
+/// The two differ only on a figure written in another script, `３` or
+/// `٣`, which the harness proposes and [`is_checkable`] then drops as
+/// no quantity — as the harness's own `is_quantity` does — so no finding
+/// can come of it either way; only `not_a_quantity` counts it there.
 fn figure_at(at: &[(usize, char)], k: usize) -> Option<usize> {
     let ch = |i: usize| at.get(i).map(|(_, c)| *c);
     let prev = k.checked_sub(1).and_then(ch);
@@ -3741,7 +3751,6 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
     let evidential: Vec<&&Finding> = all.iter().filter(|f| f.quotes_evidence()).collect();
     let quoted = evidential.iter().filter(|f| f.quoted).count();
     let rejected: Vec<&&&Finding> = evidential.iter().filter(|f| f.rejected_span.is_some()).collect();
-    let unevidenced = all.len() - evidential.len();
     let ambiguous = evidential.iter().filter(|f| f.facts.len() > 1).count();
     let clause_ok = all.iter().filter(|f| f.clause_quoted).count();
     out.push_str(&format!("\nQUOTATIONS\n  findings         {}\n", all.len()));
@@ -3768,7 +3777,6 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
     // nobody can count is the same silence a deleted `rejected_span` would
     // have been.
     let not_verbatim: u32 = records.iter().map(|r| r.not_verbatim).sum();
-    let refuted: u32 = records.iter().map(|r| r.literals_refuted).sum();
     if not_verbatim > 0 {
         out.push_str(&format!(
             "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
@@ -3786,8 +3794,28 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             "  dropped, kind off this verb      {off_verb}   <- `overreaches` on a fact: insufficiency, not disagreement\n"
         ));
     }
-    let not_quantity: u32 = records.iter().map(|r| r.not_a_quantity).sum();
+    // Over the LLM leg's records alone. Jev's filter counts are over every
+    // figure and path code proposed, not over literals a model claimed
+    // were unevidenced, so summing the two would make the rates below
+    // measure nothing either leg does.
+    let llm_leg: Vec<&Record> = records.iter().filter(|r| r.typed_literal_calls.is_none()).collect();
+    let is_unevidenced = |f: &&Finding| f.kind == KIND_UNEVIDENCED;
+    let unevidenced = llm_leg.iter().flat_map(|r| r.findings.iter()).filter(is_unevidenced).count();
+    let refuted: u32 = llm_leg.iter().map(|r| r.literals_refuted).sum();
+    let not_quantity: u32 = llm_leg.iter().map(|r| r.not_a_quantity).sum();
     let raised = unevidenced + refuted as usize + not_quantity as usize;
+    let jev_leg = records.len() - llm_leg.len();
+    if jev_leg > 0 {
+        let kept = records
+            .iter()
+            .filter(|r| r.typed_literal_calls.is_some())
+            .flat_map(|r| r.findings.iter())
+            .filter(is_unevidenced)
+            .count();
+        out.push_str(&format!(
+            "\nLITERALS, judged by Jev\n  unevidenced      {kept}   over {jev_leg} verification(s) <- code proposed, Jev judged; left out of the rates below\n"
+        ));
+    }
     if raised > 0 {
         out.push_str(&format!(
             "\nLITERALS\n  unevidenced      {unevidenced}   <- stated as current fact, in no capture\n  \
@@ -5724,6 +5752,26 @@ mod tests {
         assert_eq!(run_with("split", &mut tel).0, Status::Unauthorized);
         let (status, _, lit) = run_with("direct", &mut tel);
         assert_eq!((status, lit), (Status::Ok, Some(Status::Unauthorized)));
+    }
+
+    #[test]
+    fn the_report_rates_the_llm_literal_leg_without_jevs_candidates() {
+        // Jev's filter counts are over code-proposed candidates. Revert:
+        // sum every record's counters into the rates.
+        let literal = Finding { kind: KIND_UNEVIDENCED.into(), literal: Some("40 entries".into()), ..finding_fixture() };
+        let llm = Record { findings: vec![literal.clone()], literals_refuted: 1, ..record_fixture() };
+        let jev = Record {
+            findings: vec![literal],
+            literals_refuted: 30,
+            not_a_quantity: 30,
+            typed_literal_calls: Some(1),
+            ..record_fixture()
+        };
+        let out = fidelity_text(&[llm, jev], false);
+        assert!(out.contains("machine-refuted  1 "), "{out}");
+        assert!(out.contains("not a quantity   0 "), "{out}");
+        assert!(out.contains("50% of what it raised"), "{out}");
+        assert!(out.contains("LITERALS, judged by Jev\n  unevidenced      1   over 1 verification(s)"), "{out}");
     }
 
     #[test]

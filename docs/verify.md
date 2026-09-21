@@ -272,7 +272,9 @@ and a workspace can override any of them in its own state directory with `--work
 - **`split`** (default) — two calls. The first labels each assertion in your text as `current` (about
   how things behave today), `proposed` (about what this design will build) or `argument` (a reason or
   entailment). The second checks, and may only report against `current` ones. This matters: without
-  it, the verifier reports your *proposals* as contradicted by code that predates them.
+  it, the verifier reports your *proposals* as contradicted by code that predates them. On `claim`
+  with `verify.typed_model` set, Jev does the labelling, so only the check is an LLM call — see
+  [above](#jev-classifying-and-judging-literals-on-claim).
 - **`direct`** — one call instead of two, so cheaper, but **not by half**: the one call it makes
   does the work of both, and the call it drops is no cheap one either — it carries only your claim,
   yet on `claim` it is about half of `split`'s spend. One-call arms on the same corpus cost
@@ -337,7 +339,8 @@ dropped, so a `40` inside a line range will suppress a real finding about a diff
 Under-reporting is the right direction for an advisory that costs you attention.
 
 One cost to know before turning it on: **one more call per mint** — roughly +50% on `split`, +100%
-on `direct`. See [what it costs](#what-it-costs).
+on `direct`. On `claim` with `verify.typed_model` set, that call goes to Jev instead, at about a sixth
+of the LLM leg's cost. See [what it costs](#what-it-costs).
 
 **A failure in the literal leg no longer fails the verification.** If it times out or comes back
 unreadable, the status stays `ok`, the disagreement findings arrive intact, and the reply carries
@@ -746,7 +749,10 @@ The three fidelity lines are what you tune on:
   before anything reaches you, and counted here so the drop is visible rather than silent.
 - **`machine-refuted`** is the only accuracy number the `unevidenced` kind has. It counts literals the
   model called unevidenced that a substring search found in the capture anyway. Nothing was shown to
-  you for those — the filter ran first — but a high rate means the literal check is guessing.
+  you for those — the filter ran first — but a high rate means the literal check is guessing. It is
+  counted over the LLM literal leg only. Jev's leg filters every figure and path that code proposed,
+  not literals a model claimed, so its unevidenced findings get a line of their own, `LITERALS, judged
+  by Jev`, and are left out of the rate.
 
 Claims nobody has graded yet leave every denominator rather than counting as correct silences.
 
