@@ -168,6 +168,14 @@ pub enum Status {
     Skipped,
     /// A verification completed and `findings` is meaningful.
     Ok,
+    /// The typed gate scored the subject below its verb's threshold, so no
+    /// classify, check or literal call was made and nothing was compared.
+    ///
+    /// Never `ok` with an empty list: that is the clean result this status
+    /// vocabulary exists to keep an empty one from passing for. A gated
+    /// record carries no findings at all — [`block`] emits them under `ok`
+    /// alone — which is also why the literal leg does not run behind it.
+    Gated,
     /// Transport failure, a non-2xx reply, or a truncated draw whose body
     /// came back empty. Never `Ok` — an empty body is trivially easy to
     /// mistake for a clean result, which is exactly the mistake the eval's
@@ -191,6 +199,7 @@ impl Status {
             Status::Queued => "queued",
             Status::Skipped => "skipped",
             Status::Ok => "ok",
+            Status::Gated => "gated",
             Status::Unavailable => "unavailable",
             Status::Timeout => "timeout",
             Status::Unparsable => "unparsable",
@@ -407,6 +416,9 @@ pub struct Settings {
     /// A `typesafe/` value is a typed leg, and runs only on a verb whose
     /// row in [`TYPED_LEGS`] permits it — see [`refuter_leg`].
     pub refuter: Option<String>,
+    /// `verify.typed_model`: the TypeSafe model the verb's row in
+    /// [`TYPED_LEGS`] runs its gate on. Unset means no gate runs.
+    pub typed_model: Option<String>,
     /// Why a `verify.model` written in a settings file was refused, when
     /// one was.
     ///
@@ -456,8 +468,8 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
     let literals = config::verify_literals(d);
     let refuter = config::verify_refuter(d);
     let model = config::verify_model(d);
-    let calls =
-        expected_calls(&approach, literals, refuter_leg(refuter.as_deref(), model.as_deref(), verb));
+    let typed_model = config::verify_typed_model(d);
+    let calls = planned_calls(verb, &approach, literals, refuter.as_deref(), model.as_deref(), typed_model.as_deref());
     Settings {
         enabled: config::verify_enabled(d),
         model,
@@ -466,8 +478,25 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
         verbs: config::verify_verbs(d),
         literals,
         refuter,
+        typed_model,
         model_refusal: config::verify_model_refusal(d),
     }
+}
+
+/// The calls the default budget pays for on `verb` under these settings.
+///
+/// One gate call, which is what every measured subject needed: the gate is
+/// split across calls only past [`MAX_TYPED_QUESTIONS`] units.
+fn planned_calls(
+    verb: &str,
+    approach: &str,
+    literals: bool,
+    refuter: Option<&str>,
+    model: Option<&str>,
+    typed_model: Option<&str>,
+) -> Calls {
+    let gate = u32::from(typed_model.is_some() && typed_legs(verb).gate.is_some());
+    expected_calls(approach, literals, refuter_leg(refuter, model, verb), gate)
 }
 
 fn api_key() -> Option<String> {
@@ -493,12 +522,65 @@ struct TypedLegs {
     /// Jev as the refuter. `fact` only: 8 of 10 adjudicated findings kept
     /// at 80% there, 13 of 44 at 31% on `prose`, and no run on `claim`.
     refuter: bool,
+    /// Jev as a gate before the check, when `verify.typed_model` is set.
+    /// None on `prose`, where no presentation separated (best AUC 0.69).
+    gate: Option<Gate>,
+}
+
+/// One verb's gate: the presentation it was measured with, and the score
+/// below which a subject is not checked.
+///
+/// The two are one decision. Each threshold sits 0.05 under the lowest
+/// adjudicated defect *that presentation* scored, fitted in-sample with
+/// nothing held out, so neither threshold means anything under the other
+/// presentation — `pick_cls` saves 7% on `claim` against `pick_clause`'s
+/// 21%. Ported from `scripts/verifier-eval/gate_variants.py`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Gate {
+    /// What the author's text is cut into for the choice.
+    unit: GateUnit,
+    /// Whether each unit is also asked CURRENT, PROPOSED or ARGUMENT, and
+    /// only its CURRENT share counted.
+    classify: bool,
+    threshold: f64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GateUnit {
+    Sentence,
+    Clause,
+}
+
+impl GateUnit {
+    fn word(self) -> &'static str {
+        match self {
+            GateUnit::Sentence => "sentence",
+            GateUnit::Clause => "clause",
+        }
+    }
 }
 
 const TYPED_LEGS: [(&str, TypedLegs); 3] = [
-    ("fact", TypedLegs { refuter: true }),
-    ("claim", TypedLegs { refuter: false }),
-    ("prose", TypedLegs { refuter: false }),
+    // `pick_cls`: 60% of subjects skipped, none of 12 adjudicated defects;
+    // the lowest scored 0.50.
+    (
+        "fact",
+        TypedLegs {
+            refuter: true,
+            gate: Some(Gate { unit: GateUnit::Sentence, classify: true, threshold: 0.45 }),
+        },
+    ),
+    // `pick_clause`: 27% skipped, none of 10 adjudicated warnings; the
+    // lowest scored 0.58. A claim is usually one long sentence, so a
+    // choice over sentences degenerates to a yes/no.
+    (
+        "claim",
+        TypedLegs {
+            refuter: false,
+            gate: Some(Gate { unit: GateUnit::Clause, classify: false, threshold: 0.53 }),
+        },
+    ),
+    ("prose", TypedLegs { refuter: false, gate: None }),
 ];
 
 fn typed_legs(verb: &str) -> TypedLegs {
@@ -578,6 +660,28 @@ fn refuter_leg<'a>(refuter: Option<&'a str>, model: Option<&str>, verb: &str) ->
         Some(m) if typed_legs(verb).refuter => RefuterLeg::Typed(m),
         Some(m) => RefuterLeg::NotRun(m),
     }
+}
+
+/// Every typed leg that will run on `verb`, as the key that set its model
+/// and the model.
+///
+/// The one place both typed legs' rows are applied for the credential:
+/// [`providers_for`] builds the TypeSafe endpoint exactly when this is
+/// non-empty, and [`unauthorized_detail`] names a gap for each entry, so
+/// the two cannot disagree about which keys a verification needs.
+fn typed_legs_that_run<'a>(settings: &'a Settings, verb: &str) -> Vec<(&'static str, &'a str)> {
+    let mut legs = Vec::new();
+    if let Some(m) = settings.typed_model.as_deref() {
+        if typed_legs(verb).gate.is_some() {
+            legs.push((config::KEY_VERIFY_TYPED_MODEL, m));
+        }
+    }
+    if let RefuterLeg::Typed(m) =
+        refuter_leg(settings.refuter.as_deref(), settings.model.as_deref(), verb)
+    {
+        legs.push((config::KEY_VERIFY_REFUTER, m));
+    }
+    legs
 }
 
 /// Where one provider's calls go, and the credential they carry.
@@ -710,6 +814,21 @@ pub struct Record {
     /// so for the verb it ran on, not the verb that delivered it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refuter_not_run: Option<RefuterNotRun>,
+    /// How many TypeSafe calls the gate made, whatever it decided. Kept
+    /// because the report counts a retry against the calls a verification
+    /// should have made, and the gate's count is the one that depends on the
+    /// subject — a long enough note is asked across two calls.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub gate_calls: u32,
+    /// The status of a gate call that did not complete. The check ran
+    /// anyway — a gate that fails never skips — and this is what says the
+    /// subject was checked ungated rather than gated and passed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_status: Option<String>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 // ---------------------------------------------------------------------
@@ -814,6 +933,12 @@ pub fn block(
             json!({"verb": v, "refuter_model": m.refuter_model, "reason": m.reason}),
         );
     }
+    // Inserted only when set, so a configuration that never names a typed
+    // model builds the object it always did — absent, not null, because a
+    // new null key is still a change to every caller's field set.
+    if let Some(tm) = &settings.typed_model {
+        map.insert("typed_model".into(), json!(tm));
+    }
     if let Some(r) = delivered {
         map.insert("for_mint".into(), json!(r.mint));
         // Absent rather than empty under any status but `ok`. A 429 gives
@@ -842,6 +967,11 @@ pub fn block(
             // refuter name alone.
             if let Some(s) = &r.refuter_status {
                 map.insert("refuter_incomplete".into(), json!(s));
+            }
+            // And for the gate: the check ran because the gate could not
+            // say whether to skip, not because it said not to.
+            if let Some(s) = &r.gate_status {
+                map.insert("gate_incomplete".into(), json!(s));
             }
         }
         // Outside the `ok` guard, on purpose. The version flag matters most
@@ -893,13 +1023,10 @@ fn unauthorized_detail(
     // Only for a typed leg that would run on this verb. A typesafe refuter
     // on a verb whose row refuses it runs nothing, so its missing key must
     // not fail a verification that never needed it.
-    if let RefuterLeg::Typed(m) =
-        refuter_leg(settings.refuter.as_deref(), settings.model.as_deref(), verb)
-    {
-        if !has_typed_key {
+    if !has_typed_key {
+        for (key, m) in typed_legs_that_run(settings, verb) {
             gaps.push(format!(
-                "`{}` is `{m}`, which runs on `{verb}` and needs {TYPED_KEY_VAR} in the environment",
-                config::KEY_VERIFY_REFUTER
+                "`{key}` is `{m}`, which runs on `{verb}` and needs {TYPED_KEY_VAR} in the environment"
             ));
         }
     }
@@ -1153,14 +1280,17 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
     let approach = settings.approach.clone();
     let literals = settings.literals;
     let refuter = settings.refuter.clone();
+    let typed_model = settings.typed_model.clone();
     let budget = Duration::from_millis(settings.timeout_ms);
     std::thread::spawn(move || {
         let started = Instant::now();
         let mut tel = Telemetry::default();
+        let legs = Legs { literals, refuter: refuter.as_deref(), typed_model: typed_model.as_deref() };
         let (status, findings, literals_status) =
-            run(&providers, &model, &approach, literals, refuter.as_deref(), &subject, started, budget, &mut tel);
+            run(&providers, &model, &approach, legs, &subject, started, budget, &mut tel);
         let record_literals_ok = literals_status.is_none();
         let record_refuter_ok = tel.refuter_status.is_none();
+        let record_gate_ok = tel.gate_status.is_none();
         let leg = refuter_leg(refuter.as_deref(), Some(&model), &subject.verb);
         let record = Record {
             seq: next_seq(&dir),
@@ -1190,13 +1320,16 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             literals_status: literals_status.map(|s| s.as_str().to_string()),
             refuter_status: tel.refuter_status.map(|s| s.as_str().to_string()),
             typed_versions: std::mem::take(&mut tel.typed_versions),
+            gate_calls: tel.gate_calls,
+            gate_status: tel.gate_status.map(|s| s.as_str().to_string()),
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
-            // An `ok` run with a failed literal or refuter call is the one
-            // case where a clean status still has something to explain, so
-            // the guard asks about all three rather than the status alone.
-            detail: if status == Status::Ok && record_literals_ok && record_refuter_ok {
+            // An `ok` run with a failed gate, literal or refuter call is the
+            // one case where a clean status still has something to explain,
+            // so the guard asks about all of them rather than the status
+            // alone.
+            detail: if status == Status::Ok && record_literals_ok && record_refuter_ok && record_gate_ok {
                 None
             } else {
                 tel.detail
@@ -1222,9 +1355,10 @@ fn providers_for(
     typed_key: Option<String>,
 ) -> Option<Providers> {
     let llm = Endpoint { url: ENDPOINT.into(), key: llm_key? };
-    let typed = match refuter_leg(settings.refuter.as_deref(), settings.model.as_deref(), verb) {
-        RefuterLeg::Typed(_) => Some(Endpoint { url: TYPED_ENDPOINT.into(), key: typed_key? }),
-        _ => None,
+    let typed = if typed_legs_that_run(settings, verb).is_empty() {
+        None
+    } else {
+        Some(Endpoint { url: TYPED_ENDPOINT.into(), key: typed_key? })
     };
     Some(Providers { llm, typed })
 }
@@ -1273,6 +1407,19 @@ pub struct Telemetry {
     pub refuter_status: Option<Status>,
     /// Every version a TypeSafe reply named — see [`Record::typed_versions`].
     pub typed_versions: Vec<String>,
+    /// See [`Record::gate_calls`].
+    pub gate_calls: u32,
+    /// See [`Record::gate_status`].
+    pub gate_status: Option<Status>,
+}
+
+/// The legs a verification may run beside the check, as configured. Which
+/// of them actually run on a verb is the verb's row in [`TYPED_LEGS`].
+#[derive(Clone, Copy)]
+struct Legs<'a> {
+    literals: bool,
+    refuter: Option<&'a str>,
+    typed_model: Option<&'a str>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1280,13 +1427,33 @@ fn run(
     providers: &Providers,
     model: &str,
     approach: &str,
-    literals: bool,
-    refuter: Option<&str>,
+    legs: Legs<'_>,
     subject: &Subject,
     started: Instant,
     budget: Duration,
     tel: &mut Telemetry,
 ) -> (Status, Vec<Finding>, Option<Status>) {
+    let Legs { literals, refuter, typed_model } = legs;
+    // First, before classify, because that is the order it was measured in
+    // on `fact` — and because a subject it skips should cost nothing else.
+    // Only a skip ends the verification: a gate that fails, for whatever
+    // reason, lets the check run and says so, because a gate that could
+    // skip on its own failure would turn every TypeSafe outage into a run
+    // of mints reported as having nothing to find.
+    if let (Some(tm), Some(gate)) = (typed_model, typed_legs(&subject.verb).gate) {
+        // `spawn` builds the TypeSafe endpoint whenever this leg runs and
+        // starts nothing without one, so its absence here is a wiring fault;
+        // it is reported as a failed gate, which checks, rather than as a skip.
+        let verdict = match &providers.typed {
+            Some(typed) => gate_skips(typed, tm, gate, subject, started, budget, tel),
+            None => Err(Status::Unauthorized),
+        };
+        match verdict {
+            Ok(true) => return (Status::Gated, Vec::new(), None),
+            Ok(false) => {}
+            Err(s) => tel.gate_status = Some(s),
+        }
+    }
     // `split` classifies the claim's assertions before checking them, so
     // the check can be told which ones the captured evidence is even
     // able to speak to. It costs a second call and it is the default,
@@ -1403,7 +1570,7 @@ fn call(
             "max_tokens": cap,
             "reasoning": {"effort": "high"},
         });
-        let v = post(llm, &body, left, tel)?;
+        let v = post(llm, &body.to_string(), left, tel)?;
         // Whatever the provider says it charged, summed across attempts.
         // Absent on providers that report none, which is why it defaults
         // to zero rather than being an Option nobody would branch on.
@@ -1433,21 +1600,17 @@ fn call(
 /// provider produced them.
 fn post(
     to: &Endpoint,
-    body: &serde_json::Value,
+    payload: &str,
     left: Duration,
     tel: &mut Telemetry,
 ) -> Result<serde_json::Value, Status> {
-    let Ok(payload) = serde_json::to_string(body) else {
-        tel.detail = Some("request body would not serialise".into());
-        return Err(Status::Unavailable);
-    };
     let reply = ureq::post(&to.url)
         .header("Authorization", &format!("Bearer {}", to.key))
         .header("Content-Type", "application/json")
         .config()
         .timeout_global(Some(left))
         .build()
-        .send(payload.as_str());
+        .send(payload);
     let mut reply = match reply {
         Ok(r) => r,
         // A timeout inside the client is still the budget expiring;
@@ -1478,8 +1641,9 @@ fn post(
     })
 }
 
-/// One TypeSafe call: `questions` asked of `state`, and the reply's
-/// `answers` object.
+/// One TypeSafe call: `questions` — a serialised object, its keys in the
+/// order they are to be asked — asked of `state`, and the reply's `answers`
+/// object.
 ///
 /// One attempt. There is no sampling to truncate, so the retry [`call`]
 /// makes on a truncated draw has no counterpart here; the attempt still
@@ -1492,7 +1656,7 @@ fn ask_typed(
     typed: &Endpoint,
     model: &str,
     state: &str,
-    questions: &serde_json::Value,
+    questions: &str,
     started: Instant,
     budget: Duration,
     tel: &mut Telemetry,
@@ -1507,7 +1671,13 @@ fn ask_typed(
     tel.attempts += 1;
     // The endpoint names models without the vendor half that routed here.
     let name = model.split_once('/').map_or(model, |(_, m)| m);
-    let body = json!({"state": state, "model": name, "questions": questions});
+    // In the harness's order, and `questions` in the order its author
+    // wrote them — see [`json_ordered`].
+    let body = json_ordered(&[
+        ("state", json_str(state)),
+        ("model", json_str(name)),
+        ("questions", questions.to_string()),
+    ]);
     let v = post(typed, &body, left, tel)?;
     // An unstated version is not the measured one, so it is recorded as
     // what it is rather than skipped, and is flagged downstream.
@@ -1526,6 +1696,278 @@ fn ask_typed(
             Err(Status::Unparsable)
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// The gate. Ported from `scripts/verifier-eval/gate_variants.py`, whose
+// `pick_with` produced both measured presentations; the splitter, the
+// question wording, the order of the options and the score are all part
+// of what was measured, so none of them is paraphrased here.
+// ---------------------------------------------------------------------
+
+/// How many questions one TypeSafe call carries; a gate with more than
+/// this asks across several calls. The harness's bound, and one it never
+/// reached with the presentations shipped: `fact`'s longest subject had 18
+/// sentences, so 19 questions, and `claim` asks one question however many
+/// clauses it offers (35 at most).
+const MAX_TYPED_QUESTIONS: usize = 40;
+
+/// What a disagreeing unit does. `gate_jev.py`'s wording, from
+/// `CHECK_SYSTEM`.
+const GATE_DISAGREES: &str = "asserts something the captured evidence, or the author's own \
+figures elsewhere in the text, show to be otherwise";
+
+/// `CHECK_SYSTEM`'s own rules about what is not a disagreement, put on the
+/// NONE option because they describe the population the gate has to stay
+/// quiet on.
+const GATE_NOT_A_DISAGREEMENT: &str = "Also false when: the evidence merely fails to establish \
+the text; the capture does not touch what the text is about; the text says less than the \
+evidence shows; the text describes what a design PROPOSES to build, which evidence captured \
+beforehand cannot contradict; or the reader is simply uncertain. Insufficiency is not \
+disagreement.";
+
+/// The three kinds `pick_cls` asks of each sentence, in the order it asked.
+const GATE_KINDS: [(&str, &str); 3] = [
+    (
+        "CURRENT",
+        "It describes the code, a tool's output or a measurement as it exists now — something \
+the captured evidence could confirm or contradict.",
+    ),
+    (
+        "PROPOSED",
+        "It describes what this design will build, add or change. Evidence captured before the \
+design exists cannot contradict it.",
+    ),
+    (
+        "ARGUMENT",
+        "It is reasoning, motivation, judgement or framing rather than a factual statement about \
+the code.",
+    ),
+];
+
+/// A unit shorter than this is not offered as an option — the harness's
+/// `len(s) > 12`, counted in characters.
+const MIN_UNIT_CHARS: usize = 13;
+
+/// The author's text cut into sentences: at whitespace after `.`, `;` or
+/// `:` when an upper-case letter, a backtick, `(`, `*` or a quote follows,
+/// and at any blank line. `gate_variants.py`'s `SPLIT`, which uses a
+/// look-behind the `regex` crate would not support and this crate does not
+/// depend on; a run of whitespace is the separator in both, and every piece
+/// is trimmed, so where exactly inside the run the cut falls does not matter.
+fn gate_sentences(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if !text[i..].starts_with(char::is_whitespace) {
+            i += text[i..].chars().next().map_or(1, char::len_utf8);
+            continue;
+        }
+        // A whole run of whitespace, [i, end).
+        let mut end = i;
+        let mut newlines = 0;
+        while let Some(c) = text[end..].chars().next().filter(|c| c.is_whitespace()) {
+            newlines += usize::from(c == '\n');
+            end += c.len_utf8();
+        }
+        let after_stop = i > 0 && matches!(bytes[i - 1], b'.' | b';' | b':');
+        let starts_sentence = text[end..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_uppercase() || matches!(c, '`' | '(' | '*' | '"' | '\''));
+        if (after_stop && starts_sentence) || newlines >= 2 {
+            out.push(&text[start..i]);
+            start = end;
+        }
+        i = end;
+    }
+    out.push(&text[start..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|s| s.chars().count() >= MIN_UNIT_CHARS)
+        .collect()
+}
+
+/// A sentence cut again at `,`, `;`, `:`, ` —` and ` –` followed by
+/// whitespace — `gate_variants.py`'s `CLAUSE`. Parentheses are not a
+/// boundary: a figure is only checkable with its range still attached.
+fn gate_clauses(sentence: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < sentence.len() {
+        let rest = &sentence[i..];
+        let sep = [",", ";", ":", " —", " –"].into_iter().find(|p| rest.starts_with(p));
+        if let Some(p) = sep {
+            let ws: usize = sentence[i + p.len()..]
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .map(char::len_utf8)
+                .sum();
+            if ws > 0 {
+                out.push(&sentence[start..i]);
+                start = i + p.len() + ws;
+                i = start;
+                continue;
+            }
+        }
+        i += rest.chars().next().map_or(1, char::len_utf8);
+    }
+    out.push(&sentence[start..]);
+    out
+}
+
+/// The units the gate offers for `text`: sentences, or every sentence's
+/// clauses.
+fn gate_units(text: &str, unit: GateUnit) -> Vec<&str> {
+    let sentences = gate_sentences(text);
+    match unit {
+        GateUnit::Sentence => sentences,
+        GateUnit::Clause => sentences
+            .into_iter()
+            .flat_map(gate_clauses)
+            .map(str::trim)
+            .filter(|c| c.chars().count() >= MIN_UNIT_CHARS)
+            .collect(),
+    }
+}
+
+/// The gate's questions, in the order the harness sent them: `which` — one
+/// choice over the units plus NONE, so they compete for one probability and
+/// a clean subject puts it on NONE — then, for `pick_cls`, one kind
+/// question per unit. Each entry is a key and its serialised question.
+fn gate_questions(gate: Gate, units: &[&str]) -> Vec<(String, String)> {
+    let word = gate.unit.word();
+    let mut options: Vec<(String, String)> =
+        units.iter().enumerate().map(|(i, u)| (format!("S{}", i + 1), json_str(u))).collect();
+    options.push((
+        "NONE".into(),
+        json_str(&format!("No {word} disagrees with the evidence. {GATE_NOT_A_DISAGREEMENT}")),
+    ));
+    let which = json_ordered(&[
+        ("type", json_str("choice")),
+        (
+            "instructions",
+            json_str(&format!(
+                "Which {word} of the author's text disagrees with the captured evidence? A \
+                 disagreeing {word} {GATE_DISAGREES}."
+            )),
+        ),
+        ("criteria", json_ordered(&options)),
+    ]);
+    let mut questions = vec![("which".to_string(), which)];
+    if gate.classify {
+        let kinds: Vec<(&str, String)> = GATE_KINDS.iter().map(|(k, d)| (*k, json_str(d))).collect();
+        let kinds = json_ordered(&kinds);
+        for (i, u) in units.iter().enumerate() {
+            questions.push((
+                format!("k{}", i + 1),
+                json_ordered(&[
+                    ("type", json_str("choice")),
+                    ("criteria", kinds.clone()),
+                    (
+                        "instructions",
+                        json_str(&format!("What kind of {word} is this?\n{}: {u}", word.to_uppercase())),
+                    ),
+                ]),
+            ));
+        }
+    }
+    questions
+}
+
+/// The gate's score from its answers, or `None` unless the choice named a
+/// probability for every option it was offered.
+///
+/// `pick_cls` sums each unit's share of the choice weighted by its CURRENT
+/// probability, a unit whose kind went unanswered counting whole;
+/// `pick_clause` is everything the choice did not put on NONE.
+///
+/// The harness scored a missing probability as zero — on the pick, and
+/// through its NONE default on the clause score — and so would skip on it.
+/// Here that would let a malformed answer end a verification as `gated`,
+/// so an answer that leaves any option out is not one. Every measured
+/// reply named them all: over the 3,234 subjects scored by the `pick_cls`
+/// and `pick_clause` families, none was missing.
+fn gate_score(gate: Gate, units: usize, answers: &serde_json::Value) -> Option<f64> {
+    let probs = answers["which"]["probabilities"].as_object()?;
+    let p = |k: &str| probs.get(k).and_then(serde_json::Value::as_f64);
+    let picks: Vec<f64> = (1..=units).map(|i| p(&format!("S{i}"))).collect::<Option<_>>()?;
+    let none = p("NONE")?;
+    if !gate.classify {
+        return Some(1.0 - none);
+    }
+    Some(
+        picks
+            .iter()
+            .enumerate()
+            .map(|(i, pick)| {
+                let current = answers[format!("k{}", i + 1)]["probabilities"]["CURRENT"].as_f64().unwrap_or(1.0);
+                pick * current
+            })
+            .sum(),
+    )
+}
+
+/// Whether the gate skips `subject`: `Ok(true)` to skip, `Ok(false)` to
+/// check, and the status of the call that failed otherwise.
+///
+/// A subject with no unit long enough to offer is checked without asking.
+/// The harness would have asked a choice with NONE as its only option and
+/// skipped on the certain answer, which is a skip nothing measured.
+fn gate_skips(
+    typed: &Endpoint,
+    typed_model: &str,
+    gate: Gate,
+    subject: &Subject,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Result<bool, Status> {
+    let units = gate_units(&subject.text, gate.unit);
+    if units.is_empty() {
+        return Ok(false);
+    }
+    // `gate_jev.py`'s state, byte for byte: the author's text first and the
+    // evidence after it. The reverse order was measured and lost.
+    let state = format!("AUTHOR'S TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
+    let questions = gate_questions(gate, &units);
+    let mut answers = serde_json::Map::new();
+    for chunk in questions.chunks(MAX_TYPED_QUESTIONS) {
+        tel.gate_calls += 1;
+        let a = ask_typed(typed, typed_model, &state, &json_ordered(chunk), started, budget, tel)?;
+        if let serde_json::Value::Object(a) = a {
+            answers.extend(a);
+        }
+    }
+    let answers = serde_json::Value::Object(answers);
+    match gate_score(gate, units.len(), &answers) {
+        Some(score) => Ok(score < gate.threshold),
+        None => {
+            tel.detail = Some("the gate's reply did not give a probability for every option it offered".into());
+            Err(Status::Unparsable)
+        }
+    }
+}
+
+/// `s` as a JSON string.
+fn json_str(s: &str) -> String {
+    serde_json::Value::from(s).to_string()
+}
+
+/// A JSON object whose keys go out in the order given; values are already
+/// serialised.
+///
+/// Needed because this crate's `serde_json` is built without
+/// `preserve_order`, so a `json!` object is sent with its keys sorted — and
+/// a typed question's options are its keys. The gate's would go out as
+/// NONE, S1, S10, S2, … where every measurement offered S1 … Sn, NONE.
+fn json_ordered<K: AsRef<str>>(pairs: &[(K, String)]) -> String {
+    let body: Vec<String> =
+        pairs.iter().map(|(k, v)| format!("{}:{v}", json_str(k.as_ref()))).collect();
+    format!("{{{}}}", body.join(","))
 }
 
 /// Recover the reply's JSON object and read the disagreements out of it.
@@ -2229,27 +2671,39 @@ fn refute_findings(
 /// alike — the state is the LLM refuter's user prompt unchanged — because
 /// the 80% belongs to this presentation. Only the `choice` decides; the
 /// `noul` is asked because the measured request asked it.
-fn typed_refute_questions() -> serde_json::Value {
-    json!({
-        "verdict": {
-            "type": "choice",
-            "instructions": TYPED_REFUTE_INSTRUCTIONS,
-            "criteria": {
-                "CORRECT": TYPED_REFUTE_CORRECT,
-                "WRONG": TYPED_REFUTE_WRONG,
-                "UNCLEAR": "The evidence is genuinely insufficient to settle it either way.",
-            },
-        },
-        "correct": {
-            "type": "noul",
-            "instructions": "The proposed disagreement is correct: the quoted clause really does \
-disagree with the captured evidence, in the way and of the kind claimed.",
-            "criteria": {
-                "true": "the clause disagrees with the evidence as claimed",
-                "false": "it does not",
-            },
-        },
-    })
+fn typed_refute_questions() -> String {
+    // `verdict` first and CORRECT, WRONG, UNCLEAR in that order, as the
+    // measured request sent them — see [`json_ordered`].
+    let verdict = json_ordered(&[
+        ("type", json_str("choice")),
+        ("instructions", json_str(TYPED_REFUTE_INSTRUCTIONS)),
+        (
+            "criteria",
+            json_ordered(&[
+                ("CORRECT", json_str(TYPED_REFUTE_CORRECT)),
+                ("WRONG", json_str(TYPED_REFUTE_WRONG)),
+                ("UNCLEAR", json_str("The evidence is genuinely insufficient to settle it either way.")),
+            ]),
+        ),
+    ]);
+    let correct = json_ordered(&[
+        ("type", json_str("noul")),
+        (
+            "instructions",
+            json_str(
+                "The proposed disagreement is correct: the quoted clause really does disagree \
+with the captured evidence, in the way and of the kind claimed.",
+            ),
+        ),
+        (
+            "criteria",
+            json_ordered(&[
+                ("true", json_str("the clause disagrees with the evidence as claimed")),
+                ("false", json_str("it does not")),
+            ]),
+        ),
+    ]);
+    json_ordered(&[("verdict", verdict), ("correct", correct)])
 }
 
 const TYPED_REFUTE_INSTRUCTIONS: &str = "An author wrote a note. A tool captured evidence. \
@@ -2614,17 +3068,7 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
     let mut times: Vec<u64> = records.iter().map(|r| r.elapsed_ms).collect();
     times.sort_unstable();
     let median = times.get(times.len() / 2).copied().unwrap_or(0);
-    // Only where the call count is knowable. The refutation leg makes one
-    // call per finding, so `attempts` above the approach's own count means
-    // "it found things", not "it retried" — and counting those as retries
-    // would report a healthy run as a failing one.
-    let retried = records
-        .iter()
-        .filter(|r| {
-            r.refuter.is_none()
-                && r.attempts > expected_calls(&r.approach, r.literals, RefuterLeg::Off).total()
-        })
-        .count();
+    let retried = retried(&records);
 
     out.push_str(&format!("\nVERIFICATIONS   {}\n", records.len()));
     for (status, n) in &by_status {
@@ -2842,6 +3286,25 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
     out
 }
 
+/// How many of `records` retried a call.
+///
+/// Only where the call count is knowable. The refutation leg makes one
+/// call per finding, so `attempts` above the approach's own count means
+/// "it found things", not "it retried" — and counting those as retries
+/// would report a healthy run as a failing one. The gate's calls are
+/// counted from the record, because how many there were depends on the
+/// subject's length.
+fn retried(records: &[Record]) -> usize {
+    records
+        .iter()
+        .filter(|r| {
+            r.refuter.is_none()
+                && r.attempts
+                    > expected_calls(&r.approach, r.literals, RefuterLeg::Off, r.gate_calls).total()
+        })
+        .count()
+}
+
 /// How many calls an approach makes when nothing is retried, so a retry
 /// can be counted rather than inferred.
 ///
@@ -2860,12 +3323,16 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
 /// [`Calls::total`]: attempts are counted once per call whoever answers
 /// it, so comparing them against the LLM count alone would report every
 /// typed call as a retry.
-fn expected_calls(approach: &str, literals: bool, refuter: RefuterLeg<'_>) -> Calls {
+///
+/// `gate` is how many calls the gate makes: one per [`MAX_TYPED_QUESTIONS`]
+/// questions, which the budget cannot know before the subject exists and
+/// takes as one, and a record knows exactly.
+fn expected_calls(approach: &str, literals: bool, refuter: RefuterLeg<'_>, gate: u32) -> Calls {
     let base = match approach {
         "split" => 2,
         _ => 1,
     };
-    let mut calls = Calls { llm: base + u32::from(literals), typed: 0 };
+    let mut calls = Calls { llm: base + u32::from(literals), typed: gate };
     match refuter {
         RefuterLeg::Llm(_) => calls.llm += 2,
         RefuterLeg::Typed(_) => calls.typed += 2,
@@ -2900,6 +3367,7 @@ mod tests {
             verbs: vec!["claim".into()],
             literals: false,
             refuter: None,
+            typed_model: None,
             model_refusal: None,
         }
     }
@@ -2920,6 +3388,9 @@ mod tests {
     struct Mock {
         url: String,
         bodies: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        /// The same bodies as sent. Parsed, a body loses its key order,
+        /// and a typed question's key order is its presentation.
+        raw: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     }
 
     impl Mock {
@@ -2928,7 +3399,9 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
             let url = format!("http://{}/", listener.local_addr().expect("addr"));
             let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let raw = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
             let seen = bodies.clone();
+            let seen_raw = raw.clone();
             std::thread::spawn(move || {
                 for stream in listener.incoming() {
                     let Ok(mut stream) = stream else { continue };
@@ -2949,6 +3422,7 @@ mod tests {
                     if reader.read_exact(&mut body).is_err() {
                         continue;
                     }
+                    seen_raw.lock().expect("lock").push(String::from_utf8_lossy(&body).into_owned());
                     let body: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
                     let (code, answer) = reply(&body);
                     seen.lock().expect("lock").push(body);
@@ -2961,11 +3435,15 @@ mod tests {
                     );
                 }
             });
-            Mock { url, bodies }
+            Mock { url, bodies, raw }
         }
 
         fn bodies(&self) -> Vec<serde_json::Value> {
             self.bodies.lock().expect("lock").clone()
+        }
+
+        fn raw(&self) -> Vec<String> {
+            self.raw.lock().expect("lock").clone()
         }
     }
 
@@ -3034,11 +3512,12 @@ mod tests {
             Status::Queued,
             Status::Skipped,
             Status::Ok,
+            Status::Gated,
             Status::Unavailable,
             Status::Timeout,
             Status::Unparsable,
         ];
-        assert_eq!(all.len(), 8, "a status was added without being listed here");
+        assert_eq!(all.len(), 9, "a status was added without being listed here");
         let mut words: Vec<&str> = all.iter().map(|s| s.as_str()).collect();
         words.sort_unstable();
         let before = words.len();
@@ -3096,6 +3575,8 @@ mod tests {
             cost: 0.0,
             elapsed_ms: 0,
             attempts: 1,
+            gate_calls: 0,
+            gate_status: None,
             detail: None,
         }
     }
@@ -3640,34 +4121,34 @@ mod tests {
         // none at all.
         let per_leg = DEFAULT_MS_PER_LEG;
         let off = RefuterLeg::Off;
-        assert_eq!(default_budget_ms(expected_calls("direct", false, off)), per_leg);
-        assert_eq!(default_budget_ms(expected_calls("split", false, off)), per_leg * 2);
-        assert_eq!(default_budget_ms(expected_calls("split", true, off)), per_leg * 3);
+        assert_eq!(default_budget_ms(expected_calls("direct", false, off, 0)), per_leg);
+        assert_eq!(default_budget_ms(expected_calls("split", false, off, 0)), per_leg * 2);
+        assert_eq!(default_budget_ms(expected_calls("split", true, off, 0)), per_leg * 3);
         // The shipped defaults: `split`, and the default refuter's two legs.
         let llm = RefuterLeg::Llm(crate::config::DEFAULT_REFUTER);
-        assert_eq!(default_budget_ms(expected_calls("split", false, llm)), 240_000);
+        assert_eq!(default_budget_ms(expected_calls("split", false, llm, 0)), 240_000);
     }
 
     #[test]
     fn a_typed_refuter_is_budgeted_at_its_own_rate_and_only_where_it_runs() {
         let typed = "typesafe/jev-latest";
-        let fact = expected_calls("split", false, refuter_leg(Some(typed), None, "fact"));
+        let fact = expected_calls("split", false, refuter_leg(Some(typed), None, "fact"), 0);
         assert_eq!(fact, Calls { llm: 2, typed: 2 });
         // A number, not the constants: a typed call charged at the LLM rate
         // would reproduce itself on both sides of an assertion written in them.
         assert_eq!(default_budget_ms(fact), 140_000);
         // Not run on `claim`, so not paid for there either.
-        let claim = expected_calls("split", false, refuter_leg(Some(typed), None, "claim"));
+        let claim = expected_calls("split", false, refuter_leg(Some(typed), None, "claim"), 0);
         assert_eq!(claim, Calls { llm: 2, typed: 0 });
     }
 
     #[test]
     fn the_literal_check_adds_a_call_that_a_retry_count_must_not_mistake() {
         let off = RefuterLeg::Off;
-        assert_eq!(expected_calls("split", false, off).total(), 2);
-        assert_eq!(expected_calls("split", true, off).total(), 3);
-        assert_eq!(expected_calls("direct", false, off).total(), 1);
-        assert_eq!(expected_calls("direct", true, off).total(), 2);
+        assert_eq!(expected_calls("split", false, off, 0).total(), 2);
+        assert_eq!(expected_calls("split", true, off, 0).total(), 3);
+        assert_eq!(expected_calls("direct", false, off, 0).total(), 1);
+        assert_eq!(expected_calls("direct", true, off, 0).total(), 2);
     }
 
     #[test]
@@ -3891,8 +4372,7 @@ mod tests {
             &providers_fixture(&llm.url, &typed.url),
             "openai/gpt-5.6-luna",
             "split",
-            false,
-            Some(crate::config::DEFAULT_REFUTER),
+            Legs { literals: false, refuter: Some(crate::config::DEFAULT_REFUTER), typed_model: None },
             &fact_subject(),
             Instant::now(),
             Duration::from_secs(20),
@@ -4005,8 +4485,8 @@ mod tests {
         assert_eq!(b["refuter_not_run"]["refuter_model"], m, "{b}");
         assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("17%")), "{b}");
         assert_eq!(
-            expected_calls("split", false, refuter_leg(Some(m), Some(m), "claim")).total(),
-            expected_calls("split", false, RefuterLeg::Off).total()
+            expected_calls("split", false, refuter_leg(Some(m), Some(m), "claim"), 0).total(),
+            expected_calls("split", false, RefuterLeg::Off, 0).total()
         );
     }
 
@@ -4035,7 +4515,10 @@ mod tests {
         let sent = typed.bodies();
         // The vendor half routes; it is not the endpoint's model name.
         assert_eq!(sent[0]["model"], "jev-latest");
-        assert_eq!(sent[0]["questions"], typed_refute_questions());
+        let measured = include_str!("../tests/fixtures/typed_wire/refute_fact.json").trim_end();
+        assert_eq!(typed_refute_questions(), measured, "not the request the harness sent");
+        // And on the wire, in the harness's key order.
+        assert!(typed.raw()[0].ends_with(&format!(r#","model":"jev-latest","questions":{measured}}}"#)), "{}", typed.raw()[0]);
         // The state is the LLM refuter's user prompt, unchanged.
         assert!(sent[0]["state"].as_str().unwrap_or("").starts_with("AUTHOR'S TEXT:\nthe function returns early\n\n"));
         assert!(sent[0]["state"].as_str().unwrap_or("").contains("\n\nPROPOSED DISAGREEMENT:\n  kind: contradicts\n"));
@@ -4122,6 +4605,319 @@ mod tests {
         let d = unauthorized_detail(&Settings { model: None, ..s }, "fact", false, false).expect("gaps");
         assert!(d.contains("verify.model") && d.contains("OPENROUTER_API_KEY") && d.contains(TYPED_KEY_VAR), "{d}");
     }
+
+    // -----------------------------------------------------------------
+    // The gate.
+    // -----------------------------------------------------------------
+
+    const JEV: &str = "typesafe/jev-latest";
+
+    /// A TypeSafe stand-in that answers only what it is asked: `which` from
+    /// `which`, every `k{i}` as CURRENT with `current`, and the refuter's
+    /// questions with `verdict`.
+    fn typed_mock(which: serde_json::Value, current: f64, verdict: &'static str) -> Mock {
+        Mock::start(move |b| {
+            let mut answers = serde_json::Map::new();
+            for key in b["questions"].as_object().map(|q| q.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+                let a = match key.as_str() {
+                    "which" => json!({"type": "choice", "choice": "NONE", "confidence": 1.0, "probabilities": which}),
+                    "verdict" | "correct" => typed_reply(MEASURED_TYPED_VERSION, verdict)["answers"][&key].clone(),
+                    _ => json!({"type": "choice", "choice": "CURRENT", "confidence": current,
+                                "probabilities": {"CURRENT": current, "PROPOSED": 1.0 - current, "ARGUMENT": 0.0}}),
+                };
+                answers.insert(key, a);
+            }
+            (200, json!({"model": MEASURED_TYPED_VERSION, "answers": answers,
+                         "usage": {"input_tokens": 370, "output_tokens": 54}}))
+        })
+    }
+
+    /// An LLM stand-in that answers classify, and every check with one
+    /// disagreement over the fixture's clause.
+    fn llm_mock() -> Mock {
+        Mock::start(|body| {
+            let system = body["messages"][0]["content"].as_str().unwrap_or("");
+            (200, llm_reply(if system == REFUTE_SYSTEM {
+                r#"{"verdict":"CORRECT","why":""}"#
+            } else if system == CLASSIFY_SYSTEM {
+                r#"{"assertions":[{"text":"the function returns early","label":"current"}]}"#
+            } else {
+                r#"{"disagreements":[{"kind":"contradicts","clause":"the function returns early","evidence":"return","why":"w"}]}"#
+            }))
+        })
+    }
+
+    fn gated_run(llm: &Mock, typed: &Mock, legs: Legs<'_>, subject: &Subject, tel: &mut Telemetry) -> (Status, Vec<Finding>) {
+        let (status, f, _) = run(
+            &providers_fixture(&llm.url, &typed.url),
+            "openai/gpt-5.6-luna",
+            "split",
+            legs,
+            subject,
+            Instant::now(),
+            Duration::from_secs(20),
+            tel,
+        );
+        (status, f)
+    }
+
+    fn gate_only(typed_model: Option<&str>) -> Legs<'_> {
+        Legs { literals: true, refuter: None, typed_model }
+    }
+
+    #[test]
+    fn the_gate_cuts_text_where_the_harness_did() {
+        // Expected values are `gate_variants.py`'s `sentences` and, for
+        // clauses, `pick_with`'s cut and filter, run on the same strings.
+        // Reverts: split after `?` too; drop the blank-line rule; count
+        // bytes rather than characters; make parentheses a boundary.
+        let cases: [(&str, &[&str], &[&str]); 5] = [
+            (
+                "Version 1.2 ships. e.g. the lower-case start stays joined. See (below) for more.",
+                &["Version 1.2 ships. e.g. the lower-case start stays joined.", "See (below) for more."],
+                &["Version 1.2 ships. e.g. the lower-case start stays joined.", "See (below) for more."],
+            ),
+            (
+                "First paragraph without a stop\n\nSecond paragraph, which follows a blank line, and runs on.\n   \n  Third after a whitespace-only line — with a dash clause – and an en dash.",
+                &["First paragraph without a stop", "Second paragraph, which follows a blank line, and runs on.", "Third after a whitespace-only line — with a dash clause – and an en dash."],
+                &["First paragraph without a stop", "Second paragraph", "which follows a blank line", "Third after a whitespace-only line", "with a dash clause", "and an en dash."],
+            ),
+            (
+                "Short. Tiny. A sentence long enough to keep: it has a colon, a comma; and a semicolon.",
+                &["A sentence long enough to keep: it has a colon, a comma; and a semicolon."],
+                &["A sentence long enough to keep", "it has a colon", "and a semicolon."],
+            ),
+            (
+                "Quoted: \"the reply\" is parsed.  *Emphasis* follows a double space.\tA tab then 'quote' ends it.",
+                &["\"the reply\" is parsed.", "*Emphasis* follows a double space.", "A tab then 'quote' ends it."],
+                &["\"the reply\" is parsed.", "*Emphasis* follows a double space.", "A tab then 'quote' ends it."],
+            ),
+            (
+                "Évidence starts with a non-ASCII capital. So this does not split before it? It does split here. Ünd not here.",
+                &["Évidence starts with a non-ASCII capital.", "So this does not split before it? It does split here. Ünd not here."],
+                &["Évidence starts with a non-ASCII capital.", "So this does not split before it? It does split here. Ünd not here."],
+            ),
+        ];
+        for (text, sentences, clauses) in cases {
+            assert_eq!(gate_units(text, GateUnit::Sentence), sentences, "{text:?}");
+            assert_eq!(gate_units(text, GateUnit::Clause), clauses, "{text:?}");
+        }
+        // Thirteen characters is kept and twelve is not, counted in
+        // characters: `Ärger über x` is twelve and fourteen bytes.
+        assert_eq!(gate_units("Ärger über x.\n\nÄrger über x", GateUnit::Sentence), ["Ärger über x."]);
+    }
+
+    #[test]
+    fn the_gate_asks_what_the_harness_asked_byte_for_byte() {
+        // The fixtures are `scripts/verifier-eval/wire_fixtures.py`: the
+        // harness's own requests for `pick_cls` and `pick_clause`,
+        // captured rather than transcribed. Reverts: build the questions
+        // with `json!` (sorted keys: NONE first, S10 before S2); swap the
+        // kind question's `criteria` and `instructions`; paraphrase NONE.
+        let text = include_str!("../tests/fixtures/typed_wire/text.txt");
+        for (verb, fixture) in [
+            ("fact", include_str!("../tests/fixtures/typed_wire/gate_fact.json")),
+            ("claim", include_str!("../tests/fixtures/typed_wire/gate_claim.json")),
+        ] {
+            let gate = typed_legs(verb).gate.expect("a gate");
+            let units = gate_units(text, gate.unit);
+            assert!(units.len() >= 10, "{verb}: the fixture no longer reaches S10");
+            assert_eq!(json_ordered(&gate_questions(gate, &units)), fixture.trim_end(), "{verb}");
+        }
+    }
+
+    #[test]
+    fn the_gate_goes_out_in_the_measured_key_order_and_chunks_at_forty() {
+        // 45 sentences: `which` and k1..k39 in one call, k40..k45 in the
+        // next. Every kind answers CURRENT at 0.1, so the score is 0.09 and
+        // the subject is gated — unless the second call's answers were
+        // dropped, when k45 counts whole and the score is 0.9. Reverts:
+        // keep only the last chunk's answers or only the first's; chunk
+        // at 41.
+        let text: Vec<String> = (1..=45).map(|i| format!("Sentence number {i} is here.")).collect();
+        let subject = Subject { verb: "fact".into(), ..subject_fixture(&text.join(" "), &[("F1", &["x"])]) };
+        let mut which: serde_json::Map<String, serde_json::Value> = (1..45).map(|i| (format!("S{i}"), json!(0.0))).collect();
+        which.insert("S45".into(), json!(0.9));
+        which.insert("NONE".into(), json!(0.1));
+        let typed = typed_mock(which.into(), 0.1, "CORRECT");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let (status, _) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+        assert_eq!(status, Status::Gated, "{:?}", tel.detail);
+        assert_eq!(tel.gate_calls, 2);
+        let sent = typed.bodies();
+        assert_eq!(sent.len(), 2);
+        // The harness's `MAX_QUESTIONS_PER_CALL`, not this crate's constant.
+        assert_eq!(sent[0]["questions"].as_object().map(serde_json::Map::len), Some(40));
+        assert!(sent[1]["questions"].get("k45").is_some() && sent[1]["questions"].get("which").is_none());
+        let raw = &typed.raw()[0];
+        let at = |needle: &str| raw.find(needle).unwrap_or_else(|| panic!("{needle} not sent"));
+        assert!(at(r#"{"state":"AUTHOR'S TEXT:\nSentence number 1"#) == 0, "{raw}");
+        assert!(at(r#","model":"jev-latest","questions":{"which":"#) < at(r#""k1":"#));
+        assert!(at(r#""S9":"#) < at(r#""S10":"#) && at(r#""S10":"#) < at(r#""NONE":"#));
+        assert!(llm.bodies().is_empty());
+    }
+
+    #[test]
+    fn a_subject_scored_below_its_threshold_is_gated_and_nothing_else_runs() {
+        // Invariant 2. Revert: return `ok` with no findings on a skip —
+        // the status assertion fails, and the gated record would carry the
+        // clean `findings: []` the status guard exists to withhold.
+        for verb in ["fact", "claim"] {
+            let subject = Subject { verb: verb.into(), ..fact_subject() };
+            let typed = typed_mock(json!({"S1": 0.1, "NONE": 0.9}), 1.0, "CORRECT");
+            let llm = llm_mock();
+            let mut tel = Telemetry::default();
+            let (status, f) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+            assert_eq!(status, Status::Gated, "{verb}: {:?}", tel.detail);
+            assert!(f.is_empty());
+            assert!(llm.bodies().is_empty(), "{verb}: a gated subject still called classify, check or literals");
+            assert_eq!((tel.gate_calls, tel.attempts), (1, 1), "{verb}");
+            assert!(tel.cost > 0.0, "{verb}: the gate's call totalled nothing");
+            assert_eq!(tel.typed_versions, [MEASURED_TYPED_VERSION]);
+        }
+        // Contrast: the same subject scored above the thresholds is
+        // checked. On `fact` the kind weighs in, so a unit picked at 0.9
+        // that is judged not to describe the code still gates.
+        for (verb, current, gated) in [("fact", 1.0, false), ("claim", 1.0, false), ("fact", 0.1, true)] {
+            let subject = Subject { verb: verb.into(), ..fact_subject() };
+            let typed = typed_mock(json!({"S1": 0.9, "NONE": 0.1}), current, "CORRECT");
+            let llm = llm_mock();
+            let mut tel = Telemetry::default();
+            let (status, _) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+            assert_eq!(status == Status::Gated, gated, "{verb} at CURRENT {current}: {status:?}");
+            assert_eq!(llm.bodies().is_empty(), gated, "{verb} at CURRENT {current}");
+        }
+    }
+
+    #[test]
+    fn the_gate_never_runs_where_the_row_has_none_or_nothing_is_set() {
+        // Reverts: gate every verb; gate without `verify.typed_model`.
+        let prose = Subject { verb: "prose".into(), ..fact_subject() };
+        for (subject, tm) in [(&prose, Some(JEV)), (&fact_subject(), None)] {
+            let typed = typed_mock(json!({"S1": 0.0, "NONE": 1.0}), 1.0, "CORRECT");
+            let llm = llm_mock();
+            let mut tel = Telemetry::default();
+            let (status, _) = gated_run(&llm, &typed, gate_only(tm), subject, &mut tel);
+            assert_ne!(status, Status::Gated, "{} {tm:?}", subject.verb);
+            assert!(typed.bodies().is_empty(), "{} {tm:?}: asked TypeSafe", subject.verb);
+            assert_eq!(tel.gate_calls, 0);
+        }
+        // Text too short to offer a unit is checked without asking.
+        let short = Subject { verb: "fact".into(), ..subject_fixture("it is fast", &[("F1", &["x"])]) };
+        let typed = typed_mock(json!({"NONE": 1.0}), 1.0, "CORRECT");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        gated_run(&llm, &typed, gate_only(Some(JEV)), &short, &mut tel);
+        assert!(typed.bodies().is_empty() && !llm.bodies().is_empty());
+    }
+
+    #[test]
+    fn a_gate_that_fails_runs_the_check_and_says_so() {
+        // Invariant 3. Revert: treat a failed gate as a skip (`Err(_) =>
+        // return (Status::Gated, …)`) — every case below is then gated.
+        // The partial answers each score zero as the harness read them —
+        // a skip. Revert: default a missing probability, as the harness did.
+        let unanswered = || Mock::start(|_| (200, json!({"model": MEASURED_TYPED_VERSION, "answers": {}})));
+        for (verb, typed, want) in [
+            ("fact", Mock::start(|_| (500, json!({}))), Status::Unavailable),
+            ("fact", Mock::start(|_| (429, json!({}))), Status::Unavailable),
+            ("fact", unanswered(), Status::Unparsable),
+            ("fact", typed_mock(json!({}), 1.0, "CORRECT"), Status::Unparsable),
+            ("fact", typed_mock(json!({"NONE": 0.1}), 1.0, "CORRECT"), Status::Unparsable),
+            ("claim", typed_mock(json!({"S1": 0.9}), 1.0, "CORRECT"), Status::Unparsable),
+        ] {
+            let llm = llm_mock();
+            let mut tel = Telemetry::default();
+            let subject = Subject { verb: verb.into(), ..fact_subject() };
+            let (status, f) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+            assert_eq!(status, Status::Ok, "{verb} {want:?}: {:?}", tel.detail);
+            assert_eq!(f.len(), 1, "{want:?}");
+            assert_eq!(tel.gate_status, Some(want));
+            assert_eq!(tel.gate_calls, 1);
+            assert!(!llm.bodies().is_empty());
+        }
+        let r = Record { findings: vec![finding_fixture()], gate_calls: 1, gate_status: Some("unavailable".into()), ..record_fixture() };
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+        assert_eq!(b["gate_incomplete"], "unavailable", "{b}");
+        let clean = Record { gate_status: None, ..r };
+        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted).get("gate_incomplete").is_none());
+    }
+
+    #[test]
+    fn one_typesafe_model_on_both_keys_still_refutes() {
+        // Invariant 5. The gate and the refuter are the same model on
+        // `fact`, and every finding the refuter is handed came from the
+        // LLM check, so the self-refutation guard has nothing to guard.
+        // Revert: extend the guard to the typed model (`refuter.filter(|r|
+        // Some(*r) != typed_model)` in `run`) — the WRONG below then stands.
+        let typed = typed_mock(json!({"S1": 0.9, "NONE": 0.1}), 1.0, "WRONG");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let legs = Legs { literals: false, refuter: Some(JEV), typed_model: Some(JEV) };
+        let (status, f) = gated_run(&llm, &typed, legs, &fact_subject(), &mut tel);
+        assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+        assert!(f.is_empty(), "the refuter did not run: {f:?}");
+        assert_eq!(tel.refuted, 1);
+        let asked: Vec<bool> = typed.bodies().iter().map(|b| b["questions"].get("which").is_some()).collect();
+        assert_eq!(asked, [true, false], "gate first, then one refutation");
+    }
+
+    #[test]
+    fn a_verification_that_ran_the_gate_is_not_counted_as_retried() {
+        // Invariant 10. A `split` check behind a gate makes three calls
+        // unretried. Revert: compare attempts against the LLM count alone
+        // (or drop `gate_calls` from the comparison) — the first record
+        // counts as a retry. A gated record makes one call, fewer than
+        // either count, so it is the ungated one this guards.
+        let ran = Record { attempts: 3, gate_calls: 1, ..record_fixture() };
+        let gated = Record { status: "gated".into(), attempts: 1, gate_calls: 1, ..record_fixture() };
+        assert_eq!(retried(&[ran.clone(), gated]), 0);
+        // Contrast: one more attempt than that is a retry.
+        assert_eq!(retried(&[Record { attempts: 4, ..ran }]), 1);
+        assert_eq!(expected_calls("split", false, RefuterLeg::Off, 1), Calls { llm: 2, typed: 1 });
+    }
+
+    #[test]
+    fn a_gated_record_carries_no_findings_but_keeps_the_version_flag() {
+        // The status guard withholds `findings`; the version keys are
+        // outside it (invariant 7). Revert: emit `findings` for `gated`.
+        let r = Record { status: "gated".into(), typed_versions: vec!["jev-1.14.0".into()], ..record_fixture() };
+        let s = Settings { typed_model: Some(JEV.into()), ..settings_fixture() };
+        let b = block(&s, "claim", Some(&r), Trigger::NotAttempted);
+        assert!(b.get("findings").is_none(), "{b}");
+        assert_eq!(b["typed_model_unmeasured"], true, "{b}");
+        assert_eq!(b["typed_model"], JEV, "{b}");
+        assert_eq!(Status::Gated.as_str(), "gated");
+    }
+
+    #[test]
+    fn a_typed_model_demands_its_credential_where_its_gate_runs() {
+        // Invariant 6, for the gate. Reverts: demand the key on every verb
+        // (prose has no gate); demand it for the refuter alone.
+        let s = Settings { typed_model: Some(JEV.into()), ..settings_fixture() };
+        let key = || Some("k".to_string());
+        for verb in ["fact", "claim"] {
+            assert!(providers_for(&s, verb, key(), None).is_none(), "{verb} gated without its key");
+            assert!(providers_for(&s, verb, key(), key()).is_some_and(|p| p.typed.is_some()), "{verb}");
+            let d = unauthorized_detail(&s, verb, true, false).expect("a gap");
+            assert!(d.contains("verify.typed_model") && d.contains(TYPED_KEY_VAR), "{d}");
+        }
+        assert!(providers_for(&s, "prose", key(), None).is_some_and(|p| p.typed.is_none()));
+        assert_eq!(unauthorized_detail(&s, "prose", true, false), None);
+    }
+
+    #[test]
+    fn the_budget_pays_for_the_gate_where_it_runs() {
+        // Revert: leave the gate out of `planned_calls`, which `settings`
+        // budgets from.
+        let m = Some("openai/gpt-5.6-luna");
+        for (verb, pays) in [("fact", true), ("claim", true), ("prose", false)] {
+            let [a, b] = [None, Some(JEV)].map(|tm| default_budget_ms(planned_calls(verb, "split", false, None, m, tm)));
+            assert_eq!(b - a, if pays { DEFAULT_MS_PER_TYPED_LEG } else { 0 }, "{verb}");
+        }
+    }
+
 
     #[test]
     fn a_refused_model_is_named_rather_than_reported_unset() {

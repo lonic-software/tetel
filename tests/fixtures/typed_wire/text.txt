@@ -1,0 +1,3 @@
+The check makes two calls. It retries once on a truncated draw; the budget covers both: `timeout_ms` is 120000. Version 1.2 ships. e.g. the lower-case start stays joined. The gate runs first — before classify – and costs one call. A third sentence is here. A fourth sentence is here. A fifth sentence is here. A sixth sentence is here. A seventh sentence is here. An eighth sentence is here. A ninth sentence, with a clause, is here.
+
+A tenth sentence after a blank line.
