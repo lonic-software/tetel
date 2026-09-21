@@ -1,0 +1,50 @@
+{
+ "recorded_at": "2026-09-21T12:41:37+00:00",
+ "endpoint": "https://api.typesafe.ai/v1/systemone",
+ "request": {
+  "state": "The build failed. Exit code 1. Three tests errored in payments/.",
+  "model": "jev-latest",
+  "questions": {
+   "failed": {
+    "type": "noul",
+    "instructions": "The build failed.",
+    "criteria": {
+     "true": "it failed",
+     "false": "it passed"
+    }
+   },
+   "area": {
+    "type": "choice",
+    "instructions": "Which area do the errors sit in?",
+    "criteria": {
+     "payments": "payment code",
+     "auth": "login code",
+     "search": "search code"
+    }
+   }
+  }
+ },
+ "reply": {
+  "model": "jev-1.13.0",
+  "answers": {
+   "failed": {
+    "type": "noul",
+    "noul": 0.98
+   },
+   "area": {
+    "type": "choice",
+    "choice": "payments",
+    "confidence": 1.0,
+    "probabilities": {
+     "auth": 0.0,
+     "search": 0.0,
+     "payments": 1.0
+    }
+   }
+  },
+  "usage": {
+   "input_tokens": 370,
+   "output_tokens": 54
+  }
+ }
+}

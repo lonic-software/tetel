@@ -824,6 +824,7 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 | `gate_runs/` | every draw of every gate variant, three per variant per corpus |
 | `defects_v1.json` | subject-level ground truth for a gate: the union of all three adjudications |
 | `classify_jev.py` / `classify_runs/` | the classify leg asked of Jev: mechanical clauses, one `choice` each |
+| `record_reply.py` / `jev_reply_*.json` | one raw Jev reply kept whole — the envelope and the resolved version `jev.ask()` discards |
 | `score_bundle.py` | the literal leg joined with the check leg and the claim gate — the table "what it adds" rests on |
 | `score_classify_ab.py` / `retro_classify_{llm,jev}_x3.json` | the check leg fed LLM labels vs Jev labels, same day, same claims, every flag graded |
 | `literals_jev.py` / `literals_runs/` | the literal leg asked of Jev: code proposes, shipped filters, two nouls per survivor |
