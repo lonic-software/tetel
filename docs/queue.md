@@ -24,7 +24,7 @@ other two are placed where they would stand on their own.
 
 | # | Ticket | Note |
 |---|---|---|
-| N1 | **TET-96** — typed legs in the mint-time verifier: Jev as gate, classify, literal judge and refuter | Next. Nothing blocks it: TET-85 covers `verify.enabled = false`, not the enabled-path `unauthorized` arms this adds. Ships with both new defaults off. |
+| N1 | **TET-96** — typed legs in the mint-time verifier: Jev as gate, classify, literal judge and refuter | In progress, as three PRs. Slice 1 (plumbing and the typed refuter on `fact`: routing, the per-verb table, the `verify.model` refusal, credentials, per-provider budget, pricing, version flag) is `tet96-typed-plumbing`; slice 2 is the gates and `verify.typed_model`; slice 3 is Jev classify and literals on `claim`. Nothing blocks it: TET-85 covers `verify.enabled = false`, not the enabled-path `unauthorized` arms this adds. Ships with both new defaults off. |
 | N2 | **TET-98** — the two runs owed before Jev's typed legs become the default | Alongside N1, not after it; gates only the default flips. Every Jev call must keep the resolved model version, which no run so far has. |
 | N3 | **TET-97** — move the verifier-eval corpora out of the worktree tetel censuses | Ranked in B, beside TET-87, for the same reason: it distorts the censuses the queue is gated on. Decide it before N2 lands tens more megabytes of runs. |
 

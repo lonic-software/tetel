@@ -109,7 +109,8 @@ pub const DEFAULT_RUN_TIMEOUT_MS: u64 = 300_000;
 
 /// Whether the mint-time verifier runs at all. Off unless set.
 pub const KEY_VERIFY_ENABLED: &str = "verify.enabled";
-/// Which model performs the comparison, as `vendor/model`.
+/// Which model performs the comparison, as `vendor/model`. Never a
+/// [`TYPED_VENDOR`] model — see [`Accepts::ModelName`].
 pub const KEY_VERIFY_MODEL: &str = "verify.model";
 /// `split` (two calls, the default) or `direct` (one). See
 /// [`VERIFY_APPROACHES`], which is the authority on what is accepted.
@@ -143,6 +144,22 @@ pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
 /// belongs beside the setting that turns it off, where `tetel config`
 /// prints it.
 pub const DEFAULT_REFUTER: &str = "anthropic/claude-sonnet-4.5";
+
+/// The vendor half that routes a model value to TypeSafe instead of
+/// OpenRouter.
+///
+/// Routing is on the value, not on the key it came from, so the existing
+/// `vendor/model` syntax needs nothing new — and so a key that takes any
+/// model name, [`KEY_VERIFY_REFUTER`] among them, is a typed leg the moment
+/// it holds one of these. Matched exactly: `TypeSafe/jev` is an OpenRouter
+/// name, and fails there.
+pub const TYPED_VENDOR: &str = "typesafe";
+
+/// Whether `model` routes to TypeSafe — its vendor half is exactly
+/// [`TYPED_VENDOR`].
+pub fn is_typed_model(model: &str) -> bool {
+    model.trim().split_once('/').is_some_and(|(vendor, _)| vendor == TYPED_VENDOR)
+}
 
 /// The [`KEY_VERIFY_REFUTER`] value that turns refutation off.
 ///
@@ -201,7 +218,9 @@ impl fmt::Display for Scope {
     }
 }
 
-/// What a key accepts. Checked by [`set`], never by [`resolve`].
+/// What a key accepts. Checked by [`set`] when a value is written, and
+/// again by [`resolve`] every time one is read — so a hand-edited file
+/// cannot smuggle in a value `set` would have refused.
 enum Accepts {
     /// A whole number at or above `min`.
     ///
@@ -235,9 +254,15 @@ enum Accepts {
     /// construction. Refusing here breaches nothing: `set` already refuses
     /// on value shape, and a refusal at `config set` can never suppress a
     /// mint.
+    ///
+    /// It also refuses a model that routes to TypeSafe ([`is_typed_model`]).
+    /// The one key taking this, [`KEY_VERIFY_MODEL`], drives the check
+    /// leg, which is a chat completion and stays on OpenRouter whatever the
+    /// value says: Jev answers typed questions, not a prompt, and nothing
+    /// measured it there.
     ModelName,
-    /// A model identifier as [`Accepts::ModelName`], or the word
-    /// [`REFUTER_OFF`]. The credential rule holds unchanged: `off` is not
+    /// A model identifier as [`Accepts::ModelName`] — a `typesafe/` one
+    /// included — or the word [`REFUTER_OFF`]. The credential rule holds unchanged: `off` is not
     /// a shape any key resembles.
     ModelNameOrOff,
 }
@@ -272,24 +297,28 @@ before it leaves the owed list (at least 1)",
     KeyDef {
         name: KEY_VERIFY_MODEL,
         summary: "which model performs that comparison, as vendor/model. Never a credential: \
-the key comes from the environment, and a credential-shaped value is refused here",
+the key comes from the environment, and a credential-shaped value is refused here. Never a \
+typesafe/ model either: the comparison is a prompt, and Jev answers typed questions",
         accepts: Accepts::ModelName,
     },
     KeyDef {
         name: KEY_VERIFY_APPROACH,
         summary: "`split` — two calls, the default: classify the claim's assertions, then check \
 only the ones the evidence can speak to. This is the configuration measured on real memos. \
-Or `direct` — one call, so cheaper, though by how much is not measured: the call it drops \
-carries the claim alone while the one it keeps carries the evidence",
+Or `direct` — one call, about a third cheaper: one-call arms that report disagreements measured \
+at 0.63-0.65 of `split`'s cost. Not half, though the call it drops is no cheap one — `split`'s \
+classify call measured 2026-09-21 at about half a `claim` verification's spend — because the one \
+call `direct` makes does both jobs",
         accepts: Accepts::OneOf(VERIFY_APPROACHES),
     },
     KeyDef {
         name: KEY_VERIFY_TIMEOUT_MS,
         summary: "how long one mint's verification may take end to end, across every retry \
-(milliseconds, at least 1000). Unset, the default is 60000 per provider call the configured \
-approach makes — 60s for `direct` and 120s for `split`, plus 60s for `verify.literals` and 120s \
-for a refuter, so 240s at the shipped defaults. It does not sit in front of a reply, so it can be \
-generous",
+(milliseconds, at least 1000). Unset, it is worked out per verb from the calls that verb would \
+make: 60000 for each OpenRouter call and 10000 for each typesafe/ one, since Jev answers in about \
+a second where a reasoning model can take fifty. That is 60s for `direct` and 120s for `split`, \
+plus 60s for `verify.literals` and room for two refuter calls at the refuter's rate — 240s at the \
+shipped defaults. It does not sit in front of a reply, so it can be generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
@@ -319,8 +348,9 @@ different questions when someone else asks the second one",
 as current fact that appear nowhere in the evidence it cites (true or false; off unless set). \
 Measured 2026-08-15 at 80% precision against the other two kinds' 83%, disturbing fewer sound \
 claims than they do — but surfacing none of the nine claims a later pass refuted, which is why \
-it stays off. Costs one more call per mint, and a failure in that call fails the whole \
-verification",
+it stays off. Costs one more call per mint. A failure in that call does not fail the \
+verification: its other findings are still delivered, and the response says \
+`literals_incomplete`",
         accepts: Accepts::Bool,
     },
 ];
@@ -338,11 +368,17 @@ fn key_def(name: &str) -> Option<&'static KeyDef> {
 /// author who pasted a credential into `verify.model` by hand meets the
 /// refusal on *read*, not on write, and that is the path most likely to
 /// end up in a terminal capture or a bug report.
-pub fn hides_rejected_value(key: &str) -> bool {
+///
+/// Judged on the value as well as the key. A well-formed model name is
+/// not a credential, and it is refused for a reason worth saying — a
+/// `typesafe/` model in `verify.model` — so it is shown; withholding it
+/// would tell an author looking at a model name in their file that it is
+/// "not a model identifier".
+pub fn hides_rejected_value(key: &str, raw: &str) -> bool {
     matches!(
         key_def(key).map(|d| &d.accepts),
         Some(Accepts::ModelName | Accepts::ModelNameOrOff)
-    )
+    ) && !is_model_name(raw.trim())
 }
 
 /// The names of every settable key, for an error message that tells the
@@ -585,7 +621,7 @@ fn accepted(accepts: &Accepts, raw: &str) -> bool {
         Accepts::SubsetOf(words) => split_list(raw)
             .iter()
             .all(|w| words.contains(&w.to_ascii_lowercase().as_str())),
-        Accepts::ModelName => is_model_name(raw),
+        Accepts::ModelName => is_model_name(raw) && !is_typed_model(raw),
         Accepts::ModelNameOrOff => {
             raw.trim().eq_ignore_ascii_case(REFUTER_OFF) || is_model_name(raw)
         }
@@ -631,6 +667,44 @@ fn is_model_name(raw: &str) -> bool {
     ok(vendor) && ok(model)
 }
 
+/// Why [`KEY_VERIFY_MODEL`] refused a well-formed `typesafe/` value.
+///
+/// One wording for the write path and the read path. The read path is the
+/// one that matters: `resolve` drops the value, and without this an author
+/// looking at a file that plainly sets the key is told it is not set.
+pub fn typed_model_refusal(key: &str, value: &str) -> String {
+    format!(
+        "`{key}` cannot be `{value}`: a `{TYPED_VENDOR}/` model answers typed questions, \
+not the prompt the comparison sends, so the comparison stays on an OpenRouter model. \
+`{KEY_VERIFY_REFUTER}` may name one, on `fact`"
+    )
+}
+
+/// What the author should be told about a [`KEY_VERIFY_MODEL`] value that
+/// is written in a file and was refused, or `None` when there is none.
+///
+/// Answers from the file, not from the resolved value: the resolved value
+/// of a refused key is simply absent, which is indistinguishable from a
+/// key nobody set. So this has to be computed where the workspace
+/// directory is still in hand. The refused value is named only when it is
+/// a well-formed model name — anything else may be a credential, and is
+/// withheld exactly as [`hides_rejected_value`] withholds it elsewhere.
+pub fn verify_model_refusal(workspace_dir: Option<&Path>) -> Option<String> {
+    let (_, source) = resolve(KEY_VERIFY_MODEL, workspace_dir);
+    let Source::Rejected(scope, raw) = source else {
+        return None;
+    };
+    let raw = raw.trim();
+    Some(if is_model_name(raw) {
+        format!("{} (in the {scope} settings file)", typed_model_refusal(KEY_VERIFY_MODEL, raw))
+    } else {
+        format!(
+            "`{KEY_VERIFY_MODEL}` in the {scope} settings file is not a model identifier \
+and is being ignored; the value is not echoed in case it is a credential"
+        )
+    })
+}
+
 /// Set `key` to `value` in `scope`, creating the file if needed.
 ///
 /// Refuses an unknown key and a value the key does not accept, and writes
@@ -662,6 +736,11 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                     "`{key}` takes a comma-separated list drawn from {}; got `{value}`",
                     words.join(", ")
                 ),
+                // A well-formed model name is not a credential, so this
+                // arm may name it; every other refusal below may not.
+                Accepts::ModelName if is_model_name(value.trim()) => {
+                    typed_model_refusal(key, value.trim())
+                }
                 // Deliberately does not echo the value back. If an author
                 // did paste a credential here, repeating it into a
                 // terminal, a log or a bug report is the harm this rule
@@ -764,7 +843,7 @@ pub fn list_text(workspace_dir: Option<&Path>) -> String {
             // Same reason `set` does not echo a rejected model name: if
             // what is sitting in the file is a pasted credential, printing
             // it here spreads it to wherever this listing is pasted.
-            (_, Source::Rejected(scope, _)) if hides_rejected_value(def.name) => {
+            (_, Source::Rejected(scope, raw)) if hides_rejected_value(def.name, raw) => {
                 format!("(unset — the value in the {scope} file is not a model identifier)")
             }
             (_, Source::Rejected(scope, raw)) => {
@@ -778,7 +857,7 @@ pub fn list_text(workspace_dir: Option<&Path>) -> String {
         // from somewhere else entirely.
         if matches!(source, Source::File(_)) {
             for (scope, raw) in rejections(def.name, workspace_dir) {
-                out.push_str(&if hides_rejected_value(def.name) {
+                out.push_str(&if hides_rejected_value(def.name, &raw) {
                     format!("  also: the {scope} file holds a value this key does not accept (not echoed, in case it is a credential)\n")
                 } else {
                     format!("  also: `{raw}` in the {scope} file is not a value this key accepts, and is being ignored\n")
@@ -989,7 +1068,7 @@ mod tests {
         // The credential rule reaches the read path for this key too. A
         // second model-shaped key that echoed a pasted credential back in
         // `tetel config` would undo the rule the first one enforces.
-        assert!(hides_rejected_value(KEY_VERIFY_REFUTER));
+        assert!(hides_rejected_value(KEY_VERIFY_REFUTER, "sk-live-abcdef"));
     }
 
     #[test]
@@ -1063,6 +1142,26 @@ mod tests {
         for model in ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "meta/llama-3.1:70b"] {
             assert!(accepted(&Accepts::ModelName, model), "refused `{model}`");
         }
+    }
+
+    #[test]
+    fn the_check_model_cannot_be_a_typesafe_one_and_the_refuter_can() {
+        // Invariant 4, on the acceptance test itself — which `resolve` runs
+        // on every read, so a hand-edited file is refused too. Revert: drop
+        // the vendor test from `Accepts::ModelName`.
+        assert!(!accepted(&Accepts::ModelName, "typesafe/jev-1.13.0"));
+        assert!(accepted(&Accepts::ModelNameOrOff, "typesafe/jev-1.13.0"));
+        // Routing is on the exact vendor half, nothing looser.
+        assert!(is_typed_model("typesafe/jev-latest"));
+        assert!(!is_typed_model("TypeSafe/jev-latest"));
+        assert!(!is_typed_model("openai/typesafe-jev"));
+        assert!(accepted(&Accepts::ModelName, "openai/typesafe-jev"));
+        // A model name is not a credential, so the refusal may say what it
+        // refused — and has to, or the author cannot tell which value is
+        // wrong.
+        let e = set(Scope::Global, None, KEY_VERIFY_MODEL, "typesafe/jev-1.13.0").unwrap_err();
+        assert!(e.to_string().contains("typesafe/jev-1.13.0"), "{e}");
+        assert!(!hides_rejected_value(KEY_VERIFY_MODEL, "typesafe/jev-1.13.0"));
     }
 
     #[test]
@@ -1151,9 +1250,9 @@ mod tests {
     fn the_credential_rule_holds_on_every_path_that_could_print_a_value() {
         // Two of three is worth nothing: an author who pastes a key into
         // the file by hand meets the refusal on *read*, not on write.
-        assert!(hides_rejected_value(KEY_VERIFY_MODEL));
-        assert!(!hides_rejected_value(KEY_GROUNDING_FLOOR));
-        assert!(!hides_rejected_value("nonesuch"));
+        assert!(hides_rejected_value(KEY_VERIFY_MODEL, "sk-or-v1-abc"));
+        assert!(!hides_rejected_value(KEY_GROUNDING_FLOOR, "sk-or-v1-abc"));
+        assert!(!hides_rejected_value("nonesuch", "sk-or-v1-abc"));
     }
 
     #[test]

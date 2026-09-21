@@ -812,7 +812,7 @@ impl TetelServer {
         // Every authoring call in the workspace delivers whatever finished
         // since the last one — a verification outlives the reply that
         // triggered it, so this is where it lands.
-        let settings = crate::verify::settings(&dir);
+        let settings = crate::verify::settings(&dir, "fact");
         let delivered = crate::verify::peek_delivered(&dir);
         // The note as it stood before this call. `facts::revise` refuses
         // only a missing id, an empty `--why` and an empty note — it
@@ -873,7 +873,7 @@ impl TetelServer {
         } else {
             claims::ClaimRequest::Create { prop: p.proposition, from: p.cites }
         };
-        let settings = crate::verify::settings(&dir);
+        let settings = crate::verify::settings(&dir, "claim");
         let delivered = crate::verify::peek_delivered(&dir);
         // The wording as it stood before this call, so a revision that
         // leaves the compared text alone can make no call — which is what
@@ -1062,7 +1062,7 @@ impl TetelServer {
                 prose::ProseRequest::Paragraph { text, cite: p.cites, before: p.before }
             }
         };
-        let settings = crate::verify::settings(&dir);
+        let settings = crate::verify::settings(&dir, "prose");
         let delivered = crate::verify::peek_delivered(&dir);
         // Same reason as `claim`: an unchanged text is a comparison
         // already paid for.
