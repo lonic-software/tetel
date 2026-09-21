@@ -1,0 +1,180 @@
+[
+ {
+  "text": "It read `src/verify.rs` and docs/verify.md: the gate asks 40 questions per call (3 files) over { id, proposition, cited fact ids } and `a, b` — twelve lines, 1,024 bytes at 12.5% of 14_000. The lower-case start stays joined; it retries two times on scripts/ and v1.2.3, then acks.jsonl.\n\nA second paragraph names TET-96, one call and 7_ items: done.",
+  "candidates": [
+   "40 questions",
+   "3 files)",
+   "twelve lines",
+   "1,024 bytes",
+   "12.5% of",
+   "14_000",
+   "two times",
+   "one call",
+   "7_ items",
+   "src/verify.rs",
+   "docs/verify.md",
+   "scripts/",
+   "acks.jsonl"
+  ],
+  "clauses": [
+   "the gate asks 40 questions per call (3 files) over { id",
+   "the gate asks 40 questions per call (3 files) over { id",
+   "twelve lines",
+   "1,024 bytes at 12.5% of 14_000.",
+   "1,024 bytes at 12.5% of 14_000.",
+   "1,024 bytes at 12.5% of 14_000.",
+   "it retries two times on scripts/ and v1.2.3",
+   "one call and 7_ items",
+   "one call and 7_ items",
+   "It read `src/verify.rs` and docs/verify.md",
+   "It read `src/verify.rs` and docs/verify.md",
+   "it retries two times on scripts/ and v1.2.3",
+   "then acks.jsonl."
+  ],
+  "units": [
+   "It read `src/verify.rs` and docs/verify.md",
+   "the gate asks 40 questions per call (3 files) over { id, proposition, cited fact ids } and `a, b`",
+   "twelve lines",
+   "1,024 bytes at 12.5% of 14_000.",
+   "The lower-case start stays joined",
+   "it retries two times on scripts/ and v1.2.3",
+   "then acks.jsonl.",
+   "A second paragraph names TET-96",
+   "one call and 7_ items",
+   "done."
+  ]
+ },
+ {
+  "text": "See `src/a.rs`, dir/sub/, a/b.jsonl and x.json.bak; 1,024 bytes (3 files) at 12.5% of 40_000.",
+  "candidates": [
+   "1,024 bytes",
+   "3 files)",
+   "12.5% of",
+   "40_000",
+   "src/a.rs",
+   "dir/sub/",
+   "a/b.jsonl",
+   "x.json"
+  ],
+  "clauses": [
+   "1,024 bytes (3 files) at 12.5% of 40_000.",
+   "1,024 bytes (3 files) at 12.5% of 40_000.",
+   "1,024 bytes (3 files) at 12.5% of 40_000.",
+   "1,024 bytes (3 files) at 12.5% of 40_000.",
+   "See `src/a.rs`",
+   "dir/sub/",
+   "a/b.jsonl and x.json.bak",
+   "a/b.jsonl and x.json.bak"
+  ],
+  "units": [
+   "See `src/a.rs`",
+   "dir/sub/",
+   "a/b.jsonl and x.json.bak",
+   "1,024 bytes (3 files) at 12.5% of 40_000."
+  ]
+ },
+ {
+  "text": "It took 1.5s: two-phase, Twelve lines, v1.2.3 and 3.x; ~7 items, #5 and 10.0.0.1 — 4%x (5) Items.",
+  "candidates": [
+   "1",
+   "Twelve lines",
+   "3",
+   "7 items",
+   "10.0",
+   "4",
+   "5"
+  ],
+  "clauses": [
+   "It took 1.5s",
+   "Twelve lines",
+   "v1.2.3 and 3.x",
+   "~7 items",
+   "#5 and 10.0.0.1",
+   "4%x (5) Items.",
+   "It took 1.5s"
+  ],
+  "units": [
+   "It took 1.5s",
+   "two-phase",
+   "Twelve lines",
+   "v1.2.3 and 3.x",
+   "~7 items",
+   "#5 and 10.0.0.1",
+   "4%x (5) Items."
+  ]
+ },
+ {
+  "text": "Paths ``a/b`` and a//b/c.rs.rs, foo.py-bar, 3,, and 7_ and 9. Done: { a, b [c, d] } `x, y` e, f.",
+  "candidates": [
+   "3,, and",
+   "7_ and",
+   "9",
+   "a/b",
+   "a/",
+   "b/c.rs.rs",
+   "foo.py"
+  ],
+  "clauses": [
+   "3,",
+   "and 7_ and 9.",
+   "and 7_ and 9.",
+   "Paths ``a/b`` and a//b/c.rs.rs",
+   "Paths ``a/b`` and a//b/c.rs.rs",
+   "Paths ``a/b`` and a//b/c.rs.rs",
+   "foo.py-bar"
+  ],
+  "units": [
+   "Paths ``a/b`` and a//b/c.rs.rs",
+   "foo.py-bar",
+   "and 7_ and 9.",
+   "Done",
+   "{ a, b [c, d] } `x, y` e"
+  ]
+ },
+ {
+  "text": "Unbalanced ) closers ] first, then (an open one, never closed, and `an open code span, too",
+  "candidates": [
+   "one"
+  ],
+  "clauses": [
+   "then (an open one"
+  ],
+  "units": [
+   "Unbalanced ) closers ] first",
+   "then (an open one, never closed, and `an open code span, too"
+  ]
+ },
+ {
+  "text": "It keeps 3 (three) files and 2 (x) more beside them.",
+  "candidates": [
+   "3",
+   "three",
+   "2"
+  ],
+  "clauses": [
+   "It keeps 3 (three) files and 2 (x) more beside them.",
+   "It keeps 3 (three) files and 2 (x) more beside them.",
+   "It keeps 3 (three) files and 2 (x) more beside them."
+  ],
+  "units": [
+   "It keeps 3 (three) files and 2 (x) more beside them."
+  ]
+ },
+ {
+  "text": "The cache holds 9 or more, fine.\n\nThe cache holds 9\n\nItems are kept here always.",
+  "candidates": [
+   "9 or",
+   "9\n\nItems"
+  ],
+  "clauses": [
+   "The cache holds 9 or more",
+   "The cache holds 9 or more, fine.\n\nThe cache holds 9\n\nItems are kept here always."
+  ],
+  "units": [
+   "The cache holds 9 or more",
+   "fine.",
+   "The cache holds 9",
+   "Items are kept here always."
+  ]
+ }
+]

@@ -156,6 +156,39 @@ checked without asking.
 refuter: the gate reads your text, the refuter reads the LLM's findings, and neither judges its own
 output.
 
+### Jev classifying and judging literals, on `claim`
+
+On `claim`, `verify.typed_model` also takes over two of the LLM's calls. The check itself stays an
+LLM.
+
+**Classify, under `split`.** `split`'s first call only sorts your own words into what is current,
+what the design proposes, and what is argument, so the sorting needs no model. Code cuts the claim
+into clauses (never inside brackets or a code span, so `{ id, proposition, cited fact ids }` stays one
+part), and Jev labels each one. A part is labelled current once Jev gives that label 40%, because
+hiding a current clause from the check loses a correct warning. The check reads these labels exactly
+as it reads the LLM's. Measured over 125 claims, three draws each, the same check raised the same 11
+correct warnings under either classifier, at **39%** of the cost. One question is still open: Jev's
+labels led to 8 sound claims being flagged against the LLM's 6. That straddles the steering-hazard
+line of 7, but the gap is smaller than the same LLM configuration's own drift between runs. A claim
+too short to offer a part is checked unlabelled, as `direct` checks it. Under `direct` nothing is
+classified, so nothing changes.
+
+**The literal leg, when `verify.literals` is on.** Code proposes every number, number word and path
+in the claim, with the word a number counts ("918 seconds", `acks.jsonl`). The filters described
+[below](#literals-and-why-it-is-off) run unchanged and in the same order. Jev then judges each survivor on two
+questions: is it a quantity stated as current fact, and does the capture carry it in another form?
+A literal is reported when the first reaches 70% and the second stays under 50%. Over the same 88
+claims it matched the LLM leg, at **82%** precision against 80%, for a sixth of the cost, and raised
+the same literals from draw to draw far more often. Jev writes no words, so the finding's `why` is a
+fixed sentence and never a probability.
+
+If Jev answers either leg without a probability it was asked for, that leg has failed. It is never
+read as "nothing found". Failing classify ends the verification `unparsable`, as a failed LLM
+classify does. Failing the literal leg leaves an `ok` carrying `literals_incomplete`. A `claim` the
+gate skips runs neither leg. Neither runs on `fact`, where they were never measured. Because the
+literal leg produces findings, no row that runs it lets Jev refute, so Jev never judges its own
+findings.
+
 ### Why the overlap set is in there
 
 For a `claim`, the captured side is deliberately **not** just the facts you cited. It is those facts
@@ -228,11 +261,11 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model`, never `typesafe/` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate, 60s for `literals` and 10s for a gate — 240s at the shipped defaults |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate, 60s for `literals` and 10s for each TypeSafe leg (on `claim`, Jev's classify and literal legs are charged 10s in place of the 60s they replace) — 240s at the shipped defaults |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
 | `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above. A `typesafe/` model runs on `fact` only |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
-| `verify.typed_model` | `typesafe/model` only | *(none)* | the TypeSafe model that gates `fact` and `claim` before the check — see above |
+| `verify.typed_model` | `typesafe/model` only | *(none)* | the TypeSafe model that gates `fact` and `claim` before the check and, on `claim`, classifies and judges literals in the LLM's place — see above |
 
 ### `approach`
 
@@ -327,9 +360,10 @@ with the refuter charged a flat two legs and `literals` one — 240s for the shi
 Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
 budget would have left `split` no headroom and four legs none at all. A TypeSafe leg is charged 10s,
 since Jev answers in about one; the count is per verb, so a `typesafe/` refuter adds 20s on `fact`
-and nothing on the verbs it does not run on, and `verify.typed_model` adds 10s for the gate on `fact`
-and `claim`. The gate is charged one call: it asks at most 40 questions a call, and no measured
-subject needed a second.
+and nothing on the verbs it does not run on. `verify.typed_model` adds 10s for the gate on `fact`
+and `claim`. On `claim` it also moves classify (under `split`) and the literal leg (when on) to
+TypeSafe, so each of those is charged 10s instead of 60s. Each typed leg is charged one call: it asks
+at most 40 questions a call, and no measured subject needed a second.
 Set it explicitly and your number is used as-is:
 
 ```sh
@@ -538,6 +572,11 @@ costs, about half — but that the one call `direct` makes does both jobs.
 carries the whole evidence blob. Nothing has measured it, so take the arithmetic rather than a
 figure — on `split` it is a third call of roughly check-call size, so budget **about +50%**; on
 `direct` it doubles the calls and roughly doubles the cost.
+
+On `claim` with `verify.typed_model` set, Jev answers both of those calls instead ([see
+above](#jev-classifying-and-judging-literals-on-claim)). With Jev classifying, a `split` verification
+measured at 39% of its cost with the LLM classifying. Jev's literal judgement measured at $0.00023 a
+draw, against $0.00132 for the LLM leg.
 
 Revisions are where the volume is: in the largest memo on disk, two thirds of claim traffic is
 revision. A revision that changes the text being compared is a new comparison and makes a new call.
