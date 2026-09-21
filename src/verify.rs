@@ -2240,11 +2240,15 @@ fn literal_candidates(text: &str) -> Vec<&str> {
 /// `(?<![\w.:/#-])\d[\d,_]*(?:\.\d+)?%?(?![\w])`, then, case-insensitively,
 /// `(?<![\w-])(?:zero|one|…|twelve)(?![\w-])`.
 ///
-/// `\d` is read as an ASCII digit where Python reads any decimal digit.
-/// The two differ only on a figure written in another script, `３` or
-/// `٣`, which the harness proposes and [`is_checkable`] then drops as
-/// no quantity — as the harness's own `is_quantity` does — so no finding
-/// can come of it either way; only `not_a_quantity` counts it there.
+/// `\d` is read as an ASCII digit where Python reads any decimal digit
+/// (std has no test for exactly that class). So a figure in another
+/// script, `３` or `٣`, is proposed by the harness and not here. Alone it
+/// is no quantity to either — [`is_checkable`], like the harness's
+/// `is_quantity`, needs an ASCII digit, a path or a number word — but with
+/// a counted number word ("３ ten-minute passes") or beside an ASCII digit
+/// ("٣4 files") the harness would ask Jev about it and this does not. No
+/// measured claim has such a figure. Likewise `trim` keeps the ASCII
+/// separators `\x1c`–`\x1f` that Python's `strip` removes.
 fn figure_at(at: &[(usize, char)], k: usize) -> Option<usize> {
     let ch = |i: usize| at.get(i).map(|(_, c)| *c);
     let prev = k.checked_sub(1).and_then(ch);
@@ -3813,7 +3817,7 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             .filter(is_unevidenced)
             .count();
         out.push_str(&format!(
-            "\nLITERALS, judged by Jev\n  unevidenced      {kept}   over {jev_leg} verification(s) <- code proposed, Jev judged; left out of the rates below\n"
+            "\nLITERALS, judged by Jev\n  unevidenced      {kept}   over {jev_leg} verification(s) <- code proposed, Jev judged; not in the LITERALS rates\n"
         ));
     }
     if raised > 0 {
