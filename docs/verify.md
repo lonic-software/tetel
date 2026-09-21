@@ -94,7 +94,8 @@ agreement, a third family would disagree about *which* findings are correct. It 
 
 The refuter must not name the same model as `verify.model`. Asked to refute itself that model scored
 17%, near-random — finding and checking are only different questions when someone else asks the
-second one. Configuring it that way is refused, with the reason in the record.
+second one. Configuring it that way is refused, with the reason in the record, and the reply prints
+`refuter_model` as `null`: nothing refuted those findings.
 
 ### Jev as the refuter, on `fact` only
 
@@ -118,7 +119,9 @@ Findings on those verbs reach you unrefuted. Nor is its key demanded there: a mi
 
 `verify.model` cannot be a `typesafe/` model. The comparison is a prompt, and Jev answers typed
 questions; `tetel config` refuses the value, and a settings file that sets it by hand is refused on
-read and named in `detail` — not reported as unset.
+read. When that leaves `verify.model` with no value, the refusal is named in `detail` — not reported
+as unset. When the other settings file supplies a valid model, that one is used, and `tetel config`
+lists the refused value.
 
 A Jev call takes about a second and reports tokens, not a price, so it is costed from TypeSafe's
 published input rate as of 2026-09-21: **$0.042 per million input tokens**, output free. Every reply
@@ -356,13 +359,16 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`, and `refuter_model` — `null` when it is `off`) plus `deterministic: false` and a
+`literals`, and `refuter_model` — `null` when no refuter runs: `off`, or the same model as
+`verify.model`) plus `deterministic: false` and a
 `guidance` string — because tetel only admits a setting that is visible in the output it affects,
 and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
 here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the
 number and the second model actually in force appear. The one exception is a `typesafe/` refuter on
 a verb it does not run on: there `refuter_model` is left out, since no model refuted anything, and
-`refuter_not_run` names the verb and the value instead.
+`refuter_not_run` names the verb and the value instead. On a reply that delivers a finished
+verification, those two keys describe that verification — the refuter that ran on its findings, and
+its verb — which need not be the verb or the settings of the call delivering it.
 
 A few keys appear only when they have something to say. `literals_incomplete` and
 `refuter_incomplete` qualify an `ok` whose literal leg or refuter call did not complete.

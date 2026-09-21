@@ -1709,14 +1709,6 @@ async fn live_verification_delivers_a_finding_on_a_later_call() {
     client.cancel().await.expect("clean shutdown");
 }
 
-/// A verification is delivered exactly once, and a refused call cannot
-/// consume it.
-///
-/// The cursor counts delivered records rather than tracking the largest
-/// sequence number seen, because sequence numbers are chosen inside the
-/// spawned thread by reading the log — neither atomic nor ordered. This
-/// plants a log whose records arrive out of sequence and share a number,
-/// which is exactly what two verifications in flight can produce.
 /// A `typesafe/` model written by hand into a workspace's settings file is
 /// refused on read, and the author is told so — scope and value — rather
 /// than told the key is not set, in front of a file where it plainly is.
@@ -1752,6 +1744,14 @@ async fn a_typesafe_check_model_in_a_workspace_file_is_named_not_reported_unset(
     client.cancel().await.expect("clean shutdown");
 }
 
+/// A verification is delivered exactly once, and a refused call cannot
+/// consume it.
+///
+/// The cursor counts delivered records rather than tracking the largest
+/// sequence number seen, because sequence numbers are chosen inside the
+/// spawned thread by reading the log — neither atomic nor ordered. This
+/// plants a log whose records arrive out of sequence and share a number,
+/// which is exactly what two verifications in flight can produce.
 #[tokio::test]
 async fn a_finding_survives_a_refused_call_and_is_delivered_once() {
     let sb = Sandbox::new("verify-delivery-cursor");
