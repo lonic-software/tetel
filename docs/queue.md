@@ -16,6 +16,20 @@ grounder, of which `look` was ~51% and `run` ~8%.
 
 ---
 
+## Now — chosen out of order
+
+These three came out of the Jev verifier design (`docs/design/tet-verifier-jev.md`, 2026-09-21), after
+the ordering below was written. TET-96 was picked to go next by decision, not by the rule below; the
+other two are placed where they would stand on their own.
+
+| # | Ticket | Note |
+|---|---|---|
+| N1 | **TET-96** — typed legs in the mint-time verifier: Jev as gate, classify, literal judge and refuter | Next. Nothing blocks it: TET-85 covers `verify.enabled = false`, not the enabled-path `unauthorized` arms this adds. Ships with both new defaults off. |
+| N2 | **TET-98** — the two runs owed before Jev's typed legs become the default | Alongside N1, not after it; gates only the default flips. Every Jev call must keep the resolved model version, which no run so far has. |
+| N3 | **TET-97** — move the verifier-eval corpora out of the worktree tetel censuses | Ranked in B, beside TET-87, for the same reason: it distorts the censuses the queue is gated on. Decide it before N2 lands tens more megabytes of runs. |
+
+---
+
 ## A. Blocking — before tetel is usable enough and efficient
 
 Roughly half of these are one defect wearing different hats: **a reply is sized for a terminal and
@@ -53,6 +67,7 @@ places, but A2–A7 should be settled together, behind one decision about what a
 | B2 | **TET-90** — `check` should report a stale extent when a fact's subject has moved | Human-owed row, in keeping with "no auto-bless". |
 | B3 | **TET-67** — TET-46's exclusion is scoped to `look`; `run` reaches tetel's own output freely | 40 of 74 proc extents do. Closes a hole rather than opening a feature. |
 | B4 | **TET-87** — a memo under authoring sits inside its own measurement population | Corpus counts over `docs/design` silently include the memo being written. Distorts exactly the measurements this queue is gated on — the reason it is near the top of B. |
+| B4a | **TET-97** — the verifier-eval corpora sit in the worktree every census searches | Same family as B4: 44 MB of JSON quoting memo prose makes common symbols uncensusable (three of the eight in the Jev design) and was once captured by accident. See N3. |
 | B5 | **TET-6** — overlap-report keying fix | Known, scoped, small. |
 | B6 | **TET-64** — warn the author at `prose --revise` time | The mitigation for A8; do it after, once there is an act to name. |
 | B7 | **TET-49** — revising a claim leaves its dependents unexamined | Same family: a change whose blast radius nothing reports. |
