@@ -94,8 +94,8 @@ agreement, a third family would disagree about *which* findings are correct. It 
 
 The refuter must not name the same model as `verify.model`. Asked to refute itself that model scored
 17%, near-random — finding and checking are only different questions when someone else asks the
-second one. Configuring it that way is refused, with the reason in the record, and the reply prints
-`refuter_model` as `null`: nothing refuted those findings.
+second one. Configured that way, the refuter runs nothing: the reply leaves `refuter_model` out and
+reports it in `refuter_not_run`, with the reason and the remedy, as below.
 
 ### Jev as the refuter, on `fact` only
 
@@ -111,7 +111,8 @@ catches at **80%** precision. On `prose` it kept 13 of 44 adjudicated findings a
 replaced — and the reply leaves `refuter_model` out and says so instead:
 
 ```json
-{ "refuter_not_run": { "verb": "claim", "refuter_model": "typesafe/jev-latest" } }
+{ "refuter_not_run": { "verb": "claim", "refuter_model": "typesafe/jev-latest",
+                      "reason": "a `typesafe/` refuter runs on `fact` only" } }
 ```
 
 Findings on those verbs reach you unrefuted. Nor is its key demanded there: a missing
@@ -359,14 +360,14 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`, and `refuter_model` — `null` when no refuter runs: `off`, or the same model as
-`verify.model`) plus `deterministic: false` and a
+`literals`, and `refuter_model` — `null` when it is `off`) plus `deterministic: false` and a
 `guidance` string — because tetel only admits a setting that is visible in the output it affects,
 and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
 here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the
-number and the second model actually in force appear. The one exception is a `typesafe/` refuter on
-a verb it does not run on: there `refuter_model` is left out, since no model refuted anything, and
-`refuter_not_run` names the verb and the value instead. On a reply that delivers a finished
+number and the second model actually in force appear. The one exception is a refuter that is set and
+runs nothing — a `typesafe/` one on a verb other than `fact`, or one that is `verify.model` itself:
+there `refuter_model` is left out, since no model refuted anything, and `refuter_not_run` names the
+verb, the value and the reason instead. On a reply that delivers a finished
 verification, those two keys describe that verification — the refuter that ran on its findings, and
 its verb — which need not be the verb or the settings of the call delivering it.
 

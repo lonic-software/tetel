@@ -529,8 +529,8 @@ enum RefuterLeg<'a> {
     /// spend on a model the author had just replaced.
     NotRun(&'a str),
     /// The check model itself. A model refuting itself scored 17%, so it
-    /// runs nothing either — and, like `Off`, is printed as no refuter,
-    /// because a name over findings nothing refuted says they were.
+    /// runs nothing either, and is reported as `NotRun` is: a name over
+    /// findings nothing refuted says they were.
     Itself(&'a str),
 }
 
@@ -542,6 +542,32 @@ impl RefuterLeg<'_> {
             RefuterLeg::Off | RefuterLeg::NotRun(_) | RefuterLeg::Itself(_) => None,
         }
     }
+
+    /// A refuter the author set that runs nothing, and why — so a reply
+    /// that prints no refuter over findings nothing refuted does not look
+    /// like one where the refuter was turned `off`.
+    fn not_run(self) -> Option<RefuterNotRun> {
+        let (m, reason) = match self {
+            RefuterLeg::NotRun(m) => (m, "a `typesafe/` refuter runs on `fact` only".to_string()),
+            RefuterLeg::Itself(m) => (
+                m,
+                format!(
+                    "it is `verify.model` too, and a model refuting itself scored 17% — set \
+                     `verify.refuter_model` to a different model, or to `{}`",
+                    config::REFUTER_OFF
+                ),
+            ),
+            RefuterLeg::Off | RefuterLeg::Llm(_) | RefuterLeg::Typed(_) => return None,
+        };
+        Some(RefuterNotRun { refuter_model: m.to_string(), reason })
+    }
+}
+
+/// [`RefuterLeg::not_run`], persisted on the [`Record`] it applied to.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RefuterNotRun {
+    pub refuter_model: String,
+    pub reason: String,
 }
 
 fn refuter_leg<'a>(refuter: Option<&'a str>, model: Option<&str>, verb: &str) -> RefuterLeg<'a> {
@@ -679,11 +705,11 @@ pub struct Record {
     /// knows a typed leg ran.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub typed_versions: Vec<String>,
-    /// The `typesafe/` refuter this record's verb did not run, when one
-    /// was configured. Kept on the record so the reply that delivers it
-    /// says so for the verb it ran on, not the verb that delivered it.
+    /// The refuter the author set that this record's verification did not
+    /// run, and why. Kept on the record so the reply that delivers it says
+    /// so for the verb it ran on, not the verb that delivered it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refuter_not_run: Option<String>,
+    pub refuter_not_run: Option<RefuterNotRun>,
 }
 
 // ---------------------------------------------------------------------
@@ -743,11 +769,11 @@ pub fn block(
     // settings change, and the refuter the *current* call would run is
     // then not the one that ran on the findings below.
     let (refuter_model, not_run) = match delivered {
-        Some(r) => (r.refuter.clone(), r.refuter_not_run.clone().map(|m| (r.verb.clone(), m))),
-        None => match refuter_leg(settings.refuter.as_deref(), settings.model.as_deref(), verb) {
-            RefuterLeg::NotRun(m) => (None, Some((verb.to_string(), m.to_string()))),
-            leg => (leg.runs(), None),
-        },
+        Some(r) => (r.refuter.clone(), r.refuter_not_run.clone().map(|n| (r.verb.clone(), n))),
+        None => {
+            let leg = refuter_leg(settings.refuter.as_deref(), settings.model.as_deref(), verb);
+            (leg.runs(), leg.not_run().map(|n| (verb.to_string(), n)))
+        }
     };
     let missing = if status == Status::Unauthorized.as_str() {
         unauthorized_detail(settings, verb, api_key().is_some(), typed_key().is_some())
@@ -767,24 +793,26 @@ pub fn block(
         "timeout_ms": settings.timeout_ms,
         "verbs": settings.verbs.clone(),
         "literals": settings.literals,
-        // Null when no refuter runs — `off`, or the check model itself. A
-        // reader who sees a model name here knows every finding below was
-        // put to it — unless `refuter_incomplete` says a call did not
-        // return — and it is removed below for a typed refuter the verb's
-        // row does not run.
+        // Null when `off`. A reader who sees a model name here knows every
+        // finding below was put to it — unless `refuter_incomplete` says a
+        // call did not return — and it is removed below for a refuter that
+        // is set and runs nothing.
         "refuter_model": refuter_model,
         "guidance": GUIDANCE,
     });
     let map = out.as_object_mut().expect("json object");
     // Removed from the literal rather than kept out of it, so a
-    // configuration with no typesafe value builds exactly the object it
-    // always did. Printing a model name for a leg that never ran would
+    // configuration whose refuter runs builds exactly the object it always
+    // did. Printing a model name for a leg that never ran would
     // tell the author their findings were refuted when nothing refuted
     // them; saying nothing at all would leave them wondering where the
     // refuter they set went.
     if let Some((v, m)) = not_run {
         map.remove("refuter_model");
-        map.insert("refuter_not_run".into(), json!({"verb": v, "refuter_model": m}));
+        map.insert(
+            "refuter_not_run".into(),
+            json!({"verb": v, "refuter_model": m.refuter_model, "reason": m.reason}),
+        );
     }
     if let Some(r) = delivered {
         map.insert("for_mint".into(), json!(r.mint));
@@ -1158,10 +1186,7 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             // report as a refuted run and printed by `block` over findings
             // nothing refuted.
             refuter: leg.runs(),
-            refuter_not_run: match leg {
-                RefuterLeg::NotRun(m) => Some(m.to_string()),
-                _ => None,
-            },
+            refuter_not_run: leg.not_run(),
             literals_status: literals_status.map(|s| s.as_str().to_string()),
             refuter_status: tel.refuter_status.map(|s| s.as_str().to_string()),
             typed_versions: std::mem::take(&mut tel.typed_versions),
@@ -3926,7 +3951,9 @@ mod tests {
         let s = Settings { refuter: Some("typesafe/jev-latest".into()), ..settings_fixture() };
         let b = block(&s, "claim", None, Trigger::NotAttempted);
         assert!(b.get("refuter_model").is_none(), "{b}");
-        assert_eq!(b["refuter_not_run"], json!({"verb": "claim", "refuter_model": "typesafe/jev-latest"}));
+        assert_eq!(b["refuter_not_run"]["verb"], "claim", "{b}");
+        assert_eq!(b["refuter_not_run"]["refuter_model"], "typesafe/jev-latest", "{b}");
+        assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("`fact` only")), "{b}");
         // On its own row it is the refuter in force, printed as any other.
         let b = block(&s, "fact", None, Trigger::NotAttempted);
         assert_eq!(b["refuter_model"], "typesafe/jev-latest", "{b}");
@@ -3951,24 +3978,32 @@ mod tests {
         assert_eq!(b["refuter_model"], "typesafe/jev-latest", "{b}");
         assert!(b.get("refuter_not_run").is_none(), "{b}");
         // A `claim` record nothing refuted, delivered on a `fact` call.
-        let claim = Record { refuter_not_run: Some("typesafe/jev-latest".into()), ..record_fixture() };
+        let claim = Record {
+            refuter_not_run: RefuterLeg::NotRun("typesafe/jev-latest").not_run(),
+            ..record_fixture()
+        };
         let b = block(&s, "fact", Some(&claim), Trigger::NotAttempted);
         assert!(b.get("refuter_model").is_none(), "{b}");
-        assert_eq!(b["refuter_not_run"], json!({"verb": "claim", "refuter_model": "typesafe/jev-latest"}));
+        assert_eq!(b["refuter_not_run"]["verb"], "claim", "{b}");
+        assert_eq!(b["refuter_not_run"]["refuter_model"], "typesafe/jev-latest", "{b}");
+        assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("`fact` only")), "{b}");
     }
 
     #[test]
     fn a_refuter_that_is_the_check_model_runs_nothing_and_is_not_printed() {
         // A model refuting itself is skipped, so a name over its findings
-        // would say they were refuted. Reverts: drop the `Itself` arm from
-        // `refuter_leg` (the name is printed, the record names it, and the
-        // budget pays for two calls that never happen).
+        // would say they were refuted, and a bare null would look like
+        // `off`. Reverts: drop the `Itself` arm from `refuter_leg` (the name
+        // is printed, the record names it, and the budget pays for two calls
+        // that never happen); return `None` for it from `not_run`.
         let m = "openai/gpt-5.6-luna";
         assert_eq!(refuter_leg(Some(m), Some(m), "fact").runs(), None);
         let s = Settings { refuter: Some(m.into()), ..settings_fixture() };
         let b = block(&s, "claim", None, Trigger::NotAttempted);
-        assert!(b["refuter_model"].is_null(), "{b}");
-        assert!(b.get("refuter_not_run").is_none(), "{b}");
+        assert!(b.get("refuter_model").is_none(), "{b}");
+        // Said, with the remedy, rather than looking like `off`.
+        assert_eq!(b["refuter_not_run"]["refuter_model"], m, "{b}");
+        assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("17%")), "{b}");
         assert_eq!(
             expected_calls("split", false, refuter_leg(Some(m), Some(m), "claim")).total(),
             expected_calls("split", false, RefuterLeg::Off).total()
