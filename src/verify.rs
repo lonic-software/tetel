@@ -84,16 +84,46 @@ const LOG_FILE: &str = "verify.log";
 /// stays append-only and a delivery cannot rewrite a finding.
 const CURSOR_FILE: &str = "verify.cursor";
 
-/// The provider the eval measured against, and the only endpoint this
-/// module knows. Not a configuration key: five keys are registered and a
-/// sixth would have to earn its place under the rule that every setting be
-/// visible in the output it affects.
+/// The provider the eval measured the LLM legs against. Not a
+/// configuration key: which provider a leg calls follows from the model
+/// value's vendor half ([`config::is_typed_model`]), so a key naming the
+/// provider would name a choice nobody can make. [`TYPED_ENDPOINT`] is the
+/// other one.
 const ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 /// Environment variables holding the credential, in order. Never a config
 /// key and never written anywhere: config files are shared, committed and
 /// pasted into issues.
 const KEY_VARS: [&str; 2] = ["OPENROUTER_API_KEY", "TETEL_API_KEY"];
+
+/// TypeSafe's System One endpoint, which every `typesafe/` model value
+/// routes to. It takes program state and a map of typed questions and
+/// answers each with probabilities; there is no prompt and no sampling.
+const TYPED_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
+
+/// The TypeSafe credential. The same rule as [`KEY_VARS`]: the environment
+/// only, never a config file.
+const TYPED_KEY_VAR: &str = "TYPESAFE_API_KEY";
+
+/// The version every typed leg's thresholds and results were measured
+/// against: what `jev-latest` resolved to in the reply recorded at
+/// `scripts/verifier-eval/jev_reply_2026-09-21.json`.
+///
+/// Compared against the `model` each reply reports, not against the
+/// configured value, because the configured value may be an alias. A reply
+/// naming anything else is flagged `typed_model_unmeasured`.
+const MEASURED_TYPED_VERSION: &str = "jev-1.13.0";
+
+/// TypeSafe's published input rate, 2026-09-21: $0.042 per million input
+/// tokens, output free.
+///
+/// A constant because the reply states tokens and no price — the recorded
+/// reply's `usage` carries `input_tokens` and `output_tokens` and nothing
+/// else. Without it every typed call would total zero in `cost`, the one
+/// place a reader checks. The benchmark harness priced the measured runs
+/// the same way. Dated so a reader can tell when it last matched the rate
+/// card.
+const TYPED_USD_PER_INPUT_TOKEN: f64 = 0.042 / 1_000_000.0;
 
 /// The retry budget the eval's own harness used: a truncated draw is
 /// retried with a tripled token cap, up to three attempts total. The
@@ -120,7 +150,9 @@ const MAX_EVIDENCE_BYTES: usize = 14_000;
 pub enum Status {
     /// Disabled by configuration.
     Off,
-    /// Enabled, but no credential in the environment.
+    /// Enabled, but nothing to call with: no model, a model a settings
+    /// file names and the key refuses, or no credential for a provider a
+    /// leg that would run needs. `detail` names every one that applies.
     Unauthorized,
     /// A verification was started for this mint; ask again next call.
     Queued,
@@ -372,10 +404,20 @@ pub struct Settings {
     pub verbs: Vec<String>,
     pub literals: bool,
     /// Unset means no refutation leg; every finding reaches the author.
+    /// A `typesafe/` value is a typed leg, and runs only on a verb whose
+    /// row in [`TYPED_LEGS`] permits it — see [`refuter_leg`].
     pub refuter: Option<String>,
+    /// Why a `verify.model` written in a settings file was refused, when
+    /// one was.
+    ///
+    /// Resolved here, where the workspace directory is in hand, because
+    /// [`block`] cannot: a refused value resolves to nothing, and without
+    /// this an author looking at a file that sets the key would be told it
+    /// is not set.
+    pub model_refusal: Option<String>,
 }
 
-/// How long one provider call is allowed, when nothing configured a budget.
+/// How long one OpenRouter call is allowed, when nothing configured a budget.
 ///
 /// The default is per *leg* rather than per verification, because a
 /// verification is one, two or three calls in series and a flat number
@@ -388,20 +430,41 @@ pub struct Settings {
 /// costs findings.
 const DEFAULT_MS_PER_LEG: u64 = 60_000;
 
-pub fn settings(workspace_dir: &Path) -> Settings {
+/// How long one TypeSafe call is allowed, when nothing configured a budget.
+///
+/// Its own constant because the two providers are not the same order of
+/// magnitude: Jev answers typed questions in about a second, with no
+/// reasoning to wait for, so charging it [`DEFAULT_MS_PER_LEG`] would
+/// stretch a budget that exists to notice a hang. Ten times the observed
+/// latency is headroom, not a measurement.
+const DEFAULT_MS_PER_TYPED_LEG: u64 = 10_000;
+
+/// The budget for `calls` when `verify.timeout_ms` is unset: each provider's
+/// calls at that provider's rate.
+fn default_budget_ms(calls: Calls) -> u64 {
+    DEFAULT_MS_PER_LEG * u64::from(calls.llm) + DEFAULT_MS_PER_TYPED_LEG * u64::from(calls.typed)
+}
+
+/// The effective settings for `verb`.
+///
+/// Per verb because the default budget is: which legs are typed depends on
+/// the verb's row in [`TYPED_LEGS`], and a typed leg is budgeted at its
+/// own rate.
+pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
     let d = Some(workspace_dir);
     let approach = config::verify_approach(d);
     let literals = config::verify_literals(d);
     let refuter = config::verify_refuter(d);
+    let calls = expected_calls(&approach, literals, refuter_leg(refuter.as_deref(), verb));
     Settings {
         enabled: config::verify_enabled(d),
         model: config::verify_model(d),
-        timeout_ms: config::verify_timeout_ms(d)
-            .unwrap_or(DEFAULT_MS_PER_LEG * u64::from(expected_calls(&approach, literals, refuter.is_some()))),
+        timeout_ms: config::verify_timeout_ms(d).unwrap_or(default_budget_ms(calls)),
         approach,
         verbs: config::verify_verbs(d),
         literals,
         refuter,
+        model_refusal: config::verify_model_refusal(d),
     }
 }
 
@@ -409,6 +472,97 @@ fn api_key() -> Option<String> {
     KEY_VARS
         .iter()
         .find_map(|v| std::env::var(v).ok().filter(|s| !s.trim().is_empty()))
+}
+
+fn typed_key() -> Option<String> {
+    std::env::var(TYPED_KEY_VAR).ok().filter(|s| !s.trim().is_empty())
+}
+
+/// Which legs a verb may send to TypeSafe.
+///
+/// A table, in source, because routing follows the model value and not
+/// the key it came from: `verify.refuter_model` becomes a typed leg the
+/// moment it holds a `typesafe/` value, and it takes no verb, so without
+/// an explicit row it would run on every verb — including the ones where
+/// it was measured and failed. Each cell is what was measured on that
+/// verb, and a verb absent from the table has no typed legs at all.
+#[derive(Clone, Copy, Default)]
+struct TypedLegs {
+    /// Jev as the refuter. `fact` only: 8 of 10 adjudicated findings kept
+    /// at 80% there, 13 of 44 at 31% on `prose`, and no run on `claim`.
+    refuter: bool,
+}
+
+const TYPED_LEGS: [(&str, TypedLegs); 3] = [
+    ("fact", TypedLegs { refuter: true }),
+    ("claim", TypedLegs { refuter: false }),
+    ("prose", TypedLegs { refuter: false }),
+];
+
+fn typed_legs(verb: &str) -> TypedLegs {
+    TYPED_LEGS
+        .iter()
+        .find(|(v, _)| *v == verb)
+        .map(|(_, row)| *row)
+        .unwrap_or_default()
+}
+
+/// What the configured refuter does on one verb.
+///
+/// The one place the refuter's row is applied. The budget, the credential
+/// check, the response and the refutation leg itself all ask this rather
+/// than reading `verify.refuter_model` on their own, so none of them can
+/// run, price, demand a key for or print a leg that another of them has
+/// ruled out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RefuterLeg<'a> {
+    /// `off`: no refutation leg.
+    Off,
+    /// An OpenRouter model, on any verb.
+    Llm(&'a str),
+    /// A `typesafe/` model on a verb whose row permits it.
+    Typed(&'a str),
+    /// A `typesafe/` model on a verb whose row does not. It runs nothing
+    /// and is not replaced by [`config::DEFAULT_REFUTER`]: that would
+    /// spend on a model the author had just replaced.
+    NotRun(&'a str),
+}
+
+impl RefuterLeg<'_> {
+    /// The model that actually refutes, when one does.
+    fn runs(self) -> Option<String> {
+        match self {
+            RefuterLeg::Llm(m) | RefuterLeg::Typed(m) => Some(m.to_string()),
+            RefuterLeg::Off | RefuterLeg::NotRun(_) => None,
+        }
+    }
+}
+
+fn refuter_leg<'a>(refuter: Option<&'a str>, verb: &str) -> RefuterLeg<'a> {
+    match refuter {
+        None => RefuterLeg::Off,
+        Some(m) if !config::is_typed_model(m) => RefuterLeg::Llm(m),
+        Some(m) if typed_legs(verb).refuter => RefuterLeg::Typed(m),
+        Some(m) => RefuterLeg::NotRun(m),
+    }
+}
+
+/// Where one provider's calls go, and the credential they carry.
+///
+/// A value rather than two constants read at the call site so the tests
+/// can point a verification at a local listener; production builds both
+/// from [`ENDPOINT`], [`TYPED_ENDPOINT`] and the environment in [`spawn`].
+#[derive(Clone)]
+struct Endpoint {
+    url: String,
+    key: String,
+}
+
+/// The providers one verification may call. `typed` is present exactly
+/// when a leg that will run needs it — see [`spawn`].
+struct Providers {
+    llm: Endpoint,
+    typed: Option<Endpoint>,
 }
 
 fn log_path(dir: &Path) -> PathBuf {
@@ -505,6 +659,19 @@ pub struct Record {
     /// distinction the author cannot infer from an absence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub literals_status: Option<String>,
+    /// The status of the first refuter call that did not complete, when
+    /// one did not.
+    ///
+    /// Such a call keeps its finding, so `findings` is still right to
+    /// deliver; what it is not is refuted, and a response printing the
+    /// refuter's name over it would claim otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refuter_status: Option<String>,
+    /// Every version a TypeSafe reply said answered, first seen first.
+    /// Empty when no typed call returned — which is also how [`block`]
+    /// knows a typed leg ran.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typed_versions: Vec<String>,
 }
 
 // ---------------------------------------------------------------------
@@ -559,18 +726,9 @@ pub fn block(
             }
         }
     };
-    // `unauthorized` covers two different gaps, and the obvious first
-    // step — `config verify.enabled true` with a key already exported —
-    // hits the one that is *not* about the credential. Naming which is
-    // missing is the difference between a one-line fix and an afternoon
-    // spent debugging a key that was fine all along.
+    let refuter = refuter_leg(settings.refuter.as_deref(), verb);
     let missing = if status == Status::Unauthorized.as_str() {
-        match (settings.model.is_none(), api_key().is_none()) {
-            (true, true) => Some("`verify.model` is not set and no API key is in the environment"),
-            (true, false) => Some("`verify.model` is not set — `tetel config verify.model <vendor/model>`"),
-            (false, true) => Some("no API key in the environment — export OPENROUTER_API_KEY"),
-            (false, false) => None,
-        }
+        unauthorized_detail(settings, verb, api_key().is_some(), typed_key().is_some())
     } else {
         None
     };
@@ -587,13 +745,24 @@ pub fn block(
         "timeout_ms": settings.timeout_ms,
         "verbs": settings.verbs.clone(),
         "literals": settings.literals,
-        // Absent rather than null when unset: the leg either ran or it did
-        // not, and a reader who sees a model name here knows every finding
-        // below survived being put to it.
+        // Null when `off`. A reader who sees a model name here knows every
+        // finding below was put to it — unless `refuter_incomplete` says a
+        // call did not return, and it is removed below for a typed refuter
+        // this verb does not run.
         "refuter_model": settings.refuter.clone(),
         "guidance": GUIDANCE,
     });
     let map = out.as_object_mut().expect("json object");
+    // Removed from the literal rather than kept out of it, so a
+    // configuration with no typesafe value builds exactly the object it
+    // always did. Printing a model name for a leg that never ran would
+    // tell the author their findings were refuted when nothing refuted
+    // them; saying nothing at all would leave them wondering where the
+    // refuter they set went.
+    if let RefuterLeg::NotRun(m) = refuter {
+        map.remove("refuter_model");
+        map.insert("refuter_not_run".into(), json!({"verb": verb, "refuter_model": m}));
+    }
     if let Some(r) = delivered {
         map.insert("for_mint".into(), json!(r.mint));
         // Absent rather than empty under any status but `ok`. A 429 gives
@@ -616,6 +785,23 @@ pub fn block(
             if let Some(s) = &r.literals_status {
                 map.insert("literals_incomplete".into(), json!(s));
             }
+            // The same qualification for the refuter: findings a refuter
+            // call never answered for are delivered, because a refutation
+            // that did not happen is not one, but not under a printed
+            // refuter name alone.
+            if let Some(s) = &r.refuter_status {
+                map.insert("refuter_incomplete".into(), json!(s));
+            }
+        }
+        // Outside the `ok` guard, on purpose. The version flag matters most
+        // on a record with nothing else to show — a typed call that
+        // answered and then shaped what ran, under thresholds fitted to a
+        // version that may no longer be the one answering.
+        if !r.typed_versions.is_empty() {
+            map.insert("typed_model_versions".into(), json!(r.typed_versions));
+            if r.typed_versions.iter().any(|v| v != MEASURED_TYPED_VERSION) {
+                map.insert("typed_model_unmeasured".into(), json!(true));
+            }
         }
     }
     if let Trigger::Queued(m) = trigger {
@@ -625,6 +811,46 @@ pub fn block(
         map.insert("detail".into(), json!(m));
     }
     out
+}
+
+/// What an `unauthorized` status is missing, every gap named.
+///
+/// `unauthorized` covers several different gaps, and the obvious first
+/// step — `config verify.enabled true` with a key already exported — hits
+/// one that is *not* about the credential. Naming each that is missing is
+/// the difference between a one-line fix and an afternoon spent debugging
+/// a key that was fine all along; naming only the first would be the
+/// afternoon in instalments. The mirror of [`providers_for`], which
+/// decides the same question for [`spawn`].
+fn unauthorized_detail(
+    settings: &Settings,
+    verb: &str,
+    has_llm_key: bool,
+    has_typed_key: bool,
+) -> Option<String> {
+    let mut gaps: Vec<String> = Vec::new();
+    match (&settings.model_refusal, &settings.model) {
+        (Some(why), _) => gaps.push(why.clone()),
+        (None, None) => {
+            gaps.push("`verify.model` is not set — `tetel config verify.model <vendor/model>`".into())
+        }
+        (None, Some(_)) => {}
+    }
+    if !has_llm_key {
+        gaps.push("no API key in the environment — export OPENROUTER_API_KEY".into());
+    }
+    // Only for a typed leg that would run on this verb. A typesafe refuter
+    // on a verb whose row refuses it runs nothing, so its missing key must
+    // not fail a verification that never needed it.
+    if let RefuterLeg::Typed(m) = refuter_leg(settings.refuter.as_deref(), verb) {
+        if !has_typed_key {
+            gaps.push(format!(
+                "`{}` is `{m}`, which runs on `{verb}` and needs {TYPED_KEY_VAR} in the environment",
+                config::KEY_VERIFY_REFUTER
+            ));
+        }
+    }
+    (!gaps.is_empty()).then(|| gaps.join("; "))
 }
 
 /// Whether this verb is verified at all, given the effective settings.
@@ -866,8 +1092,10 @@ impl Subject {
 /// the time it runs, and nothing there may reach back into it.
 #[must_use]
 pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
-    let Some(key) = api_key() else { return false };
     let Some(model) = settings.model.clone() else { return false };
+    let Some(providers) = providers_for(settings, &subject.verb, api_key(), typed_key()) else {
+        return false;
+    };
     let dir = dir.to_path_buf();
     let approach = settings.approach.clone();
     let literals = settings.literals;
@@ -877,8 +1105,9 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
         let started = Instant::now();
         let mut tel = Telemetry::default();
         let (status, findings, literals_status) =
-            run(&key, &model, &approach, literals, refuter.as_deref(), &subject, started, budget, &mut tel);
+            run(&providers, &model, &approach, literals, refuter.as_deref(), &subject, started, budget, &mut tel);
         let record_literals_ok = literals_status.is_none();
+        let record_refuter_ok = tel.refuter_status.is_none();
         let record = Record {
             seq: next_seq(&dir),
             mint: subject.mint.clone(),
@@ -897,15 +1126,20 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             not_a_quantity: tel.not_a_quantity,
             kind_off_verb: tel.kind_off_verb,
             refuted: tel.refuted,
-            refuter: refuter.clone(),
+            // The refuter that ran, not the one configured: a typed refuter
+            // this verb's row refuses ran nothing, and a record naming it
+            // would be counted by the report as a refuted run.
+            refuter: refuter_leg(refuter.as_deref(), &subject.verb).runs(),
             literals_status: literals_status.map(|s| s.as_str().to_string()),
+            refuter_status: tel.refuter_status.map(|s| s.as_str().to_string()),
+            typed_versions: std::mem::take(&mut tel.typed_versions),
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
-            // An `ok` run with a failed literal leg is the one case where a
-            // clean status still has something to explain, so the guard
-            // asks about both rather than about the status alone.
-            detail: if status == Status::Ok && record_literals_ok {
+            // An `ok` run with a failed literal or refuter call is the one
+            // case where a clean status still has something to explain, so
+            // the guard asks about all three rather than the status alone.
+            detail: if status == Status::Ok && record_literals_ok && record_refuter_ok {
                 None
             } else {
                 tel.detail
@@ -914,6 +1148,28 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
         let _ = workspace::append_jsonl(&log_path(&dir), &record);
     });
     true
+}
+
+/// The providers a verification of `verb` calls, or `None` when a leg
+/// that would run has no credential.
+///
+/// A TypeSafe credential is demanded by a typed leg that will run on this
+/// verb, and by nothing else. Falling back to the LLM legs without it
+/// would verify under a configuration the author did not set, and
+/// demanding it for a leg the verb's row refuses would fail a
+/// verification over a key it never needed.
+fn providers_for(
+    settings: &Settings,
+    verb: &str,
+    llm_key: Option<String>,
+    typed_key: Option<String>,
+) -> Option<Providers> {
+    let llm = Endpoint { url: ENDPOINT.into(), key: llm_key? };
+    let typed = match refuter_leg(settings.refuter.as_deref(), verb) {
+        RefuterLeg::Typed(_) => Some(Endpoint { url: TYPED_ENDPOINT.into(), key: typed_key? }),
+        _ => None,
+    };
+    Some(Providers { llm, typed })
 }
 
 /// What one verification spent getting to its answer, accumulated across
@@ -955,11 +1211,16 @@ pub struct Telemetry {
     /// roughly one true finding in five with them. A run where it drops
     /// nothing is a leg that is not earning its call.
     pub refuted: u32,
+    /// The first refuter call that did not complete — see
+    /// [`Record::refuter_status`].
+    pub refuter_status: Option<Status>,
+    /// Every version a TypeSafe reply named — see [`Record::typed_versions`].
+    pub typed_versions: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run(
-    key: &str,
+    providers: &Providers,
     model: &str,
     approach: &str,
     literals: bool,
@@ -975,12 +1236,14 @@ fn run(
     // because it is the configuration the retrodiction measured. One-call
     // comparisons have been run over the same corpus, but not this arm's
     // prompt pairing, and none of their numbers were carried into the
-    // decision to ship. `direct` is cheaper, but not by the half a
-    // reader would assume from "one call instead of two": the call it
-    // drops carries the claim text alone, while the one it keeps carries
-    // the evidence blob. The ratio is measured nowhere.
+    // decision to ship. `direct` is cheaper, but not by half: one-call
+    // arms that report disagreements cost 0.63-0.65 of `split` over the
+    // corpus. Not because the call it drops is the cheap one — it carries
+    // the claim text alone, yet on `claim` it measured 2026-09-21 at
+    // $0.0054 of the $0.011 a `split` draw costs — but because the one call
+    // `direct` keeps does both jobs.
     let labelled = if approach == "split" {
-        let body = match call(key, model, classify_system_for(&subject.verb), &classify_prompt(subject), started, budget, tel)
+        let body = match call(&providers.llm, model, classify_system_for(&subject.verb), &classify_prompt(subject), started, budget, tel)
         {
             Ok(b) => b,
             Err(s) => return (s, Vec::new(), None),
@@ -1005,7 +1268,7 @@ fn run(
         None
     };
     let prompt = check_prompt(subject, labelled.as_deref());
-    match call(key, model, check_system_for(&subject.verb), &prompt, started, budget, tel) {
+    match call(&providers.llm, model, check_system_for(&subject.verb), &prompt, started, budget, tel) {
         Ok(body) => match parse_findings(&body, subject, tel) {
             Some(mut f) => {
                 // A failing literal leg no longer takes the disagreement
@@ -1022,7 +1285,7 @@ fn run(
                 // different payloads.
                 let mut lit_status = None;
                 if literals {
-                    match literal_findings(key, model, subject, started, budget, tel) {
+                    match literal_findings(&providers.llm, model, subject, started, budget, tel) {
                         Ok(mut l) => f.append(&mut l),
                         Err(s) => lit_status = Some(s),
                     }
@@ -1032,7 +1295,7 @@ fn run(
                 // that it asks about a finding rather than about a subject.
                 // It cannot fail the verification — see `refute_findings`.
                 if let Some(r) = refuter {
-                    f = refute_findings(key, r, model, subject, f, started, budget, tel);
+                    f = refute_findings(providers, r, model, subject, f, started, budget, tel);
                 }
                 (Status::Ok, f, lit_status)
             }
@@ -1055,7 +1318,7 @@ fn run(
 /// budget. Returns the assistant's content or the status that ends the
 /// verification.
 fn call(
-    key: &str,
+    llm: &Endpoint,
     model: &str,
     system: &str,
     user: &str,
@@ -1083,45 +1346,7 @@ fn call(
             "max_tokens": cap,
             "reasoning": {"effort": "high"},
         });
-        let Ok(payload) = serde_json::to_string(&body) else {
-            tel.detail = Some("request body would not serialise".into());
-            return Err(Status::Unavailable);
-        };
-        let reply = ureq::post(ENDPOINT)
-            .header("Authorization", &format!("Bearer {key}"))
-            .header("Content-Type", "application/json")
-            .config()
-            .timeout_global(Some(left))
-            .build()
-            .send(payload.as_str());
-        let mut reply = match reply {
-            Ok(r) => r,
-            // A timeout inside the client is still the budget expiring;
-            // anything else is transport or a non-2xx.
-            Err(ureq::Error::Timeout(_)) => {
-                tel.detail = Some("provider did not answer within the remaining budget".into());
-                return Err(Status::Timeout);
-            }
-            // The distinction that makes this field worth having: a 429,
-            // a 500 and a name-resolution failure are all `unavailable`
-            // and call for three different responses.
-            Err(ureq::Error::StatusCode(code)) => {
-                tel.detail = Some(format!("provider replied {code}"));
-                return Err(Status::Unavailable);
-            }
-            Err(e) => {
-                tel.detail = Some(format!("transport failure: {e}"));
-                return Err(Status::Unavailable);
-            }
-        };
-        let Ok(text) = reply.body_mut().read_to_string() else {
-            tel.detail = Some("reply body could not be read".into());
-            return Err(Status::Unavailable);
-        };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-            tel.detail = Some(format!("provider envelope was not JSON ({} bytes)", text.len()));
-            return Err(Status::Unparsable);
-        };
+        let v = post(llm, &body, left, tel)?;
         // Whatever the provider says it charged, summed across attempts.
         // Absent on providers that report none, which is why it defaults
         // to zero rather than being an Option nobody would branch on.
@@ -1143,6 +1368,107 @@ fn call(
         cap = cap.saturating_mul(3);
     }
     Err(Status::Unavailable)
+}
+
+/// One POST of `body` to `to`, bounded by what is left of the budget, and
+/// the reply's decoded envelope. Shared by both providers, so a 429, a 500,
+/// a timeout and an unreadable body map to the same statuses whichever
+/// provider produced them.
+fn post(
+    to: &Endpoint,
+    body: &serde_json::Value,
+    left: Duration,
+    tel: &mut Telemetry,
+) -> Result<serde_json::Value, Status> {
+    let Ok(payload) = serde_json::to_string(body) else {
+        tel.detail = Some("request body would not serialise".into());
+        return Err(Status::Unavailable);
+    };
+    let reply = ureq::post(&to.url)
+        .header("Authorization", &format!("Bearer {}", to.key))
+        .header("Content-Type", "application/json")
+        .config()
+        .timeout_global(Some(left))
+        .build()
+        .send(payload.as_str());
+    let mut reply = match reply {
+        Ok(r) => r,
+        // A timeout inside the client is still the budget expiring;
+        // anything else is transport or a non-2xx.
+        Err(ureq::Error::Timeout(_)) => {
+            tel.detail = Some("provider did not answer within the remaining budget".into());
+            return Err(Status::Timeout);
+        }
+        // The distinction that makes this field worth having: a 429,
+        // a 500 and a name-resolution failure are all `unavailable`
+        // and call for three different responses.
+        Err(ureq::Error::StatusCode(code)) => {
+            tel.detail = Some(format!("provider replied {code}"));
+            return Err(Status::Unavailable);
+        }
+        Err(e) => {
+            tel.detail = Some(format!("transport failure: {e}"));
+            return Err(Status::Unavailable);
+        }
+    };
+    let Ok(text) = reply.body_mut().read_to_string() else {
+        tel.detail = Some("reply body could not be read".into());
+        return Err(Status::Unavailable);
+    };
+    serde_json::from_str::<serde_json::Value>(&text).map_err(|_| {
+        tel.detail = Some(format!("provider envelope was not JSON ({} bytes)", text.len()));
+        Status::Unparsable
+    })
+}
+
+/// One TypeSafe call: `questions` asked of `state`, and the reply's
+/// `answers` object.
+///
+/// One attempt. There is no sampling to truncate, so the retry [`call`]
+/// makes on a truncated draw has no counterpart here; the attempt still
+/// counts in [`Telemetry::attempts`], which counts provider calls whoever
+/// the provider is. The version the reply names is recorded before its
+/// answers are read, so a reply that answers nothing still says who sent
+/// it, and the call is priced from its input tokens — the reply carries
+/// no price of its own.
+fn ask_typed(
+    typed: &Endpoint,
+    model: &str,
+    state: &str,
+    questions: &serde_json::Value,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Result<serde_json::Value, Status> {
+    let Some(left) = budget.checked_sub(started.elapsed()) else {
+        tel.detail = Some(format!(
+            "budget of {}ms expired before an attempt could start",
+            budget.as_millis()
+        ));
+        return Err(Status::Timeout);
+    };
+    tel.attempts += 1;
+    // The endpoint names models without the vendor half that routed here.
+    let name = model.split_once('/').map_or(model, |(_, m)| m);
+    let body = json!({"state": state, "model": name, "questions": questions});
+    let v = post(typed, &body, left, tel)?;
+    // An unstated version is not the measured one, so it is recorded as
+    // what it is rather than skipped, and is flagged downstream.
+    let version = v["model"].as_str().unwrap_or("(unstated)").to_string();
+    if !tel.typed_versions.contains(&version) {
+        tel.typed_versions.push(version);
+    }
+    tel.cost += v["usage"]["input_tokens"].as_f64().unwrap_or(0.0) * TYPED_USD_PER_INPUT_TOKEN;
+    match v.get("answers") {
+        Some(a) if a.is_object() => Ok(a.clone()),
+        _ => {
+            tel.detail = Some(format!(
+                "typed reply carried no answers; beginning: {}",
+                v.to_string().chars().take(200).collect::<String>()
+            ));
+            Err(Status::Unparsable)
+        }
+    }
 }
 
 /// Recover the reply's JSON object and read the disagreements out of it.
@@ -1350,7 +1676,7 @@ fn is_checkable(literal: &str) -> bool {
 /// from a bounded conservatism into a silent one, since the suppression
 /// was counted as a machine refutation.
 fn literal_findings(
-    key: &str,
+    llm: &Endpoint,
     model: &str,
     subject: &Subject,
     started: Instant,
@@ -1369,7 +1695,7 @@ fn literal_findings(
         return Ok(Vec::new());
     }
     let prompt = format!("TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
-    let body = call(key, model, LITERALS_SYSTEM, &prompt, started, budget, tel)?;
+    let body = call(llm, model, LITERALS_SYSTEM, &prompt, started, budget, tel)?;
     let Some(v) = json_object(&body) else {
         tel.detail = Some(format!(
             "literal check replied with no JSON object; {} bytes beginning: {}",
@@ -1745,8 +2071,16 @@ Reply with one JSON object and nothing else:
 /// defensive tidiness. Self-refutation was measured at 17%, worse than the
 /// unfiltered rate it replaces, so silently honouring that configuration
 /// would make the feature actively harmful while looking configured.
+///
+/// The refuter's row is enforced here, on the leg itself, and not only by
+/// the callers: the refuter routes on its own value, so this is the one
+/// place that sees every path to a refutation. A typed refuter on a verb
+/// whose row refuses it returns every finding untouched and calls no one.
+/// A call that does not complete keeps its finding and is reported in
+/// [`Telemetry::refuter_status`].
+#[allow(clippy::too_many_arguments)]
 fn refute_findings(
-    key: &str,
+    providers: &Providers,
     refuter: &str,
     model: &str,
     subject: &Subject,
@@ -1755,6 +2089,10 @@ fn refute_findings(
     budget: Duration,
     tel: &mut Telemetry,
 ) -> Vec<Finding> {
+    let leg = refuter_leg(Some(refuter), &subject.verb);
+    if matches!(leg, RefuterLeg::Off | RefuterLeg::NotRun(_)) {
+        return findings;
+    }
     if refuter == model {
         // Names neither setting as the culprit, because the refuter may
         // not have been set at all: it defaults to
@@ -1783,18 +2121,99 @@ fn refute_findings(
             f.why,
             quotation.as_deref().unwrap_or("(none)")
         );
-        let verdict = call(key, refuter, REFUTE_SYSTEM, &user, started, budget, tel)
-            .ok()
-            .and_then(|b| json_object(&b))
-            .map(|v| str_field(&v, "verdict").to_ascii_uppercase());
-        if verdict.as_deref() == Some("WRONG") {
-            tel.refuted += 1;
-            continue;
+        let verdict = match (leg, &providers.typed) {
+            (RefuterLeg::Typed(_), Some(typed)) => {
+                ask_typed(typed, refuter, &user, &typed_refute_questions(), started, budget, tel)
+                    .and_then(|a| {
+                        a["verdict"]["choice"].as_str().map(str::to_ascii_uppercase).ok_or_else(|| {
+                            tel.detail = Some("typed refuter answered no verdict".into());
+                            Status::Unparsable
+                        })
+                    })
+            }
+            // `spawn` builds no typed endpoint without a credential and
+            // starts nothing in that case; reaching here without one is a
+            // wiring fault, and it keeps the finding like any other.
+            (RefuterLeg::Typed(_), None) => Err(Status::Unauthorized),
+            _ => call(&providers.llm, refuter, REFUTE_SYSTEM, &user, started, budget, tel).and_then(|b| {
+                json_object(&b)
+                    .map(|v| str_field(&v, "verdict").to_ascii_uppercase())
+                    .ok_or_else(|| {
+                        tel.detail = Some("refuter reply was not a JSON object".into());
+                        Status::Unparsable
+                    })
+            }),
+        };
+        match verdict.as_deref() {
+            Ok("WRONG") => {
+                tel.refuted += 1;
+                continue;
+            }
+            Ok("CORRECT" | "UNCLEAR") => {}
+            // An answer outside the three is no more a refutation than a
+            // 429 is: the finding stays, and the run says it was not put
+            // to the refuter.
+            Ok(_) => {
+                tel.refuter_status.get_or_insert(Status::Unparsable);
+            }
+            Err(s) => {
+                tel.refuter_status.get_or_insert(*s);
+            }
         }
         kept.push(f);
     }
     kept
 }
+
+/// The refutation as Jev was measured answering it on `fact`: REFUTE_SYSTEM's
+/// three verdicts as one `choice`, with that prompt's criteria, beside a
+/// neutral `noul` the measurement also asked. Ported from
+/// `scripts/verifier-eval/refute_jev.py` byte for byte, questions and state
+/// alike — the state is the LLM refuter's user prompt unchanged — because
+/// the 80% belongs to this presentation. Only the `choice` decides; the
+/// `noul` is asked because the measured request asked it.
+fn typed_refute_questions() -> serde_json::Value {
+    json!({
+        "verdict": {
+            "type": "choice",
+            "instructions": TYPED_REFUTE_INSTRUCTIONS,
+            "criteria": {
+                "CORRECT": TYPED_REFUTE_CORRECT,
+                "WRONG": TYPED_REFUTE_WRONG,
+                "UNCLEAR": "The evidence is genuinely insufficient to settle it either way.",
+            },
+        },
+        "correct": {
+            "type": "noul",
+            "instructions": "The proposed disagreement is correct: the quoted clause really does \
+disagree with the captured evidence, in the way and of the kind claimed.",
+            "criteria": {
+                "true": "the clause disagrees with the evidence as claimed",
+                "false": "it does not",
+            },
+        },
+    })
+}
+
+const TYPED_REFUTE_INSTRUCTIONS: &str = "An author wrote a note. A tool captured evidence. \
+Someone then asserted that a specific clause of the note disagrees with that evidence. Decide \
+whether that assertion is correct.";
+
+const TYPED_REFUTE_WRONG: &str = "The assertion does not hold. Includes: the evidence supports \
+the clause; the reason misreads the evidence; it objects to a clause other than the one quoted, \
+or restates it; the clause's scope is fixed by its own sentence and the objection re-reads it \
+more broadly; the captured text states the general property itself, so the author is reporting \
+the capture; the capture disclosed an exclusion or truncation and the objection's whole content \
+is that something was not covered, which is insufficiency, not disagreement; word-level pedantry \
+that does not change what the text tells a reader; the clause describes what the design PROPOSES \
+to build, which evidence captured beforehand cannot contradict; the text already states the \
+limitation being reported back to it.";
+
+const TYPED_REFUTE_CORRECT: &str = "The clause really does disagree with the captured evidence, \
+in the way and of the kind claimed, such that the author would have wanted to know. Default to \
+WRONG when not convinced: this is shown to an author as a warning, and a wrong warning costs \
+more than a missed one, so the burden of proof is on the assertion and not on the author's \
+text.";
 
 /// The classify prompt for a `prose` paragraph, in place of
 /// [`CLASSIFY_SYSTEM`].
@@ -2144,7 +2563,10 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
     // would report a healthy run as a failing one.
     let retried = records
         .iter()
-        .filter(|r| r.refuter.is_none() && r.attempts > expected_calls(&r.approach, r.literals, false))
+        .filter(|r| {
+            r.refuter.is_none()
+                && r.attempts > expected_calls(&r.approach, r.literals, RefuterLeg::Off).total()
+        })
         .count();
 
     out.push_str(&format!("\nVERIFICATIONS   {}\n", records.len()));
@@ -2374,12 +2796,38 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
 /// that times out **keeps** its finding, so the failure mode is an
 /// unfiltered warning rather than a lost one. `verify.timeout_ms` overrides
 /// this for anyone whose subjects flag harder.
-fn expected_calls(approach: &str, literals: bool, refuter: bool) -> u32 {
+///
+/// Counted per provider, because the two are budgeted at different rates
+/// and a single count cannot say which calls it is made of. A reader that
+/// only needs "how many calls" — the report's retry count — takes
+/// [`Calls::total`]: attempts are counted once per call whoever answers
+/// it, so comparing them against the LLM count alone would report every
+/// typed call as a retry.
+fn expected_calls(approach: &str, literals: bool, refuter: RefuterLeg<'_>) -> Calls {
     let base = match approach {
         "split" => 2,
         _ => 1,
     };
-    base + u32::from(literals) + if refuter { 2 } else { 0 }
+    let mut calls = Calls { llm: base + u32::from(literals), typed: 0 };
+    match refuter {
+        RefuterLeg::Llm(_) => calls.llm += 2,
+        RefuterLeg::Typed(_) => calls.typed += 2,
+        RefuterLeg::Off | RefuterLeg::NotRun(_) => {}
+    }
+    calls
+}
+
+/// [`expected_calls`]' answer: how many calls go to each provider.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Calls {
+    llm: u32,
+    typed: u32,
+}
+
+impl Calls {
+    fn total(self) -> u32 {
+        self.llm + self.typed
+    }
 }
 
 #[cfg(test)]
@@ -2395,7 +2843,96 @@ mod tests {
             verbs: vec!["claim".into()],
             literals: false,
             refuter: None,
+            model_refusal: None,
         }
+    }
+
+    /// A URL nothing listens on. A call that reaches it fails as transport.
+    const DEAD: &str = "http://127.0.0.1:9/";
+
+    fn providers_fixture(llm: &str, typed: &str) -> Providers {
+        Providers {
+            llm: Endpoint { url: llm.into(), key: "llm-key".into() },
+            typed: Some(Endpoint { url: typed.into(), key: "typed-key".into() }),
+        }
+    }
+
+    /// A local stand-in for a provider. Answers every request with what
+    /// `reply` returns for its body, and keeps every body it was sent, so a
+    /// test can say which calls were made and in what order.
+    struct Mock {
+        url: String,
+        bodies: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl Mock {
+        fn start(reply: impl Fn(&serde_json::Value) -> (u16, serde_json::Value) + Send + 'static) -> Mock {
+            use std::io::{BufRead, BufReader, Read, Write};
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let url = format!("http://{}/", listener.local_addr().expect("addr"));
+            let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = bodies.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { continue };
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                    let mut len = 0usize;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                        if let Some((k, v)) = line.split_once(':') {
+                            if k.eq_ignore_ascii_case("content-length") {
+                                len = v.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                    let mut body = vec![0u8; len];
+                    if reader.read_exact(&mut body).is_err() {
+                        continue;
+                    }
+                    let body: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                    let (code, answer) = reply(&body);
+                    seen.lock().expect("lock").push(body);
+                    let text = answer.to_string();
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                         Connection: close\r\n\r\n{text}",
+                        text.len()
+                    );
+                }
+            });
+            Mock { url, bodies }
+        }
+
+        fn bodies(&self) -> Vec<serde_json::Value> {
+            self.bodies.lock().expect("lock").clone()
+        }
+    }
+
+    /// An OpenRouter reply whose content is `content`.
+    fn llm_reply(content: &str) -> serde_json::Value {
+        json!({
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "usage": {"cost": 0.001},
+        })
+    }
+
+    /// A TypeSafe reply shaped like the one recorded at
+    /// `scripts/verifier-eval/jev_reply_2026-09-21.json`, answering the
+    /// refuter's two questions.
+    fn typed_reply(version: &str, verdict: &str) -> serde_json::Value {
+        json!({
+            "model": version,
+            "answers": {
+                "verdict": {"type": "choice", "choice": verdict, "confidence": 1.0,
+                            "probabilities": {"CORRECT": 0.0, "WRONG": 0.0, "UNCLEAR": 0.0}},
+                "correct": {"type": "noul", "noul": 0.2},
+            },
+            "usage": {"input_tokens": 370, "output_tokens": 54},
+        })
     }
 
     fn finding_fixture() -> Finding {
@@ -2494,6 +3031,8 @@ mod tests {
             kind_off_verb: 0,
             refuted: 0,
             refuter: None,
+            refuter_status: None,
+            typed_versions: Vec::new(),
             findings: Vec::new(),
             at: 0,
             cost: 0.0,
@@ -3042,17 +3581,35 @@ mod tests {
         // replaced left a two-call run no headroom and a three-call run
         // none at all.
         let per_leg = DEFAULT_MS_PER_LEG;
-        assert_eq!(per_leg * u64::from(expected_calls("direct", false, false)), per_leg);
-        assert_eq!(per_leg * u64::from(expected_calls("split", false, false)), per_leg * 2);
-        assert_eq!(per_leg * u64::from(expected_calls("split", true, false)), per_leg * 3);
+        let off = RefuterLeg::Off;
+        assert_eq!(default_budget_ms(expected_calls("direct", false, off)), per_leg);
+        assert_eq!(default_budget_ms(expected_calls("split", false, off)), per_leg * 2);
+        assert_eq!(default_budget_ms(expected_calls("split", true, off)), per_leg * 3);
+        // The shipped defaults: `split`, and the default refuter's two legs.
+        let llm = RefuterLeg::Llm(crate::config::DEFAULT_REFUTER);
+        assert_eq!(default_budget_ms(expected_calls("split", false, llm)), 240_000);
+    }
+
+    #[test]
+    fn a_typed_refuter_is_budgeted_at_its_own_rate_and_only_where_it_runs() {
+        let typed = "typesafe/jev-latest";
+        let fact = expected_calls("split", false, refuter_leg(Some(typed), "fact"));
+        assert_eq!(fact, Calls { llm: 2, typed: 2 });
+        // A number, not the constants: a typed call charged at the LLM rate
+        // would reproduce itself on both sides of an assertion written in them.
+        assert_eq!(default_budget_ms(fact), 140_000);
+        // Not run on `claim`, so not paid for there either.
+        let claim = expected_calls("split", false, refuter_leg(Some(typed), "claim"));
+        assert_eq!(claim, Calls { llm: 2, typed: 0 });
     }
 
     #[test]
     fn the_literal_check_adds_a_call_that_a_retry_count_must_not_mistake() {
-        assert_eq!(expected_calls("split", false, false), 2);
-        assert_eq!(expected_calls("split", true, false), 3);
-        assert_eq!(expected_calls("direct", false, false), 1);
-        assert_eq!(expected_calls("direct", true, false), 2);
+        let off = RefuterLeg::Off;
+        assert_eq!(expected_calls("split", false, off).total(), 2);
+        assert_eq!(expected_calls("split", true, off).total(), 3);
+        assert_eq!(expected_calls("direct", false, off).total(), 1);
+        assert_eq!(expected_calls("direct", true, off).total(), 2);
     }
 
     #[test]
@@ -3144,7 +3701,7 @@ mod tests {
         }];
         let mut tel = Telemetry::default();
         let kept = refute_findings(
-            "k",
+            &providers_fixture(DEAD, DEAD),
             "openai/gpt-5.6-luna",
             "openai/gpt-5.6-luna",
             &subject,
@@ -3190,7 +3747,7 @@ mod tests {
         let mut tel = Telemetry::default();
         // Zero budget: `call` returns before it can reach a provider.
         let kept = refute_findings(
-            "k",
+            &providers_fixture(DEAD, DEAD),
             "anthropic/claude-sonnet-4.5",
             "openai/gpt-5.6-luna",
             &subject,
@@ -3201,6 +3758,268 @@ mod tests {
         );
         assert_eq!(kept.len(), 1, "fail-open: the author still sees it");
         assert_eq!(tel.refuted, 0);
+    }
+
+    // -----------------------------------------------------------------
+    // Typed legs. Each test names the invariant it carries and the revert
+    // that must turn it red.
+    // -----------------------------------------------------------------
+
+    fn contradiction() -> Finding {
+        Finding { clause_quoted: false, facts: vec![], quoted_from: None, evidence: None, quoted: false, ..finding_fixture() }
+    }
+
+    fn fact_subject() -> Subject {
+        Subject { verb: "fact".into(), ..subject_fixture("the function returns early", &[("F1", &["return"])]) }
+    }
+
+    /// The keys a response carries for a configuration with no typesafe
+    /// value, before the typed legs existed.
+    fn untyped_keys(delivered_ok: bool) -> Vec<&'static str> {
+        let mut keys = vec![
+            "approach", "deterministic", "guidance", "literals", "model", "refuter_model",
+            "status", "timeout_ms", "verbs",
+        ];
+        if delivered_ok {
+            keys.extend(["findings", "for_mint"]);
+        }
+        keys.sort_unstable();
+        keys
+    }
+
+    fn keys_of(b: &serde_json::Value) -> Vec<String> {
+        let mut k: Vec<String> = b.as_object().expect("object").keys().cloned().collect();
+        k.sort_unstable();
+        k
+    }
+
+    #[test]
+    fn no_typesafe_value_anywhere_means_the_same_field_set() {
+        // Invariant 1. Reverts: insert the version keys whatever the record
+        // says; take `refuter_model` out of the literal and insert it only
+        // when set, which loses the `null` an `off` refuter prints.
+        for refuter in [None, Some(crate::config::DEFAULT_REFUTER.to_string())] {
+            for verb in ["fact", "claim", "prose"] {
+                let s = Settings { refuter: refuter.clone(), verbs: vec![verb.into()], ..settings_fixture() };
+                let b = block(&s, verb, None, Trigger::NotAttempted);
+                assert_eq!(keys_of(&b), untyped_keys(false), "{verb} {refuter:?}: {b}");
+                let b = block(&s, verb, Some(&record_fixture()), Trigger::NotAttempted);
+                assert_eq!(keys_of(&b), untyped_keys(true), "{verb} {refuter:?}: {b}");
+            }
+        }
+        let off = Settings { refuter: None, ..settings_fixture() };
+        assert!(block(&off, "claim", None, Trigger::NotAttempted)["refuter_model"].is_null());
+    }
+
+    #[test]
+    fn no_typesafe_value_anywhere_means_the_same_calls_in_the_same_order() {
+        // Invariant 1, on the calls. Revert: route the default refuter to
+        // TypeSafe (e.g. `is_typed_model` true for every vendor).
+        let llm = Mock::start(|body| {
+            let system = body["messages"][0]["content"].as_str().unwrap_or("");
+            (200, llm_reply(if system == REFUTE_SYSTEM {
+                r#"{"verdict":"CORRECT","why":""}"#
+            } else if system == CLASSIFY_SYSTEM {
+                r#"{"assertions":[{"text":"the function returns early","label":"current"}]}"#
+            } else {
+                r#"{"disagreements":[{"kind":"contradicts","clause":"the function returns early","evidence":"return","why":"w"}]}"#
+            }))
+        });
+        let typed = Mock::start(|_| (200, typed_reply(MEASURED_TYPED_VERSION, "WRONG")));
+        let mut tel = Telemetry::default();
+        let (status, f, _) = run(
+            &providers_fixture(&llm.url, &typed.url),
+            "openai/gpt-5.6-luna",
+            "split",
+            false,
+            Some(crate::config::DEFAULT_REFUTER),
+            &fact_subject(),
+            Instant::now(),
+            Duration::from_secs(20),
+            &mut tel,
+        );
+        assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+        assert_eq!(f.len(), 1);
+        let systems: Vec<String> = llm.bodies().iter().map(|b| b["messages"][0]["content"].as_str().unwrap_or("").to_string()).collect();
+        assert_eq!(systems, [CLASSIFY_SYSTEM, FACT_SYSTEM, REFUTE_SYSTEM]);
+        assert!(typed.bodies().is_empty(), "an untyped configuration called TypeSafe");
+        assert!(tel.typed_versions.is_empty());
+    }
+
+    #[test]
+    fn the_refuter_row_is_fact_alone() {
+        // Invariant 8, the table. Revert: permit the typed refuter on any
+        // other verb.
+        for (verb, permitted) in [("fact", true), ("claim", false), ("prose", false), ("nonesuch", false)] {
+            assert_eq!(typed_legs(verb).refuter, permitted, "{verb}");
+        }
+    }
+
+    #[test]
+    fn a_typed_refuter_off_its_row_runs_nothing_and_falls_back_to_nothing() {
+        // Invariants 8 and 9, on the leg itself — the refuter routes on its
+        // own value and takes no verb, so the row has to hold here and not
+        // only in the callers. Reverts: drop the early return in
+        // `refute_findings` (it then falls through to the LLM refuter);
+        // compute the leg without the verb.
+        for verb in ["claim", "prose"] {
+            let llm = Mock::start(|_| (200, llm_reply(r#"{"verdict":"WRONG","why":""}"#)));
+            let typed = Mock::start(|_| (200, typed_reply(MEASURED_TYPED_VERSION, "WRONG")));
+            let subject = Subject { verb: verb.into(), ..fact_subject() };
+            let mut tel = Telemetry::default();
+            let kept = refute_findings(
+                &providers_fixture(&llm.url, &typed.url),
+                "typesafe/jev-latest",
+                "openai/gpt-5.6-luna",
+                &subject,
+                vec![contradiction()],
+                Instant::now(),
+                Duration::from_secs(20),
+                &mut tel,
+            );
+            assert_eq!(kept.len(), 1, "{verb}: the finding was put to a refuter");
+            assert!(typed.bodies().is_empty(), "{verb}: TypeSafe was called");
+            assert!(llm.bodies().is_empty(), "{verb}: fell back to an LLM refuter");
+            assert_eq!(tel.refuter_status, None, "{verb}: a leg that never ran is not incomplete");
+        }
+    }
+
+    #[test]
+    fn a_typed_refuter_off_its_row_prints_no_model_name() {
+        // Invariant 9, on the response. Revert: leave `refuter_model` in
+        // the object for a `NotRun` leg.
+        let s = Settings { refuter: Some("typesafe/jev-latest".into()), ..settings_fixture() };
+        let b = block(&s, "claim", None, Trigger::NotAttempted);
+        assert!(b.get("refuter_model").is_none(), "{b}");
+        assert_eq!(b["refuter_not_run"], json!({"verb": "claim", "refuter_model": "typesafe/jev-latest"}));
+        // On its own row it is the refuter in force, printed as any other.
+        let b = block(&s, "fact", None, Trigger::NotAttempted);
+        assert_eq!(b["refuter_model"], "typesafe/jev-latest", "{b}");
+        assert!(b.get("refuter_not_run").is_none(), "{b}");
+    }
+
+    #[test]
+    fn a_typed_refuter_on_fact_asks_the_measured_questions_and_drops_only_wrong() {
+        let typed = Mock::start(|b| {
+            let verdict = if b["state"].as_str().unwrap_or("").contains("clause: drop me") { "WRONG" } else { "UNCLEAR" };
+            (200, typed_reply(MEASURED_TYPED_VERSION, verdict))
+        });
+        let mut tel = Telemetry::default();
+        let findings = vec![Finding { clause: "drop me".into(), ..contradiction() }, contradiction()];
+        let kept = refute_findings(
+            &providers_fixture(DEAD, &typed.url),
+            "typesafe/jev-latest",
+            "openai/gpt-5.6-luna",
+            &fact_subject(),
+            findings,
+            Instant::now(),
+            Duration::from_secs(20),
+            &mut tel,
+        );
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].clause, "the function returns early");
+        assert_eq!(tel.refuted, 1);
+        assert_eq!(tel.attempts, 2, "one attempt per typed call");
+        let sent = typed.bodies();
+        // The vendor half routes; it is not the endpoint's model name.
+        assert_eq!(sent[0]["model"], "jev-latest");
+        assert_eq!(sent[0]["questions"], typed_refute_questions());
+        // The state is the LLM refuter's user prompt, unchanged.
+        assert!(sent[0]["state"].as_str().unwrap_or("").starts_with("AUTHOR'S TEXT:\nthe function returns early\n\n"));
+        assert!(sent[0]["state"].as_str().unwrap_or("").contains("\n\nPROPOSED DISAGREEMENT:\n  kind: contradicts\n"));
+    }
+
+    #[test]
+    fn a_refuter_call_that_fails_keeps_the_finding_and_says_so() {
+        for (llm, typed, refuter) in [
+            (Mock::start(|_| (500, json!({}))), Mock::start(|_| (200, json!({}))), crate::config::DEFAULT_REFUTER),
+            (Mock::start(|_| (200, json!({}))), Mock::start(|_| (429, json!({}))), "typesafe/jev-latest"),
+            (Mock::start(|_| (200, json!({}))), Mock::start(|_| (200, json!({"model": "jev-1.13.0"}))), "typesafe/jev-latest"),
+        ] {
+            let mut tel = Telemetry::default();
+            let kept = refute_findings(
+                &providers_fixture(&llm.url, &typed.url),
+                refuter,
+                "openai/gpt-5.6-luna",
+                &fact_subject(),
+                vec![contradiction()],
+                Instant::now(),
+                Duration::from_secs(20),
+                &mut tel,
+            );
+            assert_eq!(kept.len(), 1, "{refuter}");
+            assert!(tel.refuter_status.is_some(), "{refuter}: a failed refutation passed for a clean one");
+        }
+        let r = Record {
+            findings: vec![finding_fixture()],
+            refuter: Some(crate::config::DEFAULT_REFUTER.into()),
+            refuter_status: Some("unavailable".into()),
+            ..record_fixture()
+        };
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+        assert_eq!(b["refuter_incomplete"], "unavailable", "{b}");
+        let clean = Record { refuter_status: None, ..r };
+        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted).get("refuter_incomplete").is_none());
+    }
+
+    #[test]
+    fn a_typed_call_records_the_version_that_answered_and_costs_more_than_nothing() {
+        // Invariants 7 (recording) and 11. Reverts: stop reading the
+        // reply's `model`; stop pricing from `input_tokens`.
+        let typed = Mock::start(|_| (200, typed_reply("jev-1.14.0", "CORRECT")));
+        let mut tel = Telemetry::default();
+        let ep = Endpoint { url: typed.url.clone(), key: "k".into() };
+        ask_typed(&ep, "typesafe/jev-latest", "s", &typed_refute_questions(), Instant::now(), Duration::from_secs(20), &mut tel)
+            .expect("answers");
+        assert_eq!(tel.typed_versions, ["jev-1.14.0"]);
+        assert!(tel.cost > 0.0, "a typed call totalled nothing");
+        assert!((tel.cost - 370.0 * TYPED_USD_PER_INPUT_TOKEN).abs() < 1e-15, "{}", tel.cost);
+    }
+
+    #[test]
+    fn a_different_version_is_flagged_whatever_the_status() {
+        // Invariant 7. Revert: move the version keys inside the `ok` guard.
+        for status in ["ok", "unavailable", "timeout"] {
+            let r = Record { status: status.into(), typed_versions: vec!["jev-1.14.0".into()], ..record_fixture() };
+            let b = block(&settings_fixture(), "fact", Some(&r), Trigger::NotAttempted);
+            assert_eq!(b["typed_model_unmeasured"], true, "{status}: {b}");
+            assert_eq!(b["typed_model_versions"], json!(["jev-1.14.0"]), "{status}: {b}");
+        }
+        let measured = Record { typed_versions: vec![MEASURED_TYPED_VERSION.into()], ..record_fixture() };
+        let b = block(&settings_fixture(), "fact", Some(&measured), Trigger::NotAttempted);
+        assert!(b.get("typed_model_unmeasured").is_none(), "{b}");
+        assert_eq!(b["typed_model_versions"], json!([MEASURED_TYPED_VERSION]));
+    }
+
+    #[test]
+    fn a_typesafe_credential_is_demanded_only_by_a_leg_that_runs() {
+        // Invariant 6. Reverts: demand the key for any typesafe refuter
+        // (`NotRun` included); demand it for none.
+        let s = Settings { refuter: Some("typesafe/jev-latest".into()), ..settings_fixture() };
+        let key = || Some("k".to_string());
+        assert!(providers_for(&s, "fact", key(), None).is_none(), "fact ran without its key");
+        assert!(providers_for(&s, "fact", key(), key()).is_some_and(|p| p.typed.is_some()));
+        for verb in ["claim", "prose"] {
+            let p = providers_for(&s, verb, key(), None);
+            assert!(p.is_some_and(|p| p.typed.is_none()), "{verb} demanded a key it never uses");
+        }
+        let d = unauthorized_detail(&s, "fact", true, false).expect("a gap");
+        assert!(d.contains(TYPED_KEY_VAR) && d.contains("typesafe/jev-latest"), "{d}");
+        assert_eq!(unauthorized_detail(&s, "claim", true, false), None);
+        // And it never displaces the OpenRouter gaps: every one is named.
+        let d = unauthorized_detail(&Settings { model: None, ..s }, "fact", false, false).expect("gaps");
+        assert!(d.contains("verify.model") && d.contains("OPENROUTER_API_KEY") && d.contains(TYPED_KEY_VAR), "{d}");
+    }
+
+    #[test]
+    fn a_refused_model_is_named_rather_than_reported_unset() {
+        // Invariant 4, at the printer: what `settings()` resolved from the
+        // file reaches `detail`. The file end is `tests/mcp_cli.rs`.
+        let why = crate::config::typed_model_refusal(crate::config::KEY_VERIFY_MODEL, "typesafe/jev-1.13.0");
+        let s = Settings { model: None, model_refusal: Some(why.clone()), ..settings_fixture() };
+        let d = unauthorized_detail(&s, "claim", true, true).expect("a gap");
+        assert!(d.contains("typesafe/jev-1.13.0"), "{d}");
+        assert!(!d.contains("is not set"), "told the key is unset: {d}");
     }
 
     #[test]

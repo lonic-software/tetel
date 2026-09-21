@@ -53,7 +53,8 @@ not exist yet — 11 of 38 wrong findings, reduced to none.
 Every finding is put to a **second model** before you see it: here is the text, here is the
 evidence, here is the proposed disagreement — is it correct? Only a clear *wrong* drops the finding.
 An unreadable answer, an expired budget or a provider failure all keep it, so a warning is never
-deleted by something going wrong.
+deleted by something going wrong — and the reply says `refuter_incomplete`, naming what went wrong,
+so a finding the refuter never answered for does not pass for one it did.
 
 This is on by default, at `anthropic/claude-sonnet-4.5`, and it is the one setting here that
 defaults to spending rather than to silence. The reason is that an unrefuted finding is an assertion
@@ -94,6 +95,36 @@ agreement, a third family would disagree about *which* findings are correct. It 
 The refuter must not name the same model as `verify.model`. Asked to refute itself that model scored
 17%, near-random — finding and checking are only different questions when someone else asks the
 second one. Configuring it that way is refused, with the reason in the record.
+
+### Jev as the refuter, on `fact` only
+
+`verify.refuter_model` also takes a TypeSafe model — `typesafe/jev-latest`, say. The vendor half is
+what routes it: a `typesafe/` value goes to TypeSafe's endpoint with the key in `TYPESAFE_API_KEY`,
+and anything else goes to OpenRouter as before. Jev is asked the same three-way question the default
+refuter is, as a typed choice rather than a prompt, and only a `WRONG` drops.
+
+It runs on **`fact` alone**, and that is a measurement, not a gap. On `fact` it kept 8 of 10 true
+catches at **80%** precision. On `prose` it kept 13 of 44 adjudicated findings at 31% and lost 2 of
+6 true catches. On `claim` it has never been run. So on `claim` and `prose` a `typesafe/` refuter
+**runs nothing** — it does not fall back to the default, which would spend on a model you had just
+replaced — and the reply leaves `refuter_model` out and says so instead:
+
+```json
+{ "refuter_not_run": { "verb": "claim", "refuter_model": "typesafe/jev-latest" } }
+```
+
+Findings on those verbs reach you unrefuted. Nor is its key demanded there: a missing
+`TYPESAFE_API_KEY` is `unauthorized` on `fact` and nothing at all on the verbs Jev does not run on.
+
+`verify.model` cannot be a `typesafe/` model. The comparison is a prompt, and Jev answers typed
+questions; `tetel config` refuses the value, and a settings file that sets it by hand is refused on
+read and named in `detail` — not reported as unset.
+
+A Jev call takes about a second and reports tokens, not a price, so it is costed from TypeSafe's
+published input rate as of 2026-09-21: **$0.042 per million input tokens**, output free. Every reply
+names the model version that answered, and the `verify` object prints it as
+`typed_model_versions`; the results above were measured on `jev-1.13.0`, and any other version is
+flagged `typed_model_unmeasured: true`.
 
 ### Why the overlap set is in there
 
@@ -165,11 +196,11 @@ and a workspace can override any of them in its own state directory with `--work
 | key | accepts | default | what it decides |
 |---|---|---|---|
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
-| `verify.model` | `vendor/model` | *(none)* | which model compares. No default — nothing runs until you set one |
+| `verify.model` | `vendor/model`, never `typesafe/` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 **per call** | how long one verification may take, **end to end across retries**. Unset, the default scales with the number of calls: 120s `split`, plus 120s for the refuter and 60s for `literals` — 240s at the shipped defaults |
+| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate and 60s for `literals` — 240s at the shipped defaults |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
-| `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above |
+| `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above. A `typesafe/` model runs on `fact` only |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
 
 ### `approach`
@@ -178,8 +209,9 @@ and a workspace can override any of them in its own state directory with `--work
   how things behave today), `proposed` (about what this design will build) or `argument` (a reason or
   entailment). The second checks, and may only report against `current` ones. This matters: without
   it, the verifier reports your *proposals* as contradicted by code that predates them.
-- **`direct`** — one call instead of two, so cheaper, but **not by half**: the call it drops carries
-  only your claim, while the one it keeps carries the evidence. One-call arms on the same corpus cost
+- **`direct`** — one call instead of two, so cheaper, but **not by half**: the one call it makes
+  does the work of both, and the call it drops is no cheap one either — it carries only your claim,
+  yet on `claim` it is about half of `split`'s spend. One-call arms on the same corpus cost
   between 0.26 and 0.65 of `split` depending on the prompt; the ones that report disagreements — the
   shape a finding has to have — sit at **0.63–0.65**, so expect about a third off. It won an earlier
   fifteen-case evaluation on synthetic cases; one-call comparisons *have* been run over real memos,
@@ -259,10 +291,12 @@ comparison happened. That principle is right and the trade was wrong: the disagr
 is the whole reason `verify` is an object.
 
 `verify.timeout_ms` bounds the whole verification end to end, not each call, so its **default scales
-with the number of calls**: 60s per leg, meaning 60s for `direct` and 120s for `split`, with the
-refuter charged a flat two legs and `literals` one — 240s for the shipped configuration. Measured
-over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat budget
-would have left `split` no headroom and four legs none at all.
+with the number of calls**: 60s per OpenRouter leg, meaning 60s for `direct` and 120s for `split`,
+with the refuter charged a flat two legs and `literals` one — 240s for the shipped configuration.
+Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
+budget would have left `split` no headroom and four legs none at all. A TypeSafe leg is charged 10s,
+since Jev answers in about one; the count is per verb, so a `typesafe/` refuter adds 20s on `fact`
+and nothing on the verbs it does not run on.
 Set it explicitly and your number is used as-is:
 
 ```sh
@@ -310,7 +344,7 @@ unreadable, and an empty array would read as a clean bill in every one of those 
 | status | meaning |
 |---|---|
 | `off` | disabled, or this verb is not in `verify.verbs` |
-| `unauthorized` | on, but nothing to call with. `detail` says which — an unset `verify.model` or a missing key |
+| `unauthorized` | on, but nothing to call with. `detail` names every gap — an unset `verify.model`, one a settings file sets to a value it refuses, a missing OpenRouter key, or a missing `TYPESAFE_API_KEY` for a `typesafe/` refuter on `fact` |
 | `queued` | a verification started for this mint. `queued_for` names it. Ask again on your next call |
 | `skipped` | the verb is on, but this call had nothing to compare — a heading, a block citing no claim, a withdrawal, or a revision that left the compared text unchanged |
 | `ok` | a verification completed. **`findings` is meaningful only here** |
@@ -322,11 +356,19 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`, `refuter_model`) plus `deterministic: false` and a `guidance` string — because tetel only
-admits a setting that is visible in the output it affects, and all but one of those would otherwise
-be invisible. `timeout_ms` and `refuter_model` matter most here: both have defaults that `tetel
-config` prints as "(unset)", so this echo is the only place the number and the second model actually
-in force appear.
+`literals`, and `refuter_model` — `null` when it is `off`) plus `deterministic: false` and a
+`guidance` string — because tetel only admits a setting that is visible in the output it affects,
+and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
+here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the
+number and the second model actually in force appear. The one exception is a `typesafe/` refuter on
+a verb it does not run on: there `refuter_model` is left out, since no model refuted anything, and
+`refuter_not_run` names the verb and the value instead.
+
+A few keys appear only when they have something to say. `literals_incomplete` and
+`refuter_incomplete` qualify an `ok` whose literal leg or refuter call did not complete.
+`typed_model_versions` lists the TypeSafe versions that answered, on any status, once a TypeSafe
+call has returned, and `typed_model_unmeasured: true` sits beside it when one of them is not the
+version the typed legs were measured on.
 
 ### A finding
 
@@ -448,9 +490,11 @@ cent. That is real, and it is the cost of judging a short synthetic proposition 
 captured extent. A real claim is a paragraph judged against the joined output of the facts it cites
 *and* its overlap set, and costs about fifty times more.
 
-`direct` is cheaper than `split` but not by half — the call it drops is the one carrying no evidence.
-The closest measured analogues on the same corpus sit at 0.63–0.65 of `split`, so expect about a third
-off. Nothing measures the shipped `direct` pairing itself.
+`direct` is cheaper than `split` but not by half. The closest measured analogues on the same corpus
+sit at 0.63–0.65 of `split`, so expect about a third off. Nothing measures the shipped `direct`
+pairing itself. The reason is not that the call it drops is the cheap one — it carries no evidence,
+yet on `claim` `split`'s classify call measured (2026-09-21) at $0.0054 of the $0.011 a verification
+costs, about half — but that the one call `direct` makes does both jobs.
 
 `verify.literals` adds one more call, and it is one of the **expensive** ones: like the check call, it
 carries the whole evidence blob. Nothing has measured it, so take the arithmetic rather than a

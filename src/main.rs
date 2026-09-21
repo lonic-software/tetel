@@ -1170,8 +1170,8 @@ fact — they are in the snapshot but nothing in the document rests on them"
                         // `set` and `list` do — a credential pasted into
                         // `verify.model` by hand meets its refusal here,
                         // not on write.
-                        (_, tetel::config::Source::Rejected(scope, _))
-                            if tetel::config::hides_rejected_value(&key) =>
+                        (_, tetel::config::Source::Rejected(scope, raw))
+                            if tetel::config::hides_rejected_value(&key, &raw) =>
                         {
                             eprintln!(
                                 "tetel: the value in the {scope} settings file is not one \

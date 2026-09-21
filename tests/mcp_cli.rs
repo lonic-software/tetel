@@ -1717,6 +1717,41 @@ async fn live_verification_delivers_a_finding_on_a_later_call() {
 /// spawned thread by reading the log — neither atomic nor ordered. This
 /// plants a log whose records arrive out of sequence and share a number,
 /// which is exactly what two verifications in flight can produce.
+/// A `typesafe/` model written by hand into a workspace's settings file is
+/// refused on read, and the author is told so — scope and value — rather
+/// than told the key is not set, in front of a file where it plainly is.
+///
+/// Through the file and the server, not the printer alone, because the
+/// case this exists for is a workspace-scope file and only the code that
+/// resolves settings can see it. Revert: stop `settings()` carrying the
+/// refusal to `block()`.
+#[tokio::test]
+async fn a_typesafe_check_model_in_a_workspace_file_is_named_not_reported_unset() {
+    let sb = Sandbox::new("verify-typed-check-model");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let cfg = sb.config_home();
+    std::fs::create_dir_all(&cfg).expect("config home");
+    std::fs::write(cfg.join("config.toml"), "[verify]\nenabled = true\nverbs = \"claim\"\n")
+        .expect("write global config");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    fact(&client, ws, "read_me.rs defines a()").await;
+    let state = sb.state_home().join("workspaces").join(ws);
+    std::fs::write(state.join("config.toml"), "[verify]\nmodel = \"typesafe/jev-1.13.0\"\n")
+        .expect("write workspace config");
+
+    let claimed = create_claim(&client, ws, "read_me.rs defines exactly one function", "F1").await;
+    let v = &claimed["verify"];
+    assert_eq!(v["status"], "unauthorized", "{v}");
+    let detail = v["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("typesafe/jev-1.13.0") && detail.contains("workspace"), "{v}");
+    assert!(!detail.contains("is not set"), "told the key is unset: {v}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 #[tokio::test]
 async fn a_finding_survives_a_refused_call_and_is_delivered_once() {
     let sb = Sandbox::new("verify-delivery-cursor");
