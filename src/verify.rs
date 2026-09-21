@@ -1878,25 +1878,34 @@ fn gate_questions(gate: Gate, units: &[&str]) -> Vec<(String, String)> {
     questions
 }
 
-/// The gate's score from its answers, or `None` when the answer that
-/// decides it is missing.
+/// The gate's score from its answers, or `None` unless the choice named a
+/// probability for every option it was offered.
 ///
 /// `pick_cls` sums each unit's share of the choice weighted by its CURRENT
 /// probability, a unit whose kind went unanswered counting whole;
-/// `pick_clause` is everything the choice did not put on NONE. A missing
-/// `which` is `None` rather than the harness's zero: there it scored an
-/// errored draw, and here a zero would be a skip.
+/// `pick_clause` is everything the choice did not put on NONE.
+///
+/// The harness scored a missing probability as zero — on the pick, and
+/// through its NONE default on the clause score — and so would skip on it.
+/// Here that would let a malformed answer end a verification as `gated`,
+/// so an answer that leaves any option out is not one. Every measured
+/// reply named them all: over the 3,234 subjects scored by the `pick_cls`
+/// and `pick_clause` families, none was missing.
 fn gate_score(gate: Gate, units: usize, answers: &serde_json::Value) -> Option<f64> {
     let probs = answers["which"]["probabilities"].as_object()?;
+    let p = |k: &str| probs.get(k).and_then(serde_json::Value::as_f64);
+    let picks: Vec<f64> = (1..=units).map(|i| p(&format!("S{i}"))).collect::<Option<_>>()?;
+    let none = p("NONE")?;
     if !gate.classify {
-        return Some(1.0 - probs.get("NONE").and_then(serde_json::Value::as_f64).unwrap_or(1.0));
+        return Some(1.0 - none);
     }
     Some(
-        (1..=units)
-            .map(|i| {
-                let p = probs.get(&format!("S{i}")).and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-                let current = answers[format!("k{i}")]["probabilities"]["CURRENT"].as_f64().unwrap_or(1.0);
-                p * current
+        picks
+            .iter()
+            .enumerate()
+            .map(|(i, pick)| {
+                let current = answers[format!("k{}", i + 1)]["probabilities"]["CURRENT"].as_f64().unwrap_or(1.0);
+                pick * current
             })
             .sum(),
     )
@@ -1937,7 +1946,7 @@ fn gate_skips(
     match gate_score(gate, units.len(), &answers) {
         Some(score) => Ok(score < gate.threshold),
         None => {
-            tel.detail = Some("the gate's reply carried no probabilities for its choice".into());
+            tel.detail = Some("the gate's reply did not give a probability for every option it offered".into());
             Err(Status::Unparsable)
         }
     }
@@ -4727,7 +4736,10 @@ mod tests {
         // at 41.
         let text: Vec<String> = (1..=45).map(|i| format!("Sentence number {i} is here.")).collect();
         let subject = Subject { verb: "fact".into(), ..subject_fixture(&text.join(" "), &[("F1", &["x"])]) };
-        let typed = typed_mock(json!({"S45": 0.9, "NONE": 0.1}), 0.1, "CORRECT");
+        let mut which: serde_json::Map<String, serde_json::Value> = (1..45).map(|i| (format!("S{i}"), json!(0.0))).collect();
+        which.insert("S45".into(), json!(0.9));
+        which.insert("NONE".into(), json!(0.1));
+        let typed = typed_mock(which.into(), 0.1, "CORRECT");
         let llm = llm_mock();
         let mut tel = Telemetry::default();
         let (status, _) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
@@ -4804,16 +4816,22 @@ mod tests {
     fn a_gate_that_fails_runs_the_check_and_says_so() {
         // Invariant 3. Revert: treat a failed gate as a skip (`Err(_) =>
         // return (Status::Gated, …)`) — every case below is then gated.
+        // The partial answers each score zero as the harness read them —
+        // a skip. Revert: default a missing probability, as the harness did.
         let unanswered = || Mock::start(|_| (200, json!({"model": MEASURED_TYPED_VERSION, "answers": {}})));
-        for (typed, want) in [
-            (Mock::start(|_| (500, json!({}))), Status::Unavailable),
-            (Mock::start(|_| (429, json!({}))), Status::Unavailable),
-            (unanswered(), Status::Unparsable),
+        for (verb, typed, want) in [
+            ("fact", Mock::start(|_| (500, json!({}))), Status::Unavailable),
+            ("fact", Mock::start(|_| (429, json!({}))), Status::Unavailable),
+            ("fact", unanswered(), Status::Unparsable),
+            ("fact", typed_mock(json!({}), 1.0, "CORRECT"), Status::Unparsable),
+            ("fact", typed_mock(json!({"NONE": 0.1}), 1.0, "CORRECT"), Status::Unparsable),
+            ("claim", typed_mock(json!({"S1": 0.9}), 1.0, "CORRECT"), Status::Unparsable),
         ] {
             let llm = llm_mock();
             let mut tel = Telemetry::default();
-            let (status, f) = gated_run(&llm, &typed, gate_only(Some(JEV)), &fact_subject(), &mut tel);
-            assert_eq!(status, Status::Ok, "{want:?}: {:?}", tel.detail);
+            let subject = Subject { verb: verb.into(), ..fact_subject() };
+            let (status, f) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+            assert_eq!(status, Status::Ok, "{verb} {want:?}: {:?}", tel.detail);
             assert_eq!(f.len(), 1, "{want:?}");
             assert_eq!(tel.gate_status, Some(want));
             assert_eq!(tel.gate_calls, 1);

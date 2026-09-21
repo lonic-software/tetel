@@ -128,10 +128,10 @@ pub const KEY_VERIFY_LITERALS: &str = "verify.literals";
 /// [`REFUTER_OFF`] means no refutation leg at all. It must not be
 /// [`KEY_VERIFY_MODEL`]'s value — see `verify::refute`.
 pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
-/// Which TypeSafe model runs the typed legs the verb's row in
-/// `verify::TYPED_LEGS` names, as `typesafe/model`. Unset means none run —
-/// and, with no `typesafe/` value on [`KEY_VERIFY_REFUTER`] either,
-/// nothing changes. Only a [`TYPED_VENDOR`] model: see
+/// Which TypeSafe model runs the gate on the verbs whose row in
+/// `verify::TYPED_LEGS` has one, as `typesafe/model`. Unset means no gate;
+/// a `typesafe/` value on [`KEY_VERIFY_REFUTER`] is a separate typed leg
+/// and runs either way. Only a [`TYPED_VENDOR`] model: see
 /// [`Accepts::TypedModelName`].
 pub const KEY_VERIFY_TYPED_MODEL: &str = "verify.typed_model";
 
@@ -355,9 +355,9 @@ different questions when someone else asks the second one",
     },
     KeyDef {
         name: KEY_VERIFY_TYPED_MODEL,
-        summary: "which TypeSafe model runs the typed legs, as typesafe/model (unset: none run). \
-On `fact` and `claim` it asks, before anything else, whether any sentence or clause disagrees \
-with the evidence, and a subject it scores below that verb's threshold is reported `gated` and \
+        summary: "which TypeSafe model gates `fact` and `claim`, as typesafe/model (unset: no \
+gate; a typesafe/ verify.refuter_model is separate and runs either way). It asks, before \
+anything else, whether any sentence or clause disagrees with the evidence, and a subject it scores below that verb's threshold is reported `gated` and \
 not checked: measured 2026-09-21, 58% of the check's cost saved on fact and 21% on claim, with \
 no adjudicated defect skipped — fitted on 12 and 10 positives with nothing held out. A gate call \
 that fails never skips: the check runs and the response says `gate_incomplete`. Needs \
