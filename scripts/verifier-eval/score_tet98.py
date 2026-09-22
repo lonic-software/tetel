@@ -180,12 +180,13 @@ def majority(vs, pred):
     return bool(a) and sum(pred(v) for v in a) * 2 > len(a)
 
 
-def findings(vs, every=False):
+def findings(vs, check_only=False):
     out = {}
     for v in vs:
         if flagged(v):
             for f in v["record"]["findings"]:
-                out.setdefault((f.get("kind"), f.get("clause")), f)
+                if not (check_only and f.get("kind") == "unevidenced"):
+                    out.setdefault((f.get("kind"), f.get("clause")), f)
     return list(out.values())
 
 
@@ -198,8 +199,8 @@ def hand(table, memo, id_, fs):
     return vs
 
 
-def grade_claim(key, vs):
-    fs = findings(vs)
+def grade_claim(key, vs, check_only=False):
+    fs = findings(vs, check_only)
     memo, id_ = key
     if vs[0]["sample"] == "in":
         v = [h if g == "READ" else g
@@ -232,9 +233,11 @@ def claims():
             ks = [k for k, vs in subj.items() if sample in ("all", vs[0]["sample"])]
             err = sum(len(subj[k]) - len(answered(subj[k])) for k in ks)
             fl = [k for k in ks if majority(subj[k], pred)]
-            g = collections.Counter(grade_claim(k, subj[k]) for k in fl)
-            for k in fl:
-                graded[(name, k)] = grade_claim(k, subj[k])
+            # cand-lit is graded on the findings it was flagged on: with the
+            # literal leg's put back, a WRONG check flag could pass as CORRECT.
+            grades = {k: grade_claim(k, subj[k], check_only=pred is flagged_by_check) for k in fl}
+            g = collections.Counter(grades.values())
+            graded.update({(name, k): v for k, v in grades.items()})
             sound = [k for k in ks if subj[k][0]["supports_only"]]
             sf = sum(k in fl for k in sound)
             rf = sum(1 for k in fl if subj[k][0]["refuted"])
@@ -254,19 +257,21 @@ def claims():
     print(f"\n  line: sound claims flagged under {LINE:.1%}")
 
     cand, dflt = loaded["candidate"], loaded["default"]
-    print("\n  Correct warnings the default arm raises and the candidate does not:")
+    print("\n  Correct warnings the default arm raises and the candidate does not"
+          " (not flagged, or flagged only on a wrong clause):")
     lost = 0
     for k, vs in sorted(dflt.items()):
-        if majority(vs, flagged) and grade_claim(k, vs) == "CORRECT" and not majority(cand[k], flagged):
+        if (graded.get(("default", k)) == "CORRECT"
+                and graded.get(("candidate", k)) != "CORRECT"):
             lost += 1
             gated = sum(v["record"]["status"] == "gated" for v in cand[k])
             print(f"    {k[0]} {k[1]}  candidate: {gated}/{len(cand[k])} draws gated,"
-                  f" {sum(map(flagged, cand[k]))} flagged")
+                  f" {sum(map(flagged, cand[k]))} flagged, graded {graded.get(('candidate', k), 'not flagged')}")
     print(f"    {lost} lost")
 
     print(f"\n  The {len(SCA.GOOD)} correct warnings the claim gate was fitted to keep, still raised:")
     for name, subj in loaded.items():
-        kept = [k for k in subj if (k[0][:5], k[1]) in SCA.GOOD and majority(subj[k], flagged)]
+        kept = [k for k in subj if (k[0][:5], k[1]) in SCA.GOOD and graded.get((name, k)) == "CORRECT"]
         print(f"    {name:<10} {len(kept)} of {len(SCA.GOOD)}")
     return loaded, graded
 
@@ -294,6 +299,26 @@ def facts():
         miss = [(k, n) for k, n in miss if n]
         print(f"    {label}: {len(miss)} of {len(keys)}"
               + "".join(f"\n      {k[0]} {k[1]} gated {n}/{len(g[k])}" for k, n in miss))
+
+    read = {k for k, vs in u.items() if vs[0]["sample"] == "out" and any(map(flagged, vs))}
+    minor = {k for (m, i, _), (v, why) in OUT_FACT.items()
+             if v == "CORRECT" and why.startswith("minor") for k in [(m, i)]}
+    print(f"\n  Held out: {len(read)} facts with a finding in some ungated draw, {len(held)} with a"
+          f" CORRECT one, {len(held & minor)} of them minor. Raised by majority:")
+    for label, keys in (("all held-out positives", held), ("not minor", held - minor),
+                        ("fitted, defects_v1", {k for k in g if (k[0][:5], k[1]) in FIT_DEFECTS})):
+        print(f"    {label:<24} gated arm {sum(majority(g[k], flagged) for k in keys)},"
+              f" ungated arm {sum(majority(u[k], flagged) for k in keys)}, of {len(keys)}")
+
+    # Why the saving is below the skip rate: what the gate skips is small.
+    size = {(v["memo"], v["id"]): len(v["text"]) + sum(len(o) for _, _, outs in v["evidence"] for o in outs)
+            for v in map(json.loads, open(RUN / "subjects_fact.jsonl"))}
+    by = {st: [(k, v) for k, vs in g.items() for v in vs if v["record"]["status"] == st] for st in ("gated", "ok")}
+    for st, rows in by.items():
+        sizes = sorted(size[k] for k, _ in rows)
+        cost_u = sum(w["record"].get("cost") or 0 for k, v in rows for w in u[k] if w["draw"] == v["draw"])
+        print(f"    draws the gate {'skipped' if st == 'gated' else 'passed':<7}: median subject {sizes[len(sizes) // 2]:,}"
+              f" characters; the same draws cost ${cost_u:.2f} ungated")
     return arms
 
 
@@ -320,7 +345,7 @@ def budgets():
         over = [r for r in ok if (r.get("elapsed_ms") or 0) > b]
         within = [r for r in ok if (r.get("elapsed_ms") or 0) <= b]
         rate = lambda rs: sum(bool(r.get("findings")) for r in rs) / max(len(rs), 1)
-        print(f"  {name:<16} default {b // 1000}s: {len(over)} of {len(ok)} answered draws over it"
+        print(f"  {name:<16} default {b // 1000}s: {len(over)} of {len(ok)} draws that ran the check over it"
               f" ({len(over) / len(ok):.0%}), {sum(bool(r.get('findings')) for r in over)} of them with findings"
               f" ({rate(over):.0%}, against {rate(within):.0%} within); median {el[len(el) // 2] / 1e3:.0f}s")
     for name in ("candidate", "default"):
@@ -371,4 +396,8 @@ if __name__ == "__main__":
     ca, _ = claims()
     fa = facts()
     budgets()
+    # Every line, not the last per draw: a re-run draw was paid for twice.
+    paid = sum(json.loads(l)["record"].get("cost") or 0 for a in
+               ("claim_candidate", "claim_default", "fact_gated", "fact_ungated") for l in open(RUN / f"{a}.jsonl"))
+    print(f"\nSPEND — every draw paid for, re-runs included: ${paid:.2f}")
     to_read(ca, fa)

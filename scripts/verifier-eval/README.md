@@ -585,7 +585,7 @@ output at the time of this result.
 | arm | sound claims flagged: in (62) | out (29) | pooled (91) | correct warnings | wrong | $/draw |
 |---|---|---|---|---|---|---|
 | **candidate** — `typed_model` + `literals` | 5 — 8.1% | 6 — 20.7% | **11 — 12.1%** | 27 | 29 | **$0.0046** |
-| candidate, literal findings set aside | 3 — 4.8% | 5 — 17.2% | **8 — 8.8%** | 23 | 19 | (same draws) |
+| candidate, literal findings set aside | 3 — 4.8% | 5 — 17.2% | **8 — 8.8%** | 22 | 20 | (same draws) |
 | **default** — what ships today | 3 — 4.8% | 5 — 17.2% | **8 — 8.8%** | 24 | 21 | $0.0106 |
 
 - **The line is 11.3%, and pooled it is crossed by one claim.** The candidate
@@ -593,10 +593,10 @@ output at the time of this result.
   harness predicted it, the candidate is under the line: 5 of 62, against
   `score_bundle.py`'s 4 of 38 for gate + check + Jev literals. The three extra
   sound claims all come from the Jev literal leg. Setting its findings aside
-  gives exactly today's rate, 8 of 91, with 23 correct warnings against 24,
+  gives exactly today's rate, 8 of 91, with 22 correct warnings against 24,
   at less than half the cost per draw.
   - That row is not an arm: it re-reads the candidate's draws without the
-    literal findings.
+    literal findings, and grades each flag on its check findings alone.
   - Its cost still includes the literal calls, but at $0.00023 they barely
     move it.
 - **The out-of-sample memos are harder in every arm, including today's
@@ -612,9 +612,11 @@ output at the time of this result.
 - **The gate skipped 29% of claim draws.** That was 38.7% of fitted-memo draws
   and 11.3% of new-memo draws, so on the new memos it scores far more claims
   above its threshold.
-- **It loses two correct warnings the default raises:**
+- **It loses three correct warnings the default raises:**
   - `tet-verifier-mint-warning` C18, a minor miscount, gated in 3 of 3 draws;
-  - `tet56` C3, gated in 2 of 3 draws.
+  - `tet56` C3, gated in 2 of 3 draws;
+  - `tet-verifier-mint-warning` C11, flagged in every draw but never on the
+    clause that is wrong.
 - **Of the 10 warnings the claim gate was fitted to keep, the candidate raises
   8 and the default 9.** `tet28` C14 is missed by both arms, and the candidate
   gates it in all three draws. `tet56` C3 is the other. In the fitting runs
@@ -636,7 +638,7 @@ output at the time of this result.
 - **The saving is 37% of the spend, not the 58% measured on the harness.** The
   gate skips 54% of draws, but the notes it lets through are the long ones.
   Subjects it skips have a median of 2,068 characters of note and capture;
-  those it passes have 5,280. The skipped draws cost $4.23 of the ungated
+  those it passes have 5,346. The skipped draws cost $4.23 of the ungated
   arm's $10.99.
 - **Fitted positives.** The gated arm raises 11 of the 12 subjects in
   `defects_v1.json`, and the ungated arm all 12.
@@ -662,15 +664,15 @@ output at the time of this result.
 Facts were measured at their latest note (`fact_subject` reads the last
 revision), which is also the wording `fact_v1.json` was measured on.
 
-### The default budget cuts off 11–30% of answered draws, the ones most likely to carry findings
+### The default budget cuts off 11–30% of the draws that ran the check, the ones most likely to carry findings
 
 The run set `timeout_ms` to 300 s. Left unset, `default_budget_ms` gives these
 configurations (refuter off, as run) 90 s for the candidate claim, 120 s for
 the default claim, and 190 s and 180 s for the fact arms. Latency was measured
 at 20–40 concurrent requests, so this is a direction, not a replay:
 
-| arm | answered draws over its default budget | with findings: over it | within it | median draw |
-|---|---|---|---|
+| arm | draws that ran the check, over its default budget | with findings: over it | within it | median draw |
+|---|---|---|---|---|
 | candidate claim, 90 s | 46 of 411 — 11% | 35 — 76% | 40% | 21 s |
 | default claim, 120 s | 99 of 579 — 17% | 34 — 34% | 23% | 54 s |
 | gated fact, 190 s | 104 of 344 — 30% | 61 — 59% | 35% | 140 s |
@@ -692,9 +694,9 @@ under "Classify", that means the model has slowed since the budget was set.
 - **`verify.typed_model`: the evidence supports turning it on.**
   - On `fact` it costs 37% less and, held out, gives up only minor defects.
   - On `claim` without literals it flags sound claims at today's rate and
-    raises one correct warning fewer, for less than half the spend.
+    raises two correct warnings fewer, for less than half the spend.
 - **`verify.literals`: turning it on with Jev puts the pooled rate one claim
-  over the line.** The literal leg adds 4 correct warnings and 3 sound-claim
+  over the line.** The literal leg adds 5 correct warnings and 3 sound-claim
   flags, and the flags come from the counted-word limitation above. That is a
   reason to fix the literal's form before flipping it, or to flip it knowingly.
 - **Neither flip addresses the budget.** `typed_model` shrinks the claim

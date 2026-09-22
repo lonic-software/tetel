@@ -370,7 +370,7 @@ with the number of calls**: 60s per OpenRouter leg, meaning 60s for `direct` and
 with the refuter charged a flat two legs and `literals` one — 240s for the shipped configuration.
 Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
 budget would have left `split` no headroom and four legs none at all. That measurement is stale.
-On 2026-09-23 a two-call `claim` draw under `split` took 54s at the median, 17% of answered draws ran
+On 2026-09-23 a two-call `claim` draw under `split` took 54s at the median, 17% of the draws ran
 past 120s, and the slow draws were disproportionately the ones with findings (TET-98). This was
 measured at 20–40 concurrent requests. If warnings go missing as `unavailable`, raise
 `verify.timeout_ms`. A TypeSafe leg is charged 10s,
