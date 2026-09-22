@@ -20,9 +20,12 @@ CLAIM — flagged by majority of three draws
     tet-verifier-mint-warning.md C18  candidate: 3/3 draws gated, 0 flagged, graded not flagged
     tet56-bounded-grep-return.md C3  candidate: 2/3 draws gated, 1 flagged, graded not flagged
     3 lost
+  cand-lit loses 4: tet-verifier-mint-warning C11, tet-verifier-mint-warning C18, tet56-bounded-grep-return C3, tet61-residue-scoped-acknowledgement C15
+  cand-lit gains 2: tet-verifier-jev C16, tet42-committed-artifact-paths C14
 
   The 10 correct warnings the claim gate was fitted to keep, still raised:
     candidate  8 of 10
+    cand-lit   7 of 10
     default    9 of 10
 
 FACT — flagged by majority of three draws

@@ -612,13 +612,19 @@ output at the time of this result.
 - **The gate skipped 29% of claim draws.** That was 38.7% of fitted-memo draws
   and 11.3% of new-memo draws, so on the new memos it scores far more claims
   above its threshold.
-- **It loses three correct warnings the default raises:**
+- **It loses three correct warnings the default raises, two to the gate and
+  one to the check:**
   - `tet-verifier-mint-warning` C18, a minor miscount, gated in 3 of 3 draws;
   - `tet56` C3, gated in 2 of 3 draws;
-  - `tet-verifier-mint-warning` C11, flagged in every draw but never on the
-    clause that is wrong.
+  - `tet-verifier-mint-warning` C11, never gated and flagged in every draw, but
+    never on the clause that is wrong. The default names that clause in only
+    1 of its 3 draws, so this is a weak loss.
+  - With literal findings set aside the candidate also loses `tet61` C15,
+    which it catches only through a literal, and gains `tet-verifier-jev` C16
+    and `tet42` C14: 4 lost, 2 gained.
 - **Of the 10 warnings the claim gate was fitted to keep, the candidate raises
-  8 and the default 9.** `tet28` C14 is missed by both arms, and the candidate
+  8 and the default 9.** With literal findings set aside the candidate raises 7:
+  `tet61` C15 is the one it keeps only through a literal. `tet28` C14 is missed by both arms, and the candidate
   gates it in all three draws. `tet56` C3 is the other. In the fitting runs
   (`gate_runs/claim_pick_clause_d*.json`) these two scored 0.59–0.63 and
   0.55–0.60 against a threshold of 0.53. The shipped subject is not the
@@ -694,7 +700,9 @@ under "Classify", that means the model has slowed since the budget was set.
 - **`verify.typed_model`: the evidence supports turning it on.**
   - On `fact` it costs 37% less and, held out, gives up only minor defects.
   - On `claim` without literals it flags sound claims at today's rate and
-    raises two correct warnings fewer, for less than half the spend.
+    raises two correct warnings fewer, for less than half the spend. That is
+    net: claim by claim it loses 4 the default raises and gains 2, and it
+    keeps 7 of the 10 warnings the gate was fitted to keep.
 - **`verify.literals`: turning it on with Jev puts the pooled rate one claim
   over the line.** The literal leg adds 5 correct warnings and 3 sound-claim
   flags, and the flags come from the counted-word limitation above. That is a

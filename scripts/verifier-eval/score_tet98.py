@@ -268,9 +268,14 @@ def claims():
             print(f"    {k[0]} {k[1]}  candidate: {gated}/{len(cand[k])} draws gated,"
                   f" {sum(map(flagged, cand[k]))} flagged, graded {graded.get(('candidate', k), 'not flagged')}")
     print(f"    {lost} lost")
+    # The flip argued for is typed_model without literals, so compare that
+    # reading claim by claim too: its net figure hides what it trades.
+    for verb, want, other in (("loses", "default", "cand-lit"), ("gains", "cand-lit", "default")):
+        ks = sorted(k for k in dflt if graded.get((want, k)) == "CORRECT" and graded.get((other, k)) != "CORRECT")
+        print(f"  cand-lit {verb} {len(ks)}: " + ", ".join(f"{k[0][:-3]} {k[1]}" for k in ks))
 
     print(f"\n  The {len(SCA.GOOD)} correct warnings the claim gate was fitted to keep, still raised:")
-    for name, subj in loaded.items():
+    for name, (subj, _) in rows.items():
         kept = [k for k in subj if (k[0][:5], k[1]) in SCA.GOOD and graded.get((name, k)) == "CORRECT"]
         print(f"    {name:<10} {len(kept)} of {len(SCA.GOOD)}")
     return loaded, graded
