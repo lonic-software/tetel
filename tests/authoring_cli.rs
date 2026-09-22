@@ -4110,6 +4110,77 @@ fn verify_report_scores_both_quotations_and_the_literals_it_refuted() {
     assert!(out.contains("retried        0"), "got:\n{out}");
 }
 
+/// The sample report in `docs/verify.md` is what `verify-report --spans`
+/// prints for this fixture, byte for byte from `VERIFICATIONS` down.
+///
+/// It was hand-written once and went stale as three PRs added lines to the
+/// report. Any change to the report's wording or layout now fails here
+/// until the sample is regenerated from this test's output.
+#[test]
+fn the_sample_report_in_the_verify_guide_is_what_verify_report_prints() {
+    let sb = Sandbox::new("verify-report-sample");
+    sb.write("alpha.rs", "fn a() {}\n");
+    let alpha = sb.dir.join("alpha.rs");
+    let memo = sb.dir.join("memo.md");
+
+    sb.run(&["--workspace", "author", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "author", "fact", "--note", "alpha.rs defines a()"]);
+    for (n, prop) in [
+        (1, "alpha.rs defines exactly one function"),
+        (2, "alpha.rs is a Rust source file"),
+        (3, "alpha.rs reads 4096 bytes at a time"),
+    ] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "author", "claim", "--proposition", prop, "--cites", "F1",
+        ]);
+        assert_eq!(code, 0, "claim {n} failed:\n{err}");
+        sb.run(&[
+            "--workspace", "author", "prose",
+            "--text", &format!("Something about claim {n}."),
+            "--cites", &format!("C{n}"),
+        ]);
+    }
+    let (code, _o, err) = sb.run(&["--workspace", "author", "render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "render failed:\n{err}");
+
+    sb.run(&["--workspace", "g", "look", alpha.to_str().unwrap()]);
+    sb.run(&["--workspace", "g", "fact", "--note", "read for grading"]);
+    for (claim, verdict) in [("C1", "refutes"), ("C2", "supports"), ("C3", "qualifies")] {
+        let (code, _o, err) = sb.run(&[
+            "--workspace", "g", "record", memo.to_str().unwrap(),
+            "--from-fact", "F1", "--claim", claim, "--verdict", verdict, "--note", "n",
+        ]);
+        assert_eq!(code, 0, "record {claim} failed:\n{err}");
+    }
+
+    // C1: a hit, with the LLM literal leg on. C2: a flag on a sound claim,
+    // carrying a span that was never captured. C3: gated once, timed out
+    // once, then flagged by Jev's literal leg alone.
+    let ws = sb.state_home().join("workspaces").join("author");
+    let log = [
+        r#"{"seq":1,"mint":"C1","verb":"claim","status":"ok","model":"m/x","approach":"split","literals":true,"at":1,"cost":0.0006,"elapsed_ms":1200,"attempts":3,"literals_refuted":2,"not_a_quantity":1,"findings":[{"kind":"contradicts","clause":"exactly one function","clause_quoted":true,"facts":["F1"],"evidence":"fn a() {}","why":"w","quoted":true},{"kind":"unevidenced","clause":"exactly one function","clause_quoted":true,"literal":"one","facts":[],"why":"w","quoted":false}]}"#,
+        r#"{"seq":2,"mint":"C2","verb":"claim","status":"ok","model":"m/x","approach":"split","at":2,"cost":0.0004,"elapsed_ms":1000,"attempts":3,"not_verbatim":1,"findings":[{"kind":"overreaches","clause":"a Rust source file","clause_quoted":true,"facts":[],"why":"w","quoted":false,"rejected_span":"pub fn never_captured() -> usize"}]}"#,
+        r#"{"seq":3,"mint":"C3","verb":"claim","status":"gated","model":"m/x","approach":"split","at":3,"cost":0.0,"elapsed_ms":150,"attempts":1,"gate_calls":1,"findings":[]}"#,
+        r#"{"seq":4,"mint":"C3","verb":"claim","status":"timeout","model":"m/x","approach":"split","at":4,"cost":0.0002,"elapsed_ms":20000,"attempts":2,"findings":[],"detail":"provider did not answer within the remaining budget"}"#,
+        r#"{"seq":5,"mint":"C3","verb":"claim","status":"ok","model":"m/x","approach":"split","literals":true,"at":5,"cost":0.0003,"elapsed_ms":900,"attempts":3,"typed_classify_calls":1,"typed_literal_calls":2,"literals_refuted":4,"findings":[{"kind":"unevidenced","clause":"reads 4096 bytes at a time","clause_quoted":true,"literal":"4096","facts":[],"why":"w","quoted":false}]}"#,
+    ]
+    .join("\n");
+    std::fs::write(ws.join("verify.log"), format!("{log}\n")).expect("plant verify.log");
+
+    let (code, out, err) = sb.run(&["verify-report", memo.to_str().unwrap(), "--spans"]);
+    assert_eq!(code, 0, "verify-report failed:\n{err}");
+    let printed = &out[out.find("VERIFICATIONS").expect("a report")..];
+
+    let guide = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/verify.md"))
+        .expect("docs/verify.md");
+    let start = guide.find("\n```\nVERIFICATIONS").expect("the sample block") + "\n```\n".len();
+    let sample = &guide[start..start + guide[start..].find("\n```").expect("its closing fence") + 1];
+    assert_eq!(
+        sample, printed,
+        "docs/verify.md's sample report no longer matches; replace it with:\n{printed}"
+    );
+}
+
 /// `--unset` names one setting to remove. The two shapes that name none
 /// used to be ignored, and one of them did the opposite of what was asked.
 #[test]

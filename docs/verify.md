@@ -698,47 +698,54 @@ that workspace's `verify.log`, reads the memo's evidence ledger, and joins the t
 
 ```
 VERIFICATIONS   5
+  gated          1
   ok             3
   timeout        1
-  unavailable    1
 
-  cost           0.0013 total, 0.00026 each
+  cost           0.0015 total, 0.00030 each
   elapsed        1000ms median
   retried        1
 
   why the non-ok ones failed:
     - provider did not answer within the remaining budget
-    - provider replied 429
-
-FLAGS AGAINST WHAT THE GRADERS LATER SAID
-  claims verified  3
-  of those graded  3   (ungraded so far: 0, entering no denominator)
-  flagged          2
-    later needed work  1
-    later only supported  1   <- flags on claims that were already sound
-  never flagged, later refuted   0   <- what it did not catch
-
-  precision        50%   (1/2)
-  recall           50%   (1/2)
 
 QUOTATIONS
-  findings         3
+  findings         4
   quoted verbatim  1   (50% of 2 evidence-bearing)
   span rejected    1
   span in >1 fact  0   <- attributed to all of them, not the first
-  clause verbatim  3   (100% of all findings)
+  clause verbatim  4   (100% of all findings)
   dropped, not the author's words   1   <- returned as a quotation, absent from the text
+
+LITERALS, judged by Jev
+  unevidenced      1   over 1 verification(s) <- code proposed, Jev judged; not in the LITERALS rates
 
 LITERALS
   unevidenced      1   <- stated as current fact, in no capture
   machine-refuted  2   <- the literal was in the capture after all
-  wrong about 67% of what it raised, by a check anyone can rerun
+  not a quantity   1   <- a name, flag or quantifier, not a countable value
+  75% of what it raised was dropped by a check anyone can rerun
 
-  [F1] proposition number 2
+  [no fact contained it] a Rust source file
     the model offered: pub fn never_captured() -> usize
+
+FLAGS AGAINST WHAT THE GRADERS LATER SAID
+  claims verified  3
+  of those graded  3   (ungraded so far: 0, entering no denominator)
+  flagged          3
+    later needed work  2
+    later only supported  1   <- flags on claims that were already sound
+  never flagged, later refuted   0   <- what it did not catch
+
+  precision        67%   (2/3)
+  recall           100%   (2/2)
+
+  1 of those 3 flags came only from `unevidenced` findings, a kind no
+  evaluation has scored. The two fractions above were earned by `contradicts`
+  and `overreaches`; read them knowing that.
 ```
 
-The three fidelity lines are what you tune on:
+These are the lines you tune on:
 
 - **`span in >1 fact`** counts findings whose quotation lives in several captures. High is not a
   fault — it usually means short spans — but it tells you how often the attribution is a set rather
@@ -747,12 +754,14 @@ The three fidelity lines are what you tune on:
 - **`dropped, not the author's words`** counts what never became a finding at all: classify
   assertions and literals the model attributed to you that were not in your text. These are dropped
   before anything reaches you, and counted here so the drop is visible rather than silent.
-- **`machine-refuted`** is the only accuracy number the `unevidenced` kind has. It counts literals the
-  model called unevidenced that a substring search found in the capture anyway. Nothing was shown to
-  you for those — the filter ran first — but a high rate means the literal check is guessing. It is
-  counted over the LLM literal leg only. Jev's leg filters every figure and path that code proposed,
-  not literals a model claimed, so its unevidenced findings get a line of their own, `LITERALS, judged
-  by Jev`, and are left out of the rate.
+- **`machine-refuted`** and **`not a quantity`** are the accuracy numbers the `unevidenced` kind has.
+  The first counts literals the model called unevidenced that a substring search found in the
+  capture anyway; the second, literals that named no countable value — a symbol, a flag, a path or a
+  quantifier. Nothing was shown to you for either — the filters ran first — but a high rate means
+  the literal check is guessing. Both, and the rate under them, are counted over the LLM literal leg
+  only. Jev's leg filters every figure and path that code proposed, not literals a model claimed, so
+  its unevidenced findings get a line of their own, `LITERALS, judged by Jev`, and are left out of
+  the rate.
 
 Claims nobody has graded yet leave every denominator rather than counting as correct silences.
 
