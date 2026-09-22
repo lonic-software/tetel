@@ -416,8 +416,9 @@ pub struct Settings {
     /// A `typesafe/` value is a typed leg, and runs only on a verb whose
     /// row in [`TYPED_LEGS`] permits it — see [`refuter_leg`].
     pub refuter: Option<String>,
-    /// `verify.typed_model`: the TypeSafe model the verb's row in
-    /// [`TYPED_LEGS`] runs its gate on. Unset means no gate runs.
+    /// `verify.typed_model`: the TypeSafe model that runs the typed legs
+    /// the verb's row in [`TYPED_LEGS`] names — the gate, classify, the
+    /// literal leg. Unset means none of them runs.
     pub typed_model: Option<String>,
     /// Why a `verify.model` written in a settings file was refused, when
     /// one was.
@@ -485,8 +486,9 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
 
 /// The calls the default budget pays for on `verb` under these settings.
 ///
-/// One gate call, which is what every measured subject needed: the gate is
-/// split across calls only past [`MAX_TYPED_QUESTIONS`] units.
+/// One call for each typed leg the row runs, which is what every measured
+/// subject needed: a leg is split across calls only past
+/// [`MAX_TYPED_QUESTIONS`] questions.
 fn planned_calls(
     verb: &str,
     approach: &str,
@@ -495,8 +497,14 @@ fn planned_calls(
     model: Option<&str>,
     typed_model: Option<&str>,
 ) -> Calls {
-    let gate = u32::from(typed_model.is_some() && typed_legs(verb).gate.is_some());
-    expected_calls(approach, literals, refuter_leg(refuter, model, verb), gate)
+    let row = typed_legs(verb);
+    let on = |leg: bool| typed_model.is_some() && leg;
+    let typed = TypedCalls {
+        gate: u32::from(on(row.gate.is_some())),
+        classify: on(row.classify).then_some(1),
+        literals: on(row.literals).then_some(1),
+    };
+    expected_calls(approach, literals, refuter_leg(refuter, model, verb), typed)
 }
 
 fn api_key() -> Option<String> {
@@ -525,6 +533,18 @@ struct TypedLegs {
     /// Jev as a gate before the check, when `verify.typed_model` is set.
     /// None on `prose`, where no presentation separated (best AUC 0.69).
     gate: Option<Gate>,
+    /// Jev labelling `split`'s assertions in place of the LLM's classify
+    /// call, when `verify.typed_model` is set. `claim` only: the same check
+    /// raised 11 correct warnings under either classifier over 125 claims,
+    /// at 39% of the cost. `fact` shares the classify prompt, but the port
+    /// was never run there.
+    classify: bool,
+    /// Jev judging the literal leg's candidates, when `verify.typed_model`
+    /// is set and `verify.literals` is on. `claim` only: 82% precision
+    /// against the LLM leg's 80% on the same 88 claims, at a sixth of the
+    /// cost. It produces findings, so a row with it permits no typed
+    /// refuter — the one model would be judging its own.
+    literals: bool,
 }
 
 /// One verb's gate: the presentation it was measured with, and the score
@@ -568,6 +588,8 @@ const TYPED_LEGS: [(&str, TypedLegs); 3] = [
         TypedLegs {
             refuter: true,
             gate: Some(Gate { unit: GateUnit::Sentence, classify: true, threshold: 0.45 }),
+            classify: false,
+            literals: false,
         },
     ),
     // `pick_clause`: 27% skipped, none of 10 adjudicated warnings; the
@@ -578,9 +600,11 @@ const TYPED_LEGS: [(&str, TypedLegs); 3] = [
         TypedLegs {
             refuter: false,
             gate: Some(Gate { unit: GateUnit::Clause, classify: false, threshold: 0.53 }),
+            classify: true,
+            literals: true,
         },
     ),
-    ("prose", TypedLegs { refuter: false, gate: None }),
+    ("prose", TypedLegs { refuter: false, gate: None, classify: false, literals: false }),
 ];
 
 fn typed_legs(verb: &str) -> TypedLegs {
@@ -665,14 +689,21 @@ fn refuter_leg<'a>(refuter: Option<&'a str>, model: Option<&str>, verb: &str) ->
 /// Every typed leg that will run on `verb`, as the key that set its model
 /// and the model.
 ///
-/// The one place both typed legs' rows are applied for the credential:
+/// `verify.typed_model` is one entry whichever of its legs the row runs —
+/// the gate, classify under `split`, the literal leg when it is on.
+///
+/// The one place the rows are applied for the credential:
 /// [`providers_for`] builds the TypeSafe endpoint exactly when this is
 /// non-empty, and [`unauthorized_detail`] names a gap for each entry, so
 /// the two cannot disagree about which keys a verification needs.
 fn typed_legs_that_run<'a>(settings: &'a Settings, verb: &str) -> Vec<(&'static str, &'a str)> {
     let mut legs = Vec::new();
     if let Some(m) = settings.typed_model.as_deref() {
-        if typed_legs(verb).gate.is_some() {
+        let row = typed_legs(verb);
+        if row.gate.is_some()
+            || (row.classify && settings.approach == "split")
+            || (row.literals && settings.literals)
+        {
             legs.push((config::KEY_VERIFY_TYPED_MODEL, m));
         }
     }
@@ -766,7 +797,10 @@ pub struct Record {
     #[serde(default)]
     pub not_verbatim: u32,
     /// [`Telemetry::literals_refuted`], persisted — the only accuracy
-    /// signal the `unevidenced` kind has, since no eval has scored it.
+    /// signal the `unevidenced` kind has, since no eval has scored it. On a
+    /// record whose literal leg was Jev's
+    /// ([`typed_literal_calls`](Self::typed_literal_calls)), it counts
+    /// code-proposed candidates instead, and the report leaves it out.
     #[serde(default)]
     pub literals_refuted: u32,
     /// [`Telemetry::not_a_quantity`], persisted.
@@ -825,6 +859,17 @@ pub struct Record {
     /// subject was checked ungated rather than gated and passed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate_status: Option<String>,
+    /// How many TypeSafe calls Jev classify made, when it stood in for the
+    /// LLM's classify call; `None` when it did not. Kept for the retry count
+    /// as [`gate_calls`](Self::gate_calls) is, and an `Option` because a
+    /// stand-in that asked nothing — a claim with no unit to label — still
+    /// took the LLM call's place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_classify_calls: Option<u32>,
+    /// The same for Jev judging the literal leg, which asks nothing when no
+    /// candidate survives the filters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_literal_calls: Option<u32>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -1322,6 +1367,8 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
             typed_versions: std::mem::take(&mut tel.typed_versions),
             gate_calls: tel.gate_calls,
             gate_status: tel.gate_status.map(|s| s.as_str().to_string()),
+            typed_classify_calls: tel.typed_classify_calls,
+            typed_literal_calls: tel.typed_literal_calls,
             // Only when something went wrong: a clean run has nothing to
             // explain, and a detail line on every record would train a
             // reader to skip the field.
@@ -1379,7 +1426,8 @@ pub struct Telemetry {
     /// `unevidenced` findings dropped because the literal turned out to be
     /// in the capture after all. The model's claim was checkable and
     /// checked; this counts how often it was wrong, which is the only
-    /// accuracy signal that kind has.
+    /// accuracy signal that kind has. Jev's literal leg counts its
+    /// code-proposed candidates here instead — see [`Record::literals_refuted`].
     pub literals_refuted: u32,
     /// Findings dropped because the literal named no quantity — the model
     /// reaching for a symbol, a flag, a path or a quantifier. Counted
@@ -1411,6 +1459,10 @@ pub struct Telemetry {
     pub gate_calls: u32,
     /// See [`Record::gate_status`].
     pub gate_status: Option<Status>,
+    /// See [`Record::typed_classify_calls`].
+    pub typed_classify_calls: Option<u32>,
+    /// See [`Record::typed_literal_calls`].
+    pub typed_literal_calls: Option<u32>,
 }
 
 /// The legs a verification may run beside the check, as configured. Which
@@ -1466,7 +1518,22 @@ fn run(
     // the claim text alone, yet on `claim` it measured 2026-09-21 at
     // $0.0054 of the $0.011 a `split` draw costs — but because the one call
     // `direct` keeps does both jobs.
-    let labelled = if approach == "split" {
+    //
+    // Where the verb's row says so, Jev labels in the LLM's place, and on
+    // the same row it judges the literal leg below. Either typed leg fails
+    // without the endpoint `spawn` built for it — a wiring fault, as it is
+    // for the gate.
+    let row = typed_legs(&subject.verb);
+    let labelled = if let (true, Some(tm)) = (approach == "split", typed_model.filter(|_| row.classify)) {
+        let labelled = match &providers.typed {
+            Some(typed) => typed_classify(typed, tm, subject, started, budget, tel),
+            None => Err(Status::Unauthorized),
+        };
+        match labelled {
+            Ok(l) => l,
+            Err(s) => return (s, Vec::new(), None),
+        }
+    } else if approach == "split" {
         let body = match call(&providers.llm, model, classify_system_for(&subject.verb), &classify_prompt(subject), started, budget, tel)
         {
             Ok(b) => b,
@@ -1509,7 +1576,12 @@ fn run(
                 // different payloads.
                 let mut lit_status = None;
                 if literals {
-                    match literal_findings(&providers.llm, model, subject, started, budget, tel) {
+                    let found = match (typed_model.filter(|_| row.literals), &providers.typed) {
+                        (Some(tm), Some(typed)) => typed_literal_findings(typed, tm, subject, started, budget, tel),
+                        (Some(_), None) => Err(Status::Unauthorized),
+                        (None, _) => literal_findings(&providers.llm, model, subject, started, budget, tel),
+                    };
+                    match found {
                         Ok(mut l) => f.append(&mut l),
                         Err(s) => lit_status = Some(s),
                     }
@@ -1794,28 +1866,47 @@ fn gate_sentences(text: &str) -> Vec<&str> {
 /// whitespace — `gate_variants.py`'s `CLAUSE`. Parentheses are not a
 /// boundary: a figure is only checkable with its range still attached.
 fn gate_clauses(sentence: &str) -> Vec<&str> {
+    clause_spans(sentence, false).into_iter().map(|(a, b)| &sentence[a..b]).collect()
+}
+
+/// Where [`gate_clauses`] cuts, as byte spans of `sentence`, separators
+/// excluded. With `depth0`, never inside brackets or a code span —
+/// `classify_jev.py`'s `depth0_clauses`: a backtick toggles a code span,
+/// and outside one `(`, `[` and `{` open a level that `)`, `]` and `}`
+/// close, never below zero. The plain cut made "{ id, proposition, cited
+/// fact ids, withdrawn }" four one-word units, and Jev labelled
+/// `proposition` on its own; an enumeration is one assertion.
+fn clause_spans(sentence: &str, depth0: bool) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
-    let mut start = 0;
-    let mut i = 0;
+    let (mut start, mut depth, mut code, mut i) = (0, 0usize, false, 0);
     while i < sentence.len() {
         let rest = &sentence[i..];
-        let sep = [",", ";", ":", " —", " –"].into_iter().find(|p| rest.starts_with(p));
-        if let Some(p) = sep {
-            let ws: usize = sentence[i + p.len()..]
-                .chars()
-                .take_while(|c| c.is_whitespace())
-                .map(char::len_utf8)
-                .sum();
-            if ws > 0 {
-                out.push(&sentence[start..i]);
-                start = i + p.len() + ws;
-                i = start;
-                continue;
+        let ch = rest.chars().next().unwrap_or_default();
+        if depth0 && ch == '`' {
+            code = !code;
+        } else if depth0 && !code && "([{".contains(ch) {
+            depth += 1;
+        } else if depth0 && !code && ")]}".contains(ch) {
+            depth = depth.saturating_sub(1);
+        } else if !code && depth == 0 {
+            let sep = [",", ";", ":", " —", " –"].into_iter().find(|p| rest.starts_with(p));
+            if let Some(p) = sep {
+                let ws: usize = sentence[i + p.len()..]
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .map(char::len_utf8)
+                    .sum();
+                if ws > 0 {
+                    out.push((start, i));
+                    start = i + p.len() + ws;
+                    i = start;
+                    continue;
+                }
             }
         }
-        i += rest.chars().next().map_or(1, char::len_utf8);
+        i += ch.len_utf8().max(1);
     }
-    out.push(&sentence[start..]);
+    out.push((start, sentence.len()));
     out
 }
 
@@ -1934,15 +2025,8 @@ fn gate_skips(
     // evidence after it. The reverse order was measured and lost.
     let state = format!("AUTHOR'S TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
     let questions = gate_questions(gate, &units);
-    let mut answers = serde_json::Map::new();
-    for chunk in questions.chunks(MAX_TYPED_QUESTIONS) {
-        tel.gate_calls += 1;
-        let a = ask_typed(typed, typed_model, &state, &json_ordered(chunk), started, budget, tel)?;
-        if let serde_json::Value::Object(a) = a {
-            answers.extend(a);
-        }
-    }
-    let answers = serde_json::Value::Object(answers);
+    let answers =
+        ask_chunked(typed, typed_model, &state, &questions, started, budget, tel, |t| t.gate_calls += 1)?;
     match gate_score(gate, units.len(), &answers) {
         Some(score) => Ok(score < gate.threshold),
         None => {
@@ -1950,6 +2034,469 @@ fn gate_skips(
             Err(Status::Unparsable)
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// Classify, asked of Jev. Ported from `scripts/verifier-eval/classify_jev.py`
+// at the presentation the design measured (`--unit clause0`, τ 0.4): the
+// split is mechanical, because `CLASSIFY_SYSTEM`'s own rule is that the
+// step only sorts the author's words, and Jev only labels.
+// ---------------------------------------------------------------------
+
+/// `CLASSIFY_SYSTEM`'s three definitions, as the harness offered them.
+const TYPED_CLASSIFY_CRITERIA: [(&str, &str); 3] = [
+    ("current", "asserts how the code, files or tools behave TODAY. Checkable against captured evidence."),
+    (
+        "proposed",
+        "asserts what THIS DESIGN will build, add, change, or recommend. The evidence was captured \
+before that change exists, so it cannot speak to this.",
+    ),
+    (
+        "argument",
+        "a reason, a decision, an entailment, or a statement about what is right or necessary. \
+Nothing captured can settle it.",
+    ),
+];
+
+/// A part is labelled `current` at this probability of it, whatever the
+/// choice: hiding a current clause from the check loses a correct
+/// warning, which costs more than a proposal read as current.
+const TYPED_CURRENT_AT: f64 = 0.4;
+
+/// The parts Jev labels: every sentence's clauses, cut outside brackets
+/// and code spans, keeping those longer than three characters.
+fn classify_units(text: &str) -> Vec<&str> {
+    gate_sentences(text)
+        .into_iter()
+        .flat_map(|s| clause_spans(s, true).into_iter().map(move |(a, b)| s[a..b].trim()))
+        .filter(|u| u.chars().count() > 3)
+        .collect()
+}
+
+/// One `choice` per part, keyed `u0`, `u1`, … in text order.
+fn classify_questions(units: &[&str]) -> Vec<(String, String)> {
+    let criteria: Vec<(&str, String)> =
+        TYPED_CLASSIFY_CRITERIA.iter().map(|(k, d)| (*k, json_str(d))).collect();
+    let criteria = json_ordered(&criteria);
+    units
+        .iter()
+        .enumerate()
+        .map(|(i, u)| {
+            let question = json_ordered(&[
+                ("type", json_str("choice")),
+                ("criteria", criteria.clone()),
+                (
+                    "instructions",
+                    json_str(&format!(
+                        "You are given one claim from a software design memo (the state). Label ONE \
+                         part of it by what that part asserts.\nPART: {u}"
+                    )),
+                ),
+            ]);
+            (format!("u{i}"), question)
+        })
+        .collect()
+}
+
+/// One part's label from its answer, or `None` unless the answer named a
+/// probability for every label and, where `current` falls short of
+/// [`TYPED_CURRENT_AT`], a choice among them.
+///
+/// The harness read a missing probability as zero. Here that would label
+/// a part by a choice made on an answer that was not whole, so it fails
+/// the leg instead — the rule the gate follows.
+fn classify_label(answer: &serde_json::Value) -> Option<&'static str> {
+    let probs = answer["probabilities"].as_object()?;
+    let p = |k: &str| probs.get(k).and_then(serde_json::Value::as_f64);
+    let current = p("current")?;
+    p("proposed")?;
+    p("argument")?;
+    if current >= TYPED_CURRENT_AT {
+        return Some("current");
+    }
+    let choice = answer["choice"].as_str()?;
+    CLASSIFY_LABELS.into_iter().find(|l| *l == choice)
+}
+
+/// `split`'s assertions, labelled by Jev, in the shape [`parse_assertions`]
+/// emits — so the check prompt cannot tell which classifier ran — or
+/// `None` when the claim offers no part to label, which checks it
+/// unlabelled, as `direct` does, rather than asking about nothing.
+fn typed_classify(
+    typed: &Endpoint,
+    typed_model: &str,
+    subject: &Subject,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Result<Option<String>, Status> {
+    tel.typed_classify_calls = Some(0);
+    let units = classify_units(&subject.text);
+    if units.is_empty() {
+        return Ok(None);
+    }
+    let state = format!("CLAIM:\n{}", subject.text);
+    let answers = ask_chunked(typed, typed_model, &state, &classify_questions(&units), started, budget, tel, |t| {
+        *t.typed_classify_calls.get_or_insert(0) += 1;
+    })?;
+    let mut assertions = Vec::new();
+    for (i, u) in units.iter().enumerate() {
+        let Some(label) = classify_label(&answers[format!("u{i}")]) else {
+            tel.detail = Some(format!("typed classify gave no usable label for part u{i}"));
+            return Err(Status::Unparsable);
+        };
+        assertions.push(json!({"text": u, "label": label}));
+    }
+    Ok(Some(json!({"assertions": assertions}).to_string()))
+}
+
+// ---------------------------------------------------------------------
+// The literal leg, asked of Jev. Ported from
+// `scripts/verifier-eval/literals_jev.py` at the presentation the design
+// measured (two nouls, `--q 0.7 --c 0.5`): code proposes every candidate
+// and applies the shipped filters, and Jev only judges what survives.
+// ---------------------------------------------------------------------
+
+/// What makes a literal worth reporting, asked of each candidate as `q{i}`.
+const QUANTITY_TRUE: &str = "it is a QUANTITY the text states as current fact — a value that could \
+be wrong by counting or arithmetic: a count, a size, a byte or line count, a duration, a percentage \
+or proportion, a threshold, an index range used as a measurement — or a FILE the text says it read \
+or that carries something";
+const QUANTITY_FALSE: &str = "it is not: a symbol, function, type, module or field name; a flag, \
+option or setting name; a version string; an identifier for a ticket, section, check or numbered \
+item; a line or byte range saying WHERE something is rather than HOW MUCH; a quoted phrase the text \
+discusses; a quantifier (any, every, no, only, always); a quantity in what this design WILL build; a \
+quantity inside a reason, a decision or an entailment; or a number that measures nothing (\"two \
+reasons\", \"one call\")";
+/// Whether the capture carries it in another form, asked as `c{i}` — the
+/// arithmetic the substring filter cannot do.
+const CARRIED_TRUE: &str = "the captured evidence carries this value, possibly in another form: \
+`14_000` backs \"14,000 bytes\"; a capture of lines 1-40 backs \"40 lines\"; `MAX_ATTEMPTS: u32 = \
+3` backs \"retries three times\"; 5 of 6 visible backs \"83%\"";
+const CARRIED_FALSE: &str = "it does not: the value appears nowhere in what was captured, or the \
+capture shows a DIFFERENT value (two timestamps 910 apart do not carry \"918 seconds\"), or the \
+value may lie in material that was truncated and not shown";
+
+/// A candidate is reported when P(quantity) reaches this…
+const TYPED_QUANTITY_AT: f64 = 0.7;
+/// …and P(carried) stays below this.
+const TYPED_CARRIED_BELOW: f64 = 0.5;
+
+/// Why a Jev literal finding was raised. Jev writes no words, so the
+/// finding carries this rather than a model's reason, and never its
+/// probabilities.
+const TYPED_LITERAL_WHY: &str =
+    "The text states this as current fact, and no captured observation contains it.";
+
+/// `\w`, as Python's `re` reads it in a `str` pattern.
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Every quantity- or path-shaped literal in `text`, in the harness's
+/// order and without repeats: each figure with the word it counts ("918
+/// seconds", "one glob"), then each path with its backticks dropped.
+///
+/// `literals_jev.py`'s `FIGURE`, `NOUN` and `PATH` regexes, matched by
+/// hand because this crate has no regex dependency. Each is walked the
+/// way `re.finditer` walks it — leftmost match, retried a character on
+/// after a miss — and tries its alternatives in the order Python's
+/// backtracking would, so the first match either finds is the same one.
+fn literal_candidates(text: &str) -> Vec<&str> {
+    let at: Vec<(usize, char)> = text.char_indices().collect();
+    let byte = |k: usize| at.get(k).map_or(text.len(), |(b, _)| *b);
+    let mut found = Vec::new();
+    let mut k = 0;
+    while k < at.len() {
+        match figure_at(&at, k) {
+            Some(end) => {
+                found.push(text[byte(k)..noun_after(&at, end).map_or(byte(end), byte)].trim());
+                k = end;
+            }
+            None => k += 1,
+        }
+    }
+    let mut k = 0;
+    while k < at.len() {
+        match path_at(&at, k) {
+            Some(end) => {
+                found.push(text[byte(k)..byte(end)].trim_matches('`'));
+                k = end;
+            }
+            None => k += 1,
+        }
+    }
+    let mut out: Vec<&str> = Vec::new();
+    for c in found {
+        if !c.is_empty() && text.contains(c) && !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `FIGURE` at char index `k`: the end of a match, or `None`.
+///
+/// `(?<![\w.:/#-])\d[\d,_]*(?:\.\d+)?%?(?![\w])`, then, case-insensitively,
+/// `(?<![\w-])(?:zero|one|…|twelve)(?![\w-])`.
+///
+/// `\d` is read as an ASCII digit where Python reads any decimal digit
+/// (std has no test for exactly that class). So a figure in another
+/// script, `３` or `٣`, is proposed by the harness and not here. Alone it
+/// is no quantity to either — [`is_checkable`], like the harness's
+/// `is_quantity`, needs an ASCII digit, a path or a number word — but with
+/// a counted number word ("３ ten-minute passes") or beside an ASCII digit
+/// ("٣4 files") the harness would ask Jev about it and this does not. No
+/// measured claim has such a figure. Likewise `trim` keeps the ASCII
+/// separators `\x1c`–`\x1f` that Python's `strip` removes.
+fn figure_at(at: &[(usize, char)], k: usize) -> Option<usize> {
+    let ch = |i: usize| at.get(i).map(|(_, c)| *c);
+    let prev = k.checked_sub(1).and_then(ch);
+    let ends_word = |i: usize| !ch(i).is_some_and(is_word);
+    if ch(k).is_some_and(|c| c.is_ascii_digit())
+        && !prev.is_some_and(|c| is_word(c) || ".:/#-".contains(c))
+    {
+        let mut run = k + 1;
+        while ch(run).is_some_and(|c| c.is_ascii_digit() || c == ',' || c == '_') {
+            run += 1;
+        }
+        // Backtracking order: the greediest `[\d,_]*` first, and within it
+        // the decimal part longest-first, then none; `%` before no `%`.
+        for r in (k + 1..=run).rev() {
+            let mut ends = Vec::new();
+            if ch(r) == Some('.') && ch(r + 1).is_some_and(|c| c.is_ascii_digit()) {
+                let mut d = r + 2;
+                while ch(d).is_some_and(|c| c.is_ascii_digit()) {
+                    d += 1;
+                }
+                ends.extend((r + 2..=d).rev());
+            }
+            ends.push(r);
+            for e in ends {
+                if ch(e) == Some('%') && ends_word(e + 1) {
+                    return Some(e + 1);
+                }
+                if ends_word(e) {
+                    return Some(e);
+                }
+            }
+        }
+    }
+    if prev.is_some_and(|c| is_word(c) || c == '-') {
+        return None;
+    }
+    NUMBER_WORDS.iter().find_map(|w| {
+        let n = w.chars().count();
+        let same = w.chars().enumerate().all(|(i, wc)| ch(k + i).is_some_and(|c| c.to_ascii_lowercase() == wc));
+        (same && !ch(k + n).is_some_and(|c| is_word(c) || c == '-')).then_some(k + n)
+    })
+}
+
+/// `NOUN` at char index `k`, `\s+(\(?[A-Za-z][\w'-]*\)?)`: the end of the
+/// word a figure counts, unless that word opens with `(`.
+fn noun_after(at: &[(usize, char)], k: usize) -> Option<usize> {
+    let ch = |i: usize| at.get(i).map(|(_, c)| *c);
+    let mut i = k;
+    while ch(i).is_some_and(char::is_whitespace) {
+        i += 1;
+    }
+    if i == k || !ch(i).is_some_and(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    i += 1;
+    while ch(i).is_some_and(|c| is_word(c) || c == '\'' || c == '-') {
+        i += 1;
+    }
+    Some(i + usize::from(ch(i) == Some(')')))
+}
+
+/// `PATH` at char index `k`: the end of a match, or `None`.
+///
+/// `` `?(?:[\w.-]+/)*[\w.-]+\.(?:rs|py|…|html)\b`? ``, then
+/// `` `?(?:[\w.-]+/)+[\w.-]*`? ``. A segment's run cannot contain its `/`,
+/// so each segment has one length and backtracking only gives whole
+/// segments back.
+fn path_at(at: &[(usize, char)], k: usize) -> Option<usize> {
+    let ch = |i: usize| at.get(i).map(|(_, c)| *c);
+    let in_class = |i: usize| ch(i).is_some_and(|c| is_word(c) || c == '.' || c == '-');
+    let run_from = |mut i: usize| {
+        while in_class(i) {
+            i += 1;
+        }
+        i
+    };
+    let tick = |i: usize| i + usize::from(ch(i) == Some('`'));
+    let start = tick(k);
+    // Where each segment ends, after its `/`.
+    let mut segments = vec![start];
+    loop {
+        let from = *segments.last().unwrap_or(&start);
+        let r = run_from(from);
+        if r > from && ch(r) == Some('/') {
+            segments.push(r + 1);
+        } else {
+            break;
+        }
+    }
+    for &t in segments.iter().rev() {
+        let r = run_from(t);
+        for x in (t + 1..r).rev() {
+            if ch(x) != Some('.') {
+                continue;
+            }
+            for ext in PATH_SUFFIXES {
+                let ext = &ext[1..];
+                let n = ext.chars().count();
+                let same = ext.chars().enumerate().all(|(i, e)| ch(x + 1 + i) == Some(e));
+                if same && !ch(x + 1 + n).is_some_and(is_word) {
+                    return Some(tick(x + 1 + n));
+                }
+            }
+        }
+    }
+    let last = *segments.last().unwrap_or(&start);
+    (segments.len() > 1).then(|| tick(run_from(last)))
+}
+
+/// The clause a literal sits in, for its question and its finding:
+/// `literals_jev.py`'s `clause_of`, which finds the literal's first
+/// occurrence and each sentence's first occurrence, cuts that sentence as
+/// the gate does, and falls back to the sentence and then the text.
+fn literal_clause<'a>(text: &'a str, literal: &str) -> &'a str {
+    let Some(i) = text.find(literal) else { return text };
+    for s in gate_sentences(text) {
+        let Some(j) = text.find(s) else { continue };
+        if j <= i && i < j + s.len() {
+            return clause_spans(s, false)
+                .into_iter()
+                .find(|&(a, b)| a <= i - j && i - j < b)
+                .map_or(s, |(a, b)| s[a..b].trim());
+        }
+    }
+    text
+}
+
+/// Two `noul`s per candidate, `q{i}` then `c{i}`.
+fn literal_questions(text: &str, literals: &[&str]) -> Vec<(String, String)> {
+    let criteria = |t: &str, f: &str| json_ordered(&[("true", json_str(t)), ("false", json_str(f))]);
+    let noul = |criteria: String, instructions: String| {
+        json_ordered(&[("type", json_str("noul")), ("criteria", criteria), ("instructions", json_str(&instructions))])
+    };
+    let mut out = Vec::new();
+    for (i, lit) in literals.iter().enumerate() {
+        let cl = literal_clause(text, lit);
+        out.push((
+            format!("q{i}"),
+            noul(
+                criteria(QUANTITY_TRUE, QUANTITY_FALSE),
+                format!(
+                    "In the author's text, the literal «{lit}», in the clause «{cl}», is a quantity \
+                     stated as current fact or a file the text says it read."
+                ),
+            ),
+        ));
+        out.push((
+            format!("c{i}"),
+            noul(
+                criteria(CARRIED_TRUE, CARRIED_FALSE),
+                format!("The captured evidence carries the value of «{lit}», as the author's clause «{cl}» uses it."),
+            ),
+        ));
+    }
+    out
+}
+
+/// [`literal_findings`] with Jev in the LLM's place: code proposes the
+/// candidates, the shipped filters run in the shipped order and are
+/// counted as they are there, and Jev judges each survivor.
+///
+/// An answer that leaves out either probability of any candidate fails
+/// the leg, as a failed LLM call does — the harness read it as a candidate
+/// not kept, which would report "found nothing" for "was not answered".
+fn typed_literal_findings(
+    typed: &Endpoint,
+    typed_model: &str,
+    subject: &Subject,
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+) -> Result<Vec<Finding>, Status> {
+    tel.typed_literal_calls = Some(0);
+    // Kept for the same reason as in `literal_findings`: with nothing
+    // captured, the filter that makes this kind worth trusting cannot
+    // reject anything.
+    if subject.evidence.iter().all(|(_, _, obs)| obs.is_empty()) {
+        return Ok(Vec::new());
+    }
+    let mut judged = Vec::new();
+    for lit in literal_candidates(&subject.text) {
+        if subject.in_captured_output(lit) {
+            tel.literals_refuted += 1;
+        } else if !is_checkable(lit) {
+            tel.not_a_quantity += 1;
+        } else {
+            judged.push(lit);
+        }
+    }
+    if judged.is_empty() {
+        return Ok(Vec::new());
+    }
+    let state = format!("TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
+    let questions = literal_questions(&subject.text, &judged);
+    let answers = ask_chunked(typed, typed_model, &state, &questions, started, budget, tel, |t| {
+        *t.typed_literal_calls.get_or_insert(0) += 1;
+    })?;
+    let mut out = Vec::new();
+    for (i, lit) in judged.into_iter().enumerate() {
+        let p = |key: String| answers[key]["noul"].as_f64();
+        let (Some(quantity), Some(carried)) = (p(format!("q{i}")), p(format!("c{i}"))) else {
+            tel.detail = Some(format!("typed literal leg gave no probability for q{i} or c{i}"));
+            return Err(Status::Unparsable);
+        };
+        if quantity < TYPED_QUANTITY_AT || carried >= TYPED_CARRIED_BELOW {
+            continue;
+        }
+        let clause = literal_clause(&subject.text, lit).to_string();
+        out.push(Finding {
+            kind: KIND_UNEVIDENCED.to_string(),
+            clause_quoted: subject.text.contains(&clause),
+            clause,
+            facts: Vec::new(),
+            quoted_from: None,
+            legacy_fact: None,
+            evidence: None,
+            literal: Some(lit.to_string()),
+            why: TYPED_LITERAL_WHY.to_string(),
+            quoted: false,
+            rejected_span: None,
+        });
+    }
+    Ok(out)
+}
+
+/// `questions` asked [`MAX_TYPED_QUESTIONS`] at a time, in order, and
+/// their answers as one object; `count` is told of each call before it is
+/// made. `GV.ask_chunked`, which every typed leg was measured through.
+#[allow(clippy::too_many_arguments)]
+fn ask_chunked(
+    typed: &Endpoint,
+    typed_model: &str,
+    state: &str,
+    questions: &[(String, String)],
+    started: Instant,
+    budget: Duration,
+    tel: &mut Telemetry,
+    count: fn(&mut Telemetry),
+) -> Result<serde_json::Value, Status> {
+    let mut answers = serde_json::Map::new();
+    for chunk in questions.chunks(MAX_TYPED_QUESTIONS) {
+        count(tel);
+        let a = ask_typed(typed, typed_model, state, &json_ordered(chunk), started, budget, tel)?;
+        if let serde_json::Value::Object(a) = a {
+            answers.extend(a);
+        }
+    }
+    Ok(serde_json::Value::Object(answers))
 }
 
 /// `s` as a JSON string.
@@ -3208,7 +3755,6 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
     let evidential: Vec<&&Finding> = all.iter().filter(|f| f.quotes_evidence()).collect();
     let quoted = evidential.iter().filter(|f| f.quoted).count();
     let rejected: Vec<&&&Finding> = evidential.iter().filter(|f| f.rejected_span.is_some()).collect();
-    let unevidenced = all.len() - evidential.len();
     let ambiguous = evidential.iter().filter(|f| f.facts.len() > 1).count();
     let clause_ok = all.iter().filter(|f| f.clause_quoted).count();
     out.push_str(&format!("\nQUOTATIONS\n  findings         {}\n", all.len()));
@@ -3235,7 +3781,6 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
     // nobody can count is the same silence a deleted `rejected_span` would
     // have been.
     let not_verbatim: u32 = records.iter().map(|r| r.not_verbatim).sum();
-    let refuted: u32 = records.iter().map(|r| r.literals_refuted).sum();
     if not_verbatim > 0 {
         out.push_str(&format!(
             "  dropped, not the author's words   {not_verbatim}   <- returned as a quotation, absent from the text\n"
@@ -3253,8 +3798,28 @@ fn fidelity_text(records: &[Record], show_spans: bool) -> String {
             "  dropped, kind off this verb      {off_verb}   <- `overreaches` on a fact: insufficiency, not disagreement\n"
         ));
     }
-    let not_quantity: u32 = records.iter().map(|r| r.not_a_quantity).sum();
+    // Over the LLM leg's records alone. Jev's filter counts are over every
+    // figure and path code proposed, not over literals a model claimed
+    // were unevidenced, so summing the two would make the rates below
+    // measure nothing either leg does.
+    let llm_leg: Vec<&Record> = records.iter().filter(|r| r.typed_literal_calls.is_none()).collect();
+    let is_unevidenced = |f: &&Finding| f.kind == KIND_UNEVIDENCED;
+    let unevidenced = llm_leg.iter().flat_map(|r| r.findings.iter()).filter(is_unevidenced).count();
+    let refuted: u32 = llm_leg.iter().map(|r| r.literals_refuted).sum();
+    let not_quantity: u32 = llm_leg.iter().map(|r| r.not_a_quantity).sum();
     let raised = unevidenced + refuted as usize + not_quantity as usize;
+    let jev_leg = records.len() - llm_leg.len();
+    if jev_leg > 0 {
+        let kept = records
+            .iter()
+            .filter(|r| r.typed_literal_calls.is_some())
+            .flat_map(|r| r.findings.iter())
+            .filter(is_unevidenced)
+            .count();
+        out.push_str(&format!(
+            "\nLITERALS, judged by Jev\n  unevidenced      {kept}   over {jev_leg} verification(s) <- code proposed, Jev judged; not in the LITERALS rates\n"
+        ));
+    }
     if raised > 0 {
         out.push_str(&format!(
             "\nLITERALS\n  unevidenced      {unevidenced}   <- stated as current fact, in no capture\n  \
@@ -3300,7 +3865,17 @@ fn retried(records: &[Record]) -> usize {
         .filter(|r| {
             r.refuter.is_none()
                 && r.attempts
-                    > expected_calls(&r.approach, r.literals, RefuterLeg::Off, r.gate_calls).total()
+                    > expected_calls(
+                        &r.approach,
+                        r.literals,
+                        RefuterLeg::Off,
+                        TypedCalls {
+                            gate: r.gate_calls,
+                            classify: r.typed_classify_calls,
+                            literals: r.typed_literal_calls,
+                        },
+                    )
+                    .total()
         })
         .count()
 }
@@ -3324,21 +3899,36 @@ fn retried(records: &[Record]) -> usize {
 /// it, so comparing them against the LLM count alone would report every
 /// typed call as a retry.
 ///
-/// `gate` is how many calls the gate makes: one per [`MAX_TYPED_QUESTIONS`]
-/// questions, which the budget cannot know before the subject exists and
-/// takes as one, and a record knows exactly.
-fn expected_calls(approach: &str, literals: bool, refuter: RefuterLeg<'_>, gate: u32) -> Calls {
-    let base = match approach {
-        "split" => 2,
-        _ => 1,
-    };
-    let mut calls = Calls { llm: base + u32::from(literals), typed: gate };
+/// `typed` is how many calls each typed leg makes: one per
+/// [`MAX_TYPED_QUESTIONS`] questions, which the budget cannot know before
+/// the subject exists and takes as one, and a record knows exactly. A typed
+/// classify or literal leg takes its LLM counterpart's place.
+fn expected_calls(approach: &str, literals: bool, refuter: RefuterLeg<'_>, typed: TypedCalls) -> Calls {
+    let split = approach == "split";
+    let mut calls = Calls { llm: 1, typed: typed.gate };
+    for (runs, stand_in) in [(split, typed.classify), (literals, typed.literals)] {
+        match (runs, stand_in) {
+            (true, Some(n)) => calls.typed += n,
+            (true, None) => calls.llm += 1,
+            (false, _) => {}
+        }
+    }
     match refuter {
         RefuterLeg::Llm(_) => calls.llm += 2,
         RefuterLeg::Typed(_) => calls.typed += 2,
         RefuterLeg::Off | RefuterLeg::NotRun(_) | RefuterLeg::Itself(_) => {}
     }
     calls
+}
+
+/// The typed legs' calls, as [`expected_calls`] counts them: the gate's,
+/// and for classify and the literal leg, `None` when the leg went to the
+/// LLM and the number of TypeSafe calls when it did not.
+#[derive(Clone, Copy, Default)]
+struct TypedCalls {
+    gate: u32,
+    classify: Option<u32>,
+    literals: Option<u32>,
 }
 
 /// [`expected_calls`]' answer: how many calls go to each provider.
@@ -3577,6 +4167,8 @@ mod tests {
             attempts: 1,
             gate_calls: 0,
             gate_status: None,
+            typed_classify_calls: None,
+            typed_literal_calls: None,
             detail: None,
         }
     }
@@ -4121,34 +4713,34 @@ mod tests {
         // none at all.
         let per_leg = DEFAULT_MS_PER_LEG;
         let off = RefuterLeg::Off;
-        assert_eq!(default_budget_ms(expected_calls("direct", false, off, 0)), per_leg);
-        assert_eq!(default_budget_ms(expected_calls("split", false, off, 0)), per_leg * 2);
-        assert_eq!(default_budget_ms(expected_calls("split", true, off, 0)), per_leg * 3);
+        assert_eq!(default_budget_ms(expected_calls("direct", false, off, TypedCalls::default())), per_leg);
+        assert_eq!(default_budget_ms(expected_calls("split", false, off, TypedCalls::default())), per_leg * 2);
+        assert_eq!(default_budget_ms(expected_calls("split", true, off, TypedCalls::default())), per_leg * 3);
         // The shipped defaults: `split`, and the default refuter's two legs.
         let llm = RefuterLeg::Llm(crate::config::DEFAULT_REFUTER);
-        assert_eq!(default_budget_ms(expected_calls("split", false, llm, 0)), 240_000);
+        assert_eq!(default_budget_ms(expected_calls("split", false, llm, TypedCalls::default())), 240_000);
     }
 
     #[test]
     fn a_typed_refuter_is_budgeted_at_its_own_rate_and_only_where_it_runs() {
         let typed = "typesafe/jev-latest";
-        let fact = expected_calls("split", false, refuter_leg(Some(typed), None, "fact"), 0);
+        let fact = expected_calls("split", false, refuter_leg(Some(typed), None, "fact"), TypedCalls::default());
         assert_eq!(fact, Calls { llm: 2, typed: 2 });
         // A number, not the constants: a typed call charged at the LLM rate
         // would reproduce itself on both sides of an assertion written in them.
         assert_eq!(default_budget_ms(fact), 140_000);
         // Not run on `claim`, so not paid for there either.
-        let claim = expected_calls("split", false, refuter_leg(Some(typed), None, "claim"), 0);
+        let claim = expected_calls("split", false, refuter_leg(Some(typed), None, "claim"), TypedCalls::default());
         assert_eq!(claim, Calls { llm: 2, typed: 0 });
     }
 
     #[test]
     fn the_literal_check_adds_a_call_that_a_retry_count_must_not_mistake() {
         let off = RefuterLeg::Off;
-        assert_eq!(expected_calls("split", false, off, 0).total(), 2);
-        assert_eq!(expected_calls("split", true, off, 0).total(), 3);
-        assert_eq!(expected_calls("direct", false, off, 0).total(), 1);
-        assert_eq!(expected_calls("direct", true, off, 0).total(), 2);
+        assert_eq!(expected_calls("split", false, off, TypedCalls::default()).total(), 2);
+        assert_eq!(expected_calls("split", true, off, TypedCalls::default()).total(), 3);
+        assert_eq!(expected_calls("direct", false, off, TypedCalls::default()).total(), 1);
+        assert_eq!(expected_calls("direct", true, off, TypedCalls::default()).total(), 2);
     }
 
     #[test]
@@ -4485,8 +5077,8 @@ mod tests {
         assert_eq!(b["refuter_not_run"]["refuter_model"], m, "{b}");
         assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("17%")), "{b}");
         assert_eq!(
-            expected_calls("split", false, refuter_leg(Some(m), Some(m), "claim"), 0).total(),
-            expected_calls("split", false, RefuterLeg::Off, 0).total()
+            expected_calls("split", false, refuter_leg(Some(m), Some(m), "claim"), TypedCalls::default()).total(),
+            expected_calls("split", false, RefuterLeg::Off, TypedCalls::default()).total()
         );
     }
 
@@ -4616,12 +5208,31 @@ mod tests {
     /// `which`, every `k{i}` as CURRENT with `current`, and the refuter's
     /// questions with `verdict`.
     fn typed_mock(which: serde_json::Value, current: f64, verdict: &'static str) -> Mock {
+        typed_mock_literals(which, current, verdict, Some(0.0), Some(1.0))
+    }
+
+    /// [`typed_mock`], answering the literal leg's `q{i}` and `c{i}` with
+    /// these probabilities, or with none on `None`.
+    fn typed_mock_literals(
+        which: serde_json::Value,
+        current: f64,
+        verdict: &'static str,
+        quantity: Option<f64>,
+        carried: Option<f64>,
+    ) -> Mock {
         Mock::start(move |b| {
             let mut answers = serde_json::Map::new();
             for key in b["questions"].as_object().map(|q| q.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
                 let a = match key.as_str() {
                     "which" => json!({"type": "choice", "choice": "NONE", "confidence": 1.0, "probabilities": which}),
                     "verdict" | "correct" => typed_reply(MEASURED_TYPED_VERSION, verdict)["answers"][&key].clone(),
+                    // Classify's parts, at the gate's CURRENT, and the
+                    // literal leg's candidates.
+                    k if k.starts_with('u') => json!({"type": "choice",
+                        "choice": if current >= 0.5 { "current" } else { "proposed" }, "confidence": current,
+                        "probabilities": {"current": current, "proposed": 1.0 - current, "argument": 0.0}}),
+                    k if k.starts_with('q') => json!({"type": "noul", "noul": quantity}),
+                    k if k.starts_with('c') => json!({"type": "noul", "noul": carried}),
                     _ => json!({"type": "choice", "choice": "CURRENT", "confidence": current,
                                 "probabilities": {"CURRENT": current, "PROPOSED": 1.0 - current, "ARGUMENT": 0.0}}),
                 };
@@ -4875,7 +5486,7 @@ mod tests {
         assert_eq!(retried(&[ran.clone(), gated]), 0);
         // Contrast: one more attempt than that is a retry.
         assert_eq!(retried(&[Record { attempts: 4, ..ran }]), 1);
-        assert_eq!(expected_calls("split", false, RefuterLeg::Off, 1), Calls { llm: 2, typed: 1 });
+        assert_eq!(expected_calls("split", false, RefuterLeg::Off, TypedCalls { gate: 1, ..TypedCalls::default() }), Calls { llm: 2, typed: 1 });
     }
 
     #[test]
@@ -4908,16 +5519,264 @@ mod tests {
     }
 
     #[test]
-    fn the_budget_pays_for_the_gate_where_it_runs() {
-        // Revert: leave the gate out of `planned_calls`, which `settings`
-        // budgets from.
+    fn the_budget_pays_for_each_typed_leg_where_it_runs() {
+        // Reverts: leave the gate out of `planned_calls`, which `settings`
+        // budgets from; price a typed classify or literal leg on top of the
+        // LLM call it replaces rather than in its place; price either off
+        // `split` or with the literal leg off.
         let m = Some("openai/gpt-5.6-luna");
-        for (verb, pays) in [("fact", true), ("claim", true), ("prose", false)] {
-            let [a, b] = [None, Some(JEV)].map(|tm| default_budget_ms(planned_calls(verb, "split", false, None, m, tm)));
-            assert_eq!(b - a, if pays { DEFAULT_MS_PER_TYPED_LEG } else { 0 }, "{verb}");
+        let calls = |llm, typed| Calls { llm, typed };
+        for (verb, approach, literals, untyped, typed) in [
+            ("fact", "split", true, calls(3, 0), calls(3, 1)),
+            ("claim", "split", false, calls(2, 0), calls(1, 2)),
+            ("claim", "split", true, calls(3, 0), calls(1, 3)),
+            ("claim", "direct", false, calls(1, 0), calls(1, 1)),
+            ("claim", "direct", true, calls(2, 0), calls(1, 2)),
+            ("prose", "split", true, calls(3, 0), calls(3, 0)),
+        ] {
+            let plan = |tm| planned_calls(verb, approach, literals, None, m, tm);
+            assert_eq!((plan(None), plan(Some(JEV))), (untyped, typed), "{verb} {approach} literals={literals}");
         }
     }
 
+    #[test]
+    fn jev_classify_and_literals_go_out_as_the_harness_sent_them() {
+        // `wire_fixtures.py` captures both from `classify_jev.py` and
+        // `literals_jev.py` on the same claim. Reverts: reorder a question's
+        // keys; cut units inside brackets; key units from 1; drop a
+        // candidate's noun; reword a criterion.
+        let claim = include_str!("../tests/fixtures/typed_wire/claim.txt");
+        let classify = json_ordered(&classify_questions(&classify_units(claim)));
+        assert_eq!(classify, include_str!("../tests/fixtures/typed_wire/classify_claim.json").trim_end());
+        let judged: Vec<&str> = literal_candidates(claim).into_iter().filter(|l| is_checkable(l)).collect();
+        let literals = json_ordered(&literal_questions(claim, &judged));
+        assert_eq!(literals, include_str!("../tests/fixtures/typed_wire/literals_claim.json").trim_end());
+    }
+
+    #[test]
+    fn the_literal_and_clause_ports_find_what_the_harness_found() {
+        // The regexes and splitters are hand-ported, so each is compared on
+        // texts built to reach their backtracking and their edge cases.
+        // Reverts: let NOUN take a `(` word; try `%` after no `%`; drop the
+        // lookbehind on figures; cut clauses inside a code span; read the
+        // sentence's position from the slice rather than `find`.
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/typed_wire/splits_claim.json")).expect("fixture");
+        for r in &rows {
+            let text = r["text"].as_str().expect("text");
+            let want = |k: &str| -> Vec<&str> { r[k].as_array().expect(k).iter().filter_map(|v| v.as_str()).collect() };
+            let candidates = literal_candidates(text);
+            let clauses: Vec<&str> = candidates.iter().map(|c| literal_clause(text, c)).collect();
+            assert_eq!(candidates, want("candidates"), "{text}");
+            assert_eq!(clauses, want("clauses"), "{text}");
+            assert_eq!(classify_units(text), want("units"), "{text}");
+        }
+    }
+
+    #[test]
+    fn jev_labels_a_part_current_from_its_threshold_and_needs_a_whole_answer() {
+        // Reverts: take the plain choice; label at > rather than >=; score
+        // a missing probability as zero, as the harness did.
+        let a = |current: f64, choice: &str| {
+            json!({"choice": choice, "probabilities": {"current": current, "proposed": 1.0 - current, "argument": 0.0}})
+        };
+        assert_eq!(classify_label(&a(0.4, "proposed")), Some("current"));
+        assert_eq!(classify_label(&a(0.39, "proposed")), Some("proposed"));
+        assert_eq!(classify_label(&a(0.39, "argument")), Some("argument"));
+        assert_eq!(classify_label(&json!({"choice": "current", "probabilities": {"current": 0.9, "proposed": 0.1}})), None);
+        assert_eq!(classify_label(&json!({"probabilities": {"current": 0.1, "proposed": 0.9, "argument": 0.0}})), None);
+        assert_eq!(classify_label(&a(0.1, "PROPOSED")), None);
+    }
+
+    #[test]
+    fn jev_classifies_a_claim_in_the_llms_place_and_the_check_reads_its_labels() {
+        // Reverts: keep the LLM classify call beside Jev's; run Jev
+        // classify under `direct`; label from the choice alone.
+        let subject = Subject { verb: "claim".into(), ..fact_subject() };
+        let typed = typed_mock(json!({"S1": 0.9, "NONE": 0.1}), 0.4, "CORRECT");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let legs = Legs { literals: false, refuter: None, typed_model: Some(JEV) };
+        let (status, f) = gated_run(&llm, &typed, legs, &subject, &mut tel);
+        assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+        assert_eq!(f.len(), 1);
+        let systems: Vec<String> = llm.bodies().iter().map(|b| b["messages"][0]["content"].as_str().unwrap_or("").to_string()).collect();
+        assert_eq!(systems, [CHECK_SYSTEM], "the LLM classified too, or the check did not run");
+        let check = llm.bodies()[0]["messages"][1]["content"].as_str().unwrap_or("").to_string();
+        assert!(check.contains(r#"ASSERTIONS:
+{"assertions":[{"label":"current","text":"the function returns early"}]}"#), "{check}");
+        assert_eq!((tel.gate_calls, tel.typed_classify_calls, tel.attempts), (1, Some(1), 3));
+        let classify = &typed.bodies()[1];
+        assert_eq!(classify["state"], "CLAIM:\nthe function returns early");
+        assert!(classify["questions"].get("u0").is_some());
+        // Contrast: `direct` asks no one to classify.
+        let typed = typed_mock(json!({"S1": 0.9, "NONE": 0.1}), 0.4, "CORRECT");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        run(&providers_fixture(&llm.url, &typed.url), "openai/gpt-5.6-luna", "direct", legs, &subject, Instant::now(), Duration::from_secs(20), &mut tel);
+        assert_eq!((typed.bodies().len(), llm.bodies().len(), tel.typed_classify_calls), (1, 1, None));
+    }
+
+    #[test]
+    fn a_claim_jev_cannot_label_fails_and_one_with_no_part_is_checked_unlabelled() {
+        // A missing answer ends the verification as a failed LLM classify
+        // does. Reverts: skip the part; default its label.
+        let subject = Subject { verb: "claim".into(), ..fact_subject() };
+        let typed = Mock::start(|b| {
+            let which = b["questions"].get("which").is_some();
+            let answers = if which { json!({"which": {"probabilities": {"S1": 0.9, "NONE": 0.1}}}) } else { json!({}) };
+            (200, json!({"model": MEASURED_TYPED_VERSION, "answers": answers}))
+        });
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let legs = Legs { literals: false, refuter: None, typed_model: Some(JEV) };
+        let (status, _) = gated_run(&llm, &typed, legs, &subject, &mut tel);
+        assert_eq!(status, Status::Unparsable, "{:?}", tel.detail);
+        assert!(llm.bodies().is_empty());
+        // Too short to offer a part: no typed call, and the check runs in
+        // `direct`'s shape. Revert: send an empty question map.
+        let short = subject_fixture("it is fast", &[("F1", &["x"])]);
+        let typed = typed_mock(json!({"NONE": 1.0}), 1.0, "CORRECT");
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let (status, _) = gated_run(&llm, &typed, legs, &short, &mut tel);
+        assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+        assert!(typed.bodies().is_empty());
+        assert_eq!(tel.typed_classify_calls, Some(0));
+        let check = llm.bodies()[0]["messages"][1]["content"].as_str().unwrap_or("").to_string();
+        assert_eq!(check, check_prompt(&short, None));
+    }
+
+    /// A claim with two literals: `40 entries`, which nothing captured
+    /// carries, and `12 lines`, which the capture does.
+    fn literal_subject() -> Subject {
+        subject_fixture("The cache holds 40 entries and the log is 12 lines long.", &[("F1", &["log: 12 lines long"])])
+    }
+
+    #[test]
+    fn jev_judges_a_claims_literals_at_the_measured_thresholds() {
+        // Reverts: keep at P(quantity) > 0.7 rather than >=; keep at
+        // P(carried) <= 0.5; ask about a literal the capture carries.
+        for (quantity, carried, kept) in [(0.7, 0.49, true), (0.69, 0.0, false), (1.0, 0.5, false)] {
+            let typed = typed_mock_literals(json!({"S1": 0.9, "NONE": 0.1}), 1.0, "CORRECT", Some(quantity), Some(carried));
+            let llm = llm_mock();
+            let mut tel = Telemetry::default();
+            let (status, f) = gated_run(&llm, &typed, gate_only(Some(JEV)), &literal_subject(), &mut tel);
+            assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+            let lits: Vec<_> = f.iter().filter_map(|f| f.literal.as_deref()).collect();
+            assert_eq!(lits, if kept { vec!["40 entries"] } else { vec![] }, "q {quantity} c {carried}");
+            assert_eq!((tel.literals_refuted, tel.typed_literal_calls), (1, Some(1)));
+            let asked = &typed.bodies()[2];
+            assert!(asked["state"].as_str().is_some_and(|s| s.starts_with("TEXT:\nThe cache holds")));
+            let keys: Vec<&String> = asked["questions"].as_object().expect("questions").keys().collect();
+            assert_eq!(keys, ["c0", "q0"]);
+            if kept {
+                let finding = f.iter().find(|f| f.literal.is_some()).expect("finding");
+                assert_eq!((finding.kind.as_str(), finding.why.as_str()), (KIND_UNEVIDENCED, TYPED_LITERAL_WHY));
+                assert!(finding.clause_quoted && !finding.quoted);
+            }
+            let systems: Vec<_> = llm.bodies().iter().map(|b| b["messages"][0]["content"].as_str().unwrap_or("").to_string()).collect();
+            assert!(!systems.iter().any(|s| s == LITERALS_SYSTEM), "the LLM literal leg ran too");
+        }
+    }
+
+    #[test]
+    fn a_literal_answer_jev_left_out_fails_the_leg_and_keeps_the_check() {
+        // Reverts: read a missing P(carried) as not carried, which keeps
+        // the finding; fail the whole verification.
+        let typed = typed_mock_literals(json!({"S1": 0.9, "NONE": 0.1}), 1.0, "CORRECT", Some(1.0), None);
+        let llm = llm_mock();
+        let (status, f, lit) = run(
+            &providers_fixture(&llm.url, &typed.url),
+            "openai/gpt-5.6-luna",
+            "split",
+            gate_only(Some(JEV)),
+            &literal_subject(),
+            Instant::now(),
+            Duration::from_secs(20),
+            &mut Telemetry::default(),
+        );
+        assert_eq!((status, lit), (Status::Ok, Some(Status::Unparsable)));
+        assert_eq!(f.len(), 1, "the check's finding went with the leg");
+    }
+
+    #[test]
+    fn fact_runs_no_jev_classify_or_literals_and_no_row_refutes_its_own_findings() {
+        // Invariant 8. Reverts: set either cell on `fact`; set `refuter`
+        // on `claim`.
+        // The LLM classify stand-in quotes "the function returns early".
+        let text = "the function returns early after 40 entries.";
+        let subject = Subject { verb: "fact".into(), ..subject_fixture(text, &[("F1", &["return"])]) };
+        let typed = typed_mock_literals(json!({"S1": 0.9, "NONE": 0.1}), 1.0, "CORRECT", Some(1.0), Some(0.0));
+        let llm = llm_mock();
+        let mut tel = Telemetry::default();
+        let (status, _) = gated_run(&llm, &typed, gate_only(Some(JEV)), &subject, &mut tel);
+        assert_eq!(status, Status::Ok, "{:?}", tel.detail);
+        let asked: Vec<String> = typed.bodies().iter().flat_map(|b| b["questions"].as_object().map(|q| q.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()).collect();
+        assert!(asked.iter().all(|k| k == "which" || k.starts_with('k')), "{asked:?}");
+        let systems: Vec<_> = llm.bodies().iter().map(|b| b["messages"][0]["content"].as_str().unwrap_or("").to_string()).collect();
+        assert!(systems.iter().any(|s| s == CLASSIFY_SYSTEM) && systems.iter().any(|s| s == LITERALS_SYSTEM));
+        assert_eq!((tel.typed_classify_calls, tel.typed_literal_calls), (None, None));
+        for (verb, row) in TYPED_LEGS {
+            assert!(!(row.literals && row.refuter), "{verb}: Jev would refute its own findings");
+        }
+        assert!(typed_legs("claim").literals && !typed_legs("claim").refuter);
+    }
+
+    #[test]
+    fn a_verification_whose_typed_legs_stood_in_is_not_counted_as_retried() {
+        // Invariant 10. The totals only part where a typed leg made other
+        // than one call: two each, or none at all. Revert: count the
+        // classify and literal legs as the LLM calls they replaced.
+        let ran = |attempts, n| Record {
+            approach: "split".into(),
+            literals: true,
+            attempts,
+            gate_calls: 1,
+            typed_classify_calls: Some(n),
+            typed_literal_calls: Some(n),
+            ..record_fixture()
+        };
+        assert_eq!(retried(&[ran(6, 2), ran(2, 0)]), 0);
+        // Contrast: one more attempt than either is a retry.
+        assert_eq!(retried(&[ran(7, 2), ran(3, 0)]), 2);
+    }
+
+    #[test]
+    fn a_typed_leg_without_its_endpoint_fails_rather_than_falling_back() {
+        // A wiring fault: `spawn` builds the endpoint whenever the row runs
+        // a typed leg. Revert: fall back to the LLM leg.
+        let llm = llm_mock();
+        let subject = Subject { verb: "claim".into(), ..literal_subject() };
+        let providers = Providers { llm: Endpoint { url: llm.url.clone(), key: "k".into() }, typed: None };
+        let mut tel = Telemetry::default();
+        let run_with = |approach, tel: &mut Telemetry| {
+            run(&providers, "openai/gpt-5.6-luna", approach, gate_only(Some(JEV)), &subject, Instant::now(), Duration::from_secs(20), tel)
+        };
+        assert_eq!(run_with("split", &mut tel).0, Status::Unauthorized);
+        let (status, _, lit) = run_with("direct", &mut tel);
+        assert_eq!((status, lit), (Status::Ok, Some(Status::Unauthorized)));
+    }
+
+    #[test]
+    fn the_report_rates_the_llm_literal_leg_without_jevs_candidates() {
+        // Jev's filter counts are over code-proposed candidates. Revert:
+        // sum every record's counters into the rates.
+        let literal = Finding { kind: KIND_UNEVIDENCED.into(), literal: Some("40 entries".into()), ..finding_fixture() };
+        let llm = Record { findings: vec![literal.clone()], literals_refuted: 1, ..record_fixture() };
+        let jev = Record {
+            findings: vec![literal],
+            literals_refuted: 30,
+            not_a_quantity: 30,
+            typed_literal_calls: Some(1),
+            ..record_fixture()
+        };
+        let out = fidelity_text(&[llm, jev], false);
+        assert!(out.contains("machine-refuted  1 "), "{out}");
+        assert!(out.contains("not a quantity   0 "), "{out}");
+        assert!(out.contains("50% of what it raised"), "{out}");
+        assert!(out.contains("LITERALS, judged by Jev\n  unevidenced      1   over 1 verification(s)"), "{out}");
+    }
 
     #[test]
     fn a_refused_model_is_named_rather_than_reported_unset() {
@@ -4962,3 +5821,4 @@ mod tests {
         assert!(!kind_reported_for("fact", KIND_OVERREACHES));
     }
 }
+

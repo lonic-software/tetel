@@ -1,0 +1,3 @@
+It read `src/verify.rs` and docs/verify.md: the gate asks 40 questions per call (3 files) over { id, proposition, cited fact ids } and `a, b` — twelve lines, 1,024 bytes at 12.5% of 14_000. The lower-case start stays joined; it retries two times on scripts/ and v1.2.3, then acks.jsonl.
+
+A second paragraph names TET-96, one call and 7_ items: done.
