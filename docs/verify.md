@@ -143,7 +143,13 @@ that describe what a design proposes rather than what exists. A subject that sco
 threshold is reported **`gated`**: nothing else runs, no finding is produced, and there is no
 `findings` key. Measured 2026-09-21, that skipped **58%** of the check's cost on `fact` and **21%** on
 `claim` without skipping any adjudicated defect. The thresholds were fitted on 12 and 10 positives
-with nothing held out, so treat the zero as the number the fit produced, not as a guarantee.
+with nothing held out, so treat the zero as the number the fit produced, not as a guarantee. Measured
+again on 2026-09-23 through tetel itself, over the fitted memos and three it was never fitted on
+(TET-98, [scripts/verifier-eval/README.md](../scripts/verifier-eval/README.md)):
+- On `fact` the gate saved 37% of the spend. It skipped only minor defects entirely: three of
+  the 14 on the new memos.
+- On `claim` it skipped two of the ten warnings it was fitted to keep, both of which had scored
+  within 0.10 of the threshold.
 
 A gate call that fails never skips. If TypeSafe is unreachable, refuses, or answers without the
 probabilities the score needs, the check runs as if no gate were configured, and the `ok` that
@@ -167,9 +173,11 @@ into clauses (never inside brackets or a code span, so `{ id, proposition, cited
 part), and Jev labels each one. A part is labelled current once Jev gives that label 40%, because
 hiding a current clause from the check loses a correct warning. The check reads these labels exactly
 as it reads the LLM's. Measured over 125 claims, three draws each, the same check raised the same 11
-correct warnings under either classifier, at **39%** of the cost. One question is still open: Jev's
-labels led to 8 sound claims being flagged against the LLM's 6. That straddles the steering-hazard
-line of 7, but the gap is smaller than the same LLM configuration's own drift between runs. A claim
+correct warnings under either classifier, at **39%** of the cost. There, Jev's labels led to 8 sound
+claims being flagged against the LLM's 6, which straddles the steering-hazard line of 7. The
+question that left open was settled on 2026-09-23. On the shipped path, over 91 sound claims, the
+gate and Jev's labels flag 8, exactly as many as the default, once the literal leg's findings are
+set aside. With them, the count is 11, one claim over the line (TET-98). A claim
 too short to offer a part is checked unlabelled, as `direct` checks it. Under `direct` nothing is
 classified, so nothing changes.
 
@@ -361,7 +369,11 @@ is the whole reason `verify` is an object.
 with the number of calls**: 60s per OpenRouter leg, meaning 60s for `direct` and 120s for `split`,
 with the refuter charged a flat two legs and `literals` one — 240s for the shipped configuration.
 Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
-budget would have left `split` no headroom and four legs none at all. A TypeSafe leg is charged 10s,
+budget would have left `split` no headroom and four legs none at all. That measurement is stale.
+On 2026-09-23 a two-call `claim` draw under `split` took 54s at the median, 17% of answered draws ran
+past 120s, and the slow draws were disproportionately the ones with findings (TET-98). This was
+measured at 20–40 concurrent requests. If warnings go missing as `unavailable`, raise
+`verify.timeout_ms`. A TypeSafe leg is charged 10s,
 since Jev answers in about one; the count is per verb, so a `typesafe/` refuter adds 20s on `fact`
 and nothing on the verbs it does not run on. `verify.typed_model` adds 10s for the gate on `fact`
 and `claim`. On `claim` it also moves classify (under `split`) and the literal leg (when on) to
