@@ -1430,7 +1430,8 @@ pub struct Telemetry {
     /// code-proposed candidates here instead — see [`Record::literals_refuted`].
     pub literals_refuted: u32,
     /// Findings dropped because the literal named no quantity — the model
-    /// reaching for a symbol, a flag, a path or a quantifier. Counted
+    /// reaching for a name, a flag or a quantifier. A literal with a `/`
+    /// or a path suffix is checkable (see [`is_checkable`]). Counted
     /// rather than silently discarded: this is the rate that says whether
     /// [`is_checkable`] is carrying the check or fighting it.
     pub not_a_quantity: u32,

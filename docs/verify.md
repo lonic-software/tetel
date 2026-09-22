@@ -756,7 +756,7 @@ These are the lines you tune on:
   before anything reaches you, and counted here so the drop is visible rather than silent.
 - **`machine-refuted`** and **`not a quantity`** are the accuracy numbers the `unevidenced` kind has.
   The first counts literals the model called unevidenced that a substring search found in the
-  capture anyway; the second, literals that named no countable value — a symbol, a flag, a path or a
+  capture anyway; the second, literals that named no countable value — a name, a flag or a
   quantifier. Nothing was shown to you for either — the filters ran first — but a high rate means
   the literal check is guessing. Both, and the rate under them, are counted over the LLM literal leg
   only. Jev's leg filters every figure and path that code proposed, not literals a model claimed, so
