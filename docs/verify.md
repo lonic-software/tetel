@@ -132,7 +132,7 @@ flagged `typed_model_unmeasured: true`.
 
 ### Jev as a gate, on `fact` and `claim`
 
-`verify.typed_model` names a TypeSafe model — `typesafe/jev-latest` — and nothing else: `tetel config`
+`verify.typed_model` names a TypeSafe model — `typesafe/jev-1.13.0` — and nothing else: `tetel config`
 refuses any other vendor, since a gate is a set of typed questions and an OpenRouter model answers
 prompts.
 
