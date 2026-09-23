@@ -418,8 +418,15 @@ pub struct Settings {
     pub refuter: Option<String>,
     /// `verify.typed_model`: the TypeSafe model that runs the typed legs
     /// the verb's row in [`TYPED_LEGS`] names — the gate, classify, the
-    /// literal leg. Unset means none of them runs.
+    /// literal leg. `None` means none of them runs.
     pub typed_model: Option<String>,
+    /// The default typed model was passed over because TypeSafe's key is
+    /// not in the environment: `verify.typed_model` is unset, so
+    /// [`config::DEFAULT_TYPED_MODEL`] would have run. Echoed as
+    /// `typed_model_not_run` on a verb it would have run on, so an author
+    /// without the key learns what the default costs them rather than
+    /// meeting an `unauthorized` over a credential they never chose to need.
+    pub typed_default_without_key: bool,
     /// Why a `verify.model` written in a settings file was refused, when
     /// one was.
     ///
@@ -469,7 +476,8 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
     let literals = config::verify_literals(d);
     let refuter = config::verify_refuter(d);
     let model = config::verify_model(d);
-    let typed_model = config::verify_typed_model(d);
+    let (typed_model, typed_default_without_key) =
+        effective_typed_model(config::verify_typed_model(d), typed_key().is_some());
     let calls = planned_calls(verb, &approach, literals, refuter.as_deref(), model.as_deref(), typed_model.as_deref());
     Settings {
         enabled: config::verify_enabled(d),
@@ -480,7 +488,20 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
         literals,
         refuter,
         typed_model,
+        typed_default_without_key,
         model_refusal: config::verify_model_refusal(d),
+    }
+}
+
+/// The typed model in force, and whether the default was passed over for
+/// want of TypeSafe's key. Apart from [`settings`] so the rule is tested
+/// without touching the process environment.
+fn effective_typed_model(choice: config::TypedModel, has_typed_key: bool) -> (Option<String>, bool) {
+    match choice {
+        config::TypedModel::Set(m) => (Some(m), false),
+        config::TypedModel::Off => (None, false),
+        config::TypedModel::Unset if has_typed_key => (Some(config::DEFAULT_TYPED_MODEL.to_string()), false),
+        config::TypedModel::Unset => (None, true),
     }
 }
 
@@ -582,7 +603,8 @@ impl GateUnit {
 
 const TYPED_LEGS: [(&str, TypedLegs); 3] = [
     // `pick_cls`: 60% of subjects skipped, none of 12 adjudicated defects;
-    // the lowest scored 0.50.
+    // the lowest scored 0.50. Through tetel's own path (TET-98) it skipped 54%
+    // of draws, and entirely only minor defects: 3 of 14 held out.
     (
         "fact",
         TypedLegs {
@@ -592,8 +614,10 @@ const TYPED_LEGS: [(&str, TypedLegs); 3] = [
             literals: false,
         },
     ),
-    // `pick_clause`: 27% skipped, none of 10 adjudicated warnings; the
-    // lowest scored 0.58. A claim is usually one long sentence, so a
+    // `pick_clause`: 27% skipped, none of 10 adjudicated warnings in the
+    // fit. Through tetel's own path (TET-98) it skipped 2 of those 10 in
+    // most draws: across the fitting runs they had scored 0.55–0.63, and the
+    // subject tetel builds is not the harness's. A claim is usually one long sentence, so a
     // choice over sentences degenerates to a yes/no.
     (
         "claim",
@@ -696,14 +720,20 @@ fn refuter_leg<'a>(refuter: Option<&'a str>, model: Option<&str>, verb: &str) ->
 /// [`providers_for`] builds the TypeSafe endpoint exactly when this is
 /// non-empty, and [`unauthorized_detail`] names a gap for each entry, so
 /// the two cannot disagree about which keys a verification needs.
+/// Whether `verify.typed_model`, were it set, would run a leg on `verb`
+/// under the rest of these settings: the verb's row names one the
+/// approach and `verify.literals` leave on.
+fn typed_model_has_a_leg(settings: &Settings, verb: &str) -> bool {
+    let row = typed_legs(verb);
+    row.gate.is_some()
+        || (row.classify && settings.approach == "split")
+        || (row.literals && settings.literals)
+}
+
 fn typed_legs_that_run<'a>(settings: &'a Settings, verb: &str) -> Vec<(&'static str, &'a str)> {
     let mut legs = Vec::new();
     if let Some(m) = settings.typed_model.as_deref() {
-        let row = typed_legs(verb);
-        if row.gate.is_some()
-            || (row.classify && settings.approach == "split")
-            || (row.literals && settings.literals)
-        {
+        if typed_model_has_a_leg(settings, verb) {
             legs.push((config::KEY_VERIFY_TYPED_MODEL, m));
         }
     }
@@ -983,6 +1013,26 @@ pub fn block(
     // new null key is still a change to every caller's field set.
     if let Some(tm) = &settings.typed_model {
         map.insert("typed_model".into(), json!(tm));
+    }
+    // The default passed over for want of a key, stated where it would have
+    // run. Not while verification is off for the verb, where nothing would
+    // have run anyway; not on `prose`, where no typed leg exists to miss;
+    // and not once the author sets the key to `off`, which silences it.
+    if settings.typed_default_without_key && verb_enabled(settings, verb) && typed_model_has_a_leg(settings, verb) {
+        map.insert(
+            "typed_model_not_run".into(),
+            json!({
+                "typed_model": config::DEFAULT_TYPED_MODEL,
+                "reason": format!(
+                    "`{}` is unset, so it defaults to `{}`, which needs {TYPED_KEY_VAR} in the \
+environment; export it, or set `{}` to `{}` to stop this notice",
+                    config::KEY_VERIFY_TYPED_MODEL,
+                    config::DEFAULT_TYPED_MODEL,
+                    config::KEY_VERIFY_TYPED_MODEL,
+                    config::REFUTER_OFF,
+                ),
+            }),
+        );
     }
     if let Some(r) = delivered {
         map.insert("for_mint".into(), json!(r.mint));
@@ -3959,6 +4009,7 @@ mod tests {
             literals: false,
             refuter: None,
             typed_model: None,
+            typed_default_without_key: false,
             model_refusal: None,
         }
     }
@@ -4720,6 +4771,14 @@ mod tests {
         // The shipped defaults: `split`, and the default refuter's two legs.
         let llm = RefuterLeg::Llm(crate::config::DEFAULT_REFUTER);
         assert_eq!(default_budget_ms(expected_calls("split", false, llm, TypedCalls::default())), 240_000);
+        // And with TypeSafe's key, the default typed model's legs: the
+        // figures docs/verify.md quotes for the shipped configuration.
+        let m = Some("openai/gpt-6-luna");
+        let typed = Some(crate::config::DEFAULT_TYPED_MODEL);
+        let shipped = |verb| {
+            default_budget_ms(planned_calls(verb, "split", false, Some(crate::config::DEFAULT_REFUTER), m, typed))
+        };
+        assert_eq!((shipped("claim"), shipped("fact")), (200_000, 250_000));
     }
 
     #[test]
@@ -5197,6 +5256,64 @@ mod tests {
         // And it never displaces the OpenRouter gaps: every one is named.
         let d = unauthorized_detail(&Settings { model: None, ..s }, "fact", false, false).expect("gaps");
         assert!(d.contains("verify.model") && d.contains("OPENROUTER_API_KEY") && d.contains(TYPED_KEY_VAR), "{d}");
+    }
+
+    #[test]
+    fn the_default_typed_model_runs_only_with_its_key() {
+        // Reverts: default it on unconditionally (every OpenRouter-only
+        // setup turns `unauthorized`); default it off (the measured saving
+        // never ships); let `off` fall back to the default.
+        use config::TypedModel::*;
+        let default = Some(config::DEFAULT_TYPED_MODEL.to_string());
+        assert_eq!(effective_typed_model(Unset, true), (default, false));
+        assert_eq!(effective_typed_model(Unset, false), (None, true));
+        assert_eq!(effective_typed_model(Off, true), (None, false));
+        assert_eq!(effective_typed_model(Off, false), (None, false));
+        let set = Set("typesafe/jev-1.13.0".into());
+        assert_eq!(effective_typed_model(set.clone(), false), (Some("typesafe/jev-1.13.0".into()), false));
+        // A value the author set still demands its key: the default's
+        // leniency must not reach it.
+        let s = Settings { typed_model: effective_typed_model(set, false).0, verbs: vec!["fact".into()], ..settings_fixture() };
+        assert!(unauthorized_detail(&s, "fact", true, false).is_some_and(|d| d.contains(TYPED_KEY_VAR)));
+    }
+
+    #[test]
+    fn a_default_passed_over_for_its_key_is_stated_where_it_would_run() {
+        // Reverts: never state it (an author without the key cannot tell
+        // the default exists); state it on every verb (prose has no typed
+        // leg to miss); treat it as a gap (the verification goes
+        // `unauthorized` over a credential nobody chose to need).
+        let s = Settings {
+            typed_default_without_key: true,
+            approach: "split".into(),
+            verbs: vec!["claim".into(), "fact".into(), "prose".into()],
+            ..settings_fixture()
+        };
+        for verb in ["claim", "fact"] {
+            let b = block(&s, verb, None, Trigger::NotAttempted);
+            assert_eq!(b["typed_model_not_run"]["typed_model"], config::DEFAULT_TYPED_MODEL, "{verb}: {b}");
+            let why = b["typed_model_not_run"]["reason"].as_str().unwrap_or_default();
+            assert!(why.contains(TYPED_KEY_VAR) && why.contains("`off`"), "{verb}: {why}");
+            assert!(b.get("typed_model").is_none(), "{verb}: {b}");
+            assert_eq!(unauthorized_detail(&s, verb, true, false), None, "{verb}");
+        }
+        let b = block(&s, "prose", None, Trigger::NotAttempted);
+        assert!(b.get("typed_model_not_run").is_none(), "{b}");
+        let quiet = Settings { typed_default_without_key: false, ..s.clone() };
+        assert!(block(&quiet, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        // Verification off, or the verb not listed: nothing would have run,
+        // so there is nothing to have missed.
+        let off = Settings { enabled: false, ..s.clone() };
+        assert!(block(&off, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        let unlisted = Settings { verbs: vec!["fact".into()], ..s };
+        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+    }
+
+    #[test]
+    fn the_default_typed_model_is_the_version_the_gate_was_fitted_on() {
+        // Reverts: default to an alias such as `jev-latest`, which moves
+        // the thresholds when TypeSafe moves it.
+        assert_eq!(config::DEFAULT_TYPED_MODEL, format!("{}/{MEASURED_TYPED_VERSION}", config::TYPED_VENDOR));
     }
 
     // -----------------------------------------------------------------
