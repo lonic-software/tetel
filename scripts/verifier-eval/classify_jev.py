@@ -37,9 +37,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import jev  # noqa: E402
+from data import DATA  # noqa: E402
 import gate_variants as GV  # noqa: E402
 
-RUNS = HERE / "classify_runs"
+RUNS = DATA / "classify_runs"
 LABELS = ("current", "proposed", "argument")
 
 # CLASSIFY_SYSTEM's three definitions, verbatim (src/verify.rs).
@@ -187,7 +188,7 @@ def char_labels(text, spans):
 def llm_labels():
     """The LLM classifier's majority label per character, over its three draws."""
     by = collections.defaultdict(list)
-    for r in json.load(open(HERE / "retro_full125x3.json")):
+    for r in json.load(open(DATA / "retro_full125x3.json")):
         if isinstance(r.get("prop"), str) and r.get("assertions"):
             by[(r["memo"][:5], r["id"])].append(
                 (r["prop"], [(a.get("text"), a.get("label")) for a in r["assertions"]]))

@@ -24,9 +24,10 @@ Per variant, over the mean score of its draws:
 
 import collections, json, sys
 from pathlib import Path
+from data import DATA  # noqa: E402
 
 HERE = Path(__file__).parent
-RUNS = HERE / "gate_runs"
+RUNS = DATA / "gate_runs"
 MARGIN = 0.05
 LABEL = {}   # claim rows carry their own label; filled by load()
 
@@ -44,10 +45,10 @@ CLAIM_CHECK_COST = "retro_full125x3.json"
 
 def check_cost(verb):
     if verb == "claim":
-        rows = json.load(open(HERE / CLAIM_CHECK_COST))
+        rows = json.load(open(DATA / CLAIM_CHECK_COST))
         c = [r["cost"] for r in rows if r.get("cost")]
         return sum(c) / len(c)
-    d = json.load(open(HERE / f"{verb}_v1.json"))
+    d = json.load(open(DATA / f"{verb}_v1.json"))
     return sum(r.get("cost", 0) for r in d["records"]) / len(d["records"])
 
 
@@ -70,7 +71,7 @@ def load(verb, variant):
 def llm_flagged():
     """Claims the shipped check leg flags by majority of retro_full125x3's three draws."""
     votes = collections.defaultdict(list)
-    for r in json.load(open(HERE / CLAIM_CHECK_COST)):
+    for r in json.load(open(DATA / CLAIM_CHECK_COST)):
         votes[(r["memo"][:5], r["id"])].append(bool(r.get("flagged")))
     return {k: sum(v) >= 2 for k, v in votes.items()}
 
@@ -106,14 +107,14 @@ def main():
             if positives == "caught":
                 defects = {k for k in fl if fl[k] and LABEL.get(k) == "refuted"}
             elif positives == "adjudicated":
-                adj = json.load(open(HERE / "labels_claim_v1.json"))["labels"]
+                adj = json.load(open(DATA / "labels_claim_v1.json"))["labels"]
                 defects = {(l["memo"], l["id"]) for l in adj if l["label"] == "CORRECT"}
             else:
                 defects = {k for k in fl if fl[k]}
         print(f"positives: {positives}" + (f", over the {len(only)} claims the check leg ran on"
                                            if only else ""))
     else:
-        defects = {tuple(x) for x in json.load(open(HERE / "defects_v1.json"))[verb]["subjects"]}
+        defects = {tuple(x) for x in json.load(open(DATA / "defects_v1.json"))[verb]["subjects"]}
     cc = check_cost(verb)
     print(f"{verb}: {len(defects)} defect subjects, check leg ${cc:.5f}/subject\n")
     print(f"  {'variant':<12} {'draws':>5} {'AUC':>5} {'spread':>6}  {'skip @0':>8}  "

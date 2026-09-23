@@ -107,7 +107,8 @@ const TYPED_KEY_VAR: &str = "TYPESAFE_API_KEY";
 
 /// The version every typed leg's thresholds and results were measured
 /// against: what `jev-latest` resolved to in the reply recorded at
-/// `scripts/verifier-eval/jev_reply_2026-09-21.json`.
+/// `verifier-eval/jev_reply_2026-09-21.json` in the tetel-eval-data
+/// repository.
 ///
 /// Compared against the `model` each reply reports, not against the
 /// configured value, because the configured value may be an alias. A reply
@@ -4098,8 +4099,8 @@ mod tests {
     }
 
     /// A TypeSafe reply shaped like the one recorded at
-    /// `scripts/verifier-eval/jev_reply_2026-09-21.json`, answering the
-    /// refuter's two questions.
+    /// `verifier-eval/jev_reply_2026-09-21.json` in the tetel-eval-data
+    /// repository, answering the refuter's two questions.
     fn typed_reply(version: &str, verdict: &str) -> serde_json::Value {
         json!({
             "model": version,

@@ -14,3 +14,9 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Eval data lives in the tetel-eval-data repository, not here (TET-97): inside
+# the worktree it matched almost every census tetel took of its own source.
+# `scripts/verifier-eval/data.py` says where the scripts find it.
+/scripts/verifier-eval/**/*.json
+/scripts/verifier-eval/**/*.jsonl

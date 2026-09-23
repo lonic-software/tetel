@@ -31,6 +31,7 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import literals_jev as LJ  # noqa: E402
 import score_gate_variants as S  # noqa: E402
+from data import DATA  # noqa: E402
 
 STEERING_LINE = 7 / 62   # retrodict.py's kill condition, as a rate
 
@@ -49,7 +50,7 @@ def majority_literal_flags(records):
 
 def main():
     check = S.llm_flagged()
-    adj = json.load(open(HERE / "labels_claim_v1.json"))["labels"]
+    adj = json.load(open(DATA / "labels_claim_v1.json"))["labels"]
     _, scores, _, _ = S.load("claim", "pick_clause")
     mean = {k: sum(v) / len(v) for k, v in scores.items()}
     lowest = min(mean[(l["memo"], l["id"])] for l in adj if l["label"] == "CORRECT")
@@ -57,8 +58,8 @@ def main():
     gated = {k for k, m in mean.items() if m < threshold}
 
     jev = majority_literal_flags(
-        LJ.apply(json.load(open(HERE / "literals_runs/jev_x3.json"))["records"], 0.7, 0.5))
-    llm = majority_literal_flags(json.load(open(HERE / "literals_final_88x3.json"))["records"])
+        LJ.apply(json.load(open(DATA / "literals_runs/jev_x3.json"))["records"], 0.7, 0.5))
+    llm = majority_literal_flags(json.load(open(DATA / "literals_final_88x3.json"))["records"])
     pop = [k for k in jev if jev[k][1].get("has_evidence", True)]
     worked = [k for k in pop if not jev[k][1]["supports_only"]]
     sound = [k for k in pop if jev[k][1]["supports_only"]]

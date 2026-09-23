@@ -31,9 +31,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from retrodict import CORPUS, load_memo  # noqa: E402
+from data import DATA  # noqa: E402
 
 HERE = Path(__file__).parent
-OLD_CLAIM_MEMOS = {c["memo"] for c in json.load(open(HERE / "claims125.json"))}
+OLD_CLAIM_MEMOS = {c["memo"] for c in json.load(open(DATA / "claims125.json"))}
 
 
 def memos():
@@ -41,7 +42,7 @@ def memos():
 
 
 def claim_tasks():
-    fitted = {(c["memo"], c["id"]) for c in json.load(open(HERE / "claims125.json"))}
+    fitted = {(c["memo"], c["id"]) for c in json.load(open(DATA / "claims125.json"))}
     for memo in memos():
         for c in load_memo(memo):
             if (memo, c["id"]) in fitted:
@@ -61,7 +62,7 @@ def claim_tasks():
 
 
 def fact_tasks():
-    fv = json.load(open(HERE / "fact_v1.json"))
+    fv = json.load(open(DATA / "fact_v1.json"))
     fitted = {(r["memo"], r["id"]) for r in fv["records"]}
     for memo in memos():
         snap = os.path.join(CORPUS, memo + ".tetel")

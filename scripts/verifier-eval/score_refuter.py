@@ -25,8 +25,9 @@ outcomes: the bins are what say whether the threshold means anything.
 
 import argparse, json, sys
 from collections import defaultdict
+from data import DATA  # noqa: E402
 
-LABELS = "labels_fact_v1.json"
+LABELS = str(DATA / "labels_fact_v1.json")
 
 
 def load_labels(path=LABELS):
