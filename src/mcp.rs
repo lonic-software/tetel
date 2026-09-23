@@ -315,13 +315,17 @@ fn verify_block(
     dir: &Path,
     settings: &crate::verify::Settings,
     verb: &str,
-    delivered: Option<(usize, crate::verify::Record)>,
+    peeked: crate::verify::Peeked,
     started: &Start,
 ) -> serde_json::Value {
+    let crate::verify::Peeked { delivered, log } = peeked;
     if let Some((at, _)) = &delivered {
         crate::verify::commit_delivered(dir, *at);
     }
-    crate::verify::block(settings, verb, delivered.as_ref().map(|(_, r)| r), started.trigger())
+    // After the dispatch, so a claim withdrawn by this very call is already
+    // left out.
+    let unverified = crate::verify::unverified(dir, settings, &log);
+    crate::verify::block(settings, verb, delivered.as_ref().map(|(_, r)| r), started.trigger(), unverified.as_ref())
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -861,7 +865,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -910,6 +914,7 @@ impl TetelServer {
                         &outcome.claim.prop,
                         &outcome.claim.from,
                         &outcome.overlap,
+                        outcome.claim.revisions,
                     )
                     .ok()
                 });
@@ -932,7 +937,7 @@ impl TetelServer {
                         return None;
                     }
                     let overlap = claims::overlap_for(&dir, &c.from).unwrap_or_default();
-                    crate::verify::claim_subject(&dir, &c.id, &c.prop, &c.from, &overlap).ok()
+                    crate::verify::claim_subject(&dir, &c.id, &c.prop, &c.from, &overlap, c.revisions).ok()
                 });
                 Ok(CallToolResult::structured(json!({
                     "id": id,
@@ -1081,7 +1086,7 @@ impl TetelServer {
                     if b.heading || b.cite.is_empty() {
                         return None;
                     }
-                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite).ok()
+                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite, b.revisions).ok()
                 });
                 Ok(CallToolResult::structured(json!({
                     "id": b.id,
@@ -1099,7 +1104,7 @@ impl TetelServer {
                     if previous_text.as_ref() == Some(&(b.text.clone(), b.cite.clone())) {
                         return None;
                     }
-                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite).ok()
+                    crate::verify::prose_subject(&dir, &b.id, &b.text, &b.cite, b.revisions).ok()
                 });
                 Ok(CallToolResult::structured(json!({
                     "id": id,

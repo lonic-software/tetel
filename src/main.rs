@@ -390,7 +390,8 @@ enum Command {
         /// is read.
         file: PathBuf,
         /// Print the quoted spans that failed verification, rather than
-        /// only counting them.
+        /// only counting them, and the beginning of each reply that was
+        /// not a usable answer.
         #[arg(long)]
         spans: bool,
     },

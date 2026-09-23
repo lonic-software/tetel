@@ -830,6 +830,19 @@ pub struct Record {
     /// `unavailable`, and they are three different problems.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// What the model or provider returned that [`detail`](Self::detail)
+    /// is about: the beginning of a reply that could not be read, or a
+    /// label outside the vocabulary. Kept for the log and for
+    /// `verify-report --spans`, and never sent to the author, for the
+    /// reason a rejected span is withheld: text that looks like evidence
+    /// sends the reader to check it, and this text is not evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+    /// [`Subject::revision`], persisted. `None` on a record written before
+    /// the field existed, which [`unverified`] orders behind every record
+    /// of the same mint that has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     /// [`Telemetry::not_verbatim`], persisted. A finding that reached the
     /// author carries its own fidelity marks; these two count what was
     /// dropped *before* anything reached them, and a drop nobody can see
@@ -938,17 +951,104 @@ against what the tool captured, and the two look inconsistent to it. Read the qu
 no capture carried it — and decide: fix the wording, look at something you have not opened, \
 or leave it alone because the finding is wrong. It is wrong a meaningful fraction of the time.";
 
+/// The guidance under a status that says a verification was attempted and
+/// did not complete — see [`is_failure`]. [`GUIDANCE`] describes findings,
+/// and there are none: sent here, it asks the author to read a quoted span
+/// that is not there.
+///
+/// It says the mint blocks nothing because the obvious response is the
+/// wrong one. Repeating the same text starts no new verification, and a
+/// claim's grounding records count only for the wording they graded, so a
+/// claim reworded to clear [`unverified`] trades its grounding for a
+/// model's opinion.
+const UNCHECKED_GUIDANCE: &str = "Not a finding. The verification of the mint named by `for_mint` did not complete, so that mint was not checked: no `findings` means nothing was compared, not that nothing was wrong, and `detail` says why. An unchecked mint blocks nothing and is not a request to change it. Sending the same text again starts no new verification, and rewording a claim only to clear `unverified` discards the grounding recorded against its current wording.";
+
+/// Whether a record's status is a verification that was attempted and lost:
+/// `timeout`, `unavailable` or `unparsable`.
+///
+/// Not `gated`, which decided there was nothing to compare, nor
+/// `unauthorized`, whose `detail` comes from the current settings rather
+/// than from the record.
+fn is_failure(status: &str) -> bool {
+    [Status::Timeout, Status::Unavailable, Status::Unparsable].iter().any(|s| s.as_str() == status)
+}
+
+/// How many mints `unverified` names; `count` says how many there are.
+const UNVERIFIED_SHOWN: usize = 10;
+
+/// The mints whose latest verification failed, for the `unverified` key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unverified {
+    /// Every such mint.
+    pub count: usize,
+    /// At most [`UNVERIFIED_SHOWN`] of them, highest revision first, then
+    /// in log order.
+    pub mints: Vec<String>,
+}
+
+/// The mints of a verb still verified whose latest verification ended in
+/// [`is_failure`], withdrawn claims left out; `None` when there are none or
+/// verification is off.
+///
+/// "Latest" is the highest [`Record::revision`], not the last in `log`:
+/// the log is in completion order, and a revision's verification can
+/// finish before the one it replaced. A tie goes to the record later in
+/// the log, and a record with no revision sorts behind every one that has
+/// one. A mint of a verb no longer in `verify.verbs` is not listed, since
+/// nothing would ever clear it.
+///
+/// `log` is what [`peek_delivered`] already read, so this reads
+/// verify.log no second time. claims.jsonl is read only when a failing
+/// mint is a claim — the one kind that can be withdrawn.
+pub fn unverified(dir: &Path, settings: &Settings, log: &[Record]) -> Option<Unverified> {
+    if !settings.enabled {
+        return None;
+    }
+    let mut latest: std::collections::BTreeMap<(&str, &str), (usize, &Record)> = Default::default();
+    for (i, r) in log.iter().enumerate() {
+        let key = (r.verb.as_str(), r.mint.as_str());
+        match latest.get(&key) {
+            // `Option`'s order puts `None` below every `Some`, which is the
+            // legacy rule; `>=` hands a tie to the later record.
+            Some((_, standing)) if r.revision < standing.revision => {}
+            _ => {
+                latest.insert(key, (i, r));
+            }
+        }
+    }
+    let mut failing: Vec<(usize, &Record)> = latest
+        .into_values()
+        .filter(|(_, r)| is_failure(&r.status) && settings.verbs.iter().any(|v| v == &r.verb))
+        .collect();
+    if failing.iter().any(|(_, r)| r.verb == "claim") {
+        let withdrawn: Vec<String> = crate::claims::load_all(dir)
+            .map(|cs| cs.into_iter().filter(|c| c.withdrawn).map(|c| c.id).collect())
+            .unwrap_or_default();
+        failing.retain(|(_, r)| !(r.verb == "claim" && withdrawn.contains(&r.mint)));
+    }
+    if failing.is_empty() {
+        return None;
+    }
+    failing.sort_by_key(|(i, r)| (std::cmp::Reverse(r.revision), *i));
+    Some(Unverified {
+        count: failing.len(),
+        mints: failing.iter().take(UNVERIFIED_SHOWN).map(|(_, r)| r.mint.clone()).collect(),
+    })
+}
+
 /// The `verify` object for one reply.
 ///
 /// `delivered` is a verification that finished before this call;
 /// `queued_for` is the mint whose verification this call just started.
 /// Either may be absent, and when both are the status is whichever
-/// pre-call state applies.
+/// pre-call state applies. `unverified` rides on every reply that has
+/// one, whatever its status and verb.
 pub fn block(
     settings: &Settings,
     verb: &str,
     delivered: Option<&Record>,
     trigger: Trigger<'_>,
+    unverified: Option<&Unverified>,
 ) -> serde_json::Value {
     let status = match (delivered, &trigger) {
         (Some(r), _) => r.status.clone(),
@@ -1002,7 +1102,7 @@ pub fn block(
         // call did not return — and it is removed below for a refuter that
         // is set and runs nothing.
         "refuter_model": refuter_model,
-        "guidance": GUIDANCE,
+        "guidance": if is_failure(&status) { UNCHECKED_GUIDANCE } else { GUIDANCE },
     });
     let map = out.as_object_mut().expect("json object");
     // Removed from the literal rather than kept out of it, so a
@@ -1096,6 +1196,21 @@ environment; export it, or set `{}` to `{}` to stop this notice",
                 map.insert("typed_model_unmeasured".into(), json!(true));
             }
         }
+        // Why it failed, under the three statuses where the record's
+        // detail belongs to the failure: the leg that failed is the last
+        // one that ran. Not under `ok` or `gated`, where it is whatever leg
+        // last wrote it and the `*_incomplete` keys already say which leg
+        // did not finish. And only on a record that carries a revision:
+        // one written before the reply text was split off may quote it in
+        // its detail, and nothing else tells the two apart.
+        if is_failure(&r.status) && r.revision.is_some() {
+            if let Some(d) = &r.detail {
+                map.insert("detail".into(), json!(d));
+            }
+        }
+    }
+    if let Some(u) = unverified {
+        map.insert("unverified".into(), json!({"count": u.count, "mints": u.mints}));
     }
     if let Trigger::Queued(m) = trigger {
         map.insert("queued_for".into(), json!(m));
@@ -1175,10 +1290,18 @@ fn delivered_count(dir: &Path) -> usize {
 /// rest keep until the calls after this one rather than being merged into
 /// a single object that could only name one mint.
 /// Returns the record and the position it sits at, which
-/// [`commit_delivered`] needs so a concurrent commit cannot skip past it.
-pub fn peek_delivered(dir: &Path) -> Option<(usize, Record)> {
+/// [`commit_delivered`] needs so a concurrent commit cannot skip past it,
+/// and the whole log it was read from, which [`unverified`] tallies.
+pub fn peek_delivered(dir: &Path) -> Peeked {
     let at = delivered_count(dir);
-    read_log(dir).0.into_iter().nth(at).map(|r| (at, r))
+    let log = read_log(dir).0;
+    Peeked { delivered: log.get(at).cloned().map(|r| (at, r)), log }
+}
+
+/// What [`peek_delivered`] read.
+pub struct Peeked {
+    pub delivered: Option<(usize, Record)>,
+    pub log: Vec<Record>,
 }
 
 /// Every readable record in the log, and how many lines were not.
@@ -1272,6 +1395,16 @@ pub struct Subject {
     /// Per observation rather than joined, so that what the model is
     /// shown is exactly what `Fact::quotes` can accept back.
     pub evidence: Vec<(String, Vec<String>, Vec<String>)>,
+    /// How many times the mint had been revised when this verification was
+    /// dispatched: its ledger's `revisions` count, 0 for a create.
+    ///
+    /// The order between two verifications of one mint. Not `seq`, `at` or
+    /// the log position, which all mark when a verification *finished*,
+    /// and two of them can finish in either order. The count is replayed
+    /// from an append-only ledger, so it never decreases; two overlapping
+    /// revisions can still read the same one, since nothing serialises the
+    /// handlers, and [`unverified`] breaks that tie by log position.
+    pub revision: u64,
 }
 
 /// Where in the captured record a verified span was found.
@@ -1400,58 +1533,89 @@ pub fn spawn(dir: &Path, settings: &Settings, subject: Subject) -> bool {
         let legs = Legs { literals, refuter: refuter.as_deref(), typed_model: typed_model.as_deref() };
         let (status, findings, literals_status) =
             run(&providers, &model, &approach, legs, &subject, started, budget, &mut tel);
-        let record_literals_ok = literals_status.is_none();
-        let record_refuter_ok = tel.refuter_status.is_none();
-        let record_gate_ok = tel.gate_status.is_none();
-        let leg = refuter_leg(refuter.as_deref(), Some(&model), &subject.verb);
-        let record = Record {
-            seq: next_seq(&dir),
-            mint: subject.mint.clone(),
-            verb: subject.verb.clone(),
-            status: status.as_str().to_string(),
-            model,
-            approach,
-            literals,
-            findings,
-            at: workspace::now_unix(),
-            cost: tel.cost,
-            elapsed_ms: started.elapsed().as_millis() as u64,
-            attempts: tel.attempts,
-            not_verbatim: tel.not_verbatim,
-            literals_refuted: tel.literals_refuted,
-            not_a_quantity: tel.not_a_quantity,
-            kind_off_verb: tel.kind_off_verb,
-            refuted: tel.refuted,
-            // The refuter that ran, not the one configured: a typed refuter
-            // this verb's row refuses, or the check model refuting itself,
-            // ran nothing, and a record naming it would be counted by the
-            // report as a refuted run and printed by `block` over findings
-            // nothing refuted.
-            refuter: leg.runs(),
-            refuter_not_run: leg.not_run(),
-            literals_status: literals_status.map(|s| s.as_str().to_string()),
-            refuter_status: tel.refuter_status.map(|s| s.as_str().to_string()),
-            typed_versions: std::mem::take(&mut tel.typed_versions),
-            gate_calls: tel.gate_calls,
-            gate_status: tel.gate_status.map(|s| s.as_str().to_string()),
-            typed_classify_calls: tel.typed_classify_calls,
-            typed_literal_calls: tel.typed_literal_calls,
-            // Only when something went wrong: a clean run has nothing to
-            // explain, and a detail line on every record would train a
-            // reader to skip the field.
-            // An `ok` run with a failed gate, literal or refuter call is the
-            // one case where a clean status still has something to explain,
-            // so the guard asks about all of them rather than the status
-            // alone.
-            detail: if status == Status::Ok && record_literals_ok && record_refuter_ok && record_gate_ok {
-                None
-            } else {
-                tel.detail
-            },
-        };
+        let record = record_of(
+            next_seq(&dir),
+            &subject,
+            Ran { model, approach, literals, refuter: refuter.as_deref() },
+            (status, findings, literals_status),
+            tel,
+            started.elapsed(),
+        );
         let _ = workspace::append_jsonl(&log_path(&dir), &record);
     });
     true
+}
+
+/// What [`spawn`] configured a verification with, for [`record_of`].
+struct Ran<'a> {
+    model: String,
+    approach: String,
+    literals: bool,
+    refuter: Option<&'a str>,
+}
+
+/// The record a finished verification leaves in the log.
+fn record_of(
+    seq: u64,
+    subject: &Subject,
+    ran: Ran<'_>,
+    (status, findings, literals_status): (Status, Vec<Finding>, Option<Status>),
+    mut tel: Telemetry,
+    elapsed: Duration,
+) -> Record {
+    let Ran { model, approach, literals, refuter } = ran;
+    let record_literals_ok = literals_status.is_none();
+    let record_refuter_ok = tel.refuter_status.is_none();
+    let record_gate_ok = tel.gate_status.is_none();
+    let leg = refuter_leg(refuter, Some(&model), &subject.verb);
+    // Only when something went wrong: a clean run has nothing to explain,
+    // and a detail line on every record would train a reader to skip the
+    // field. An `ok` run with a failed gate, literal or refuter call is the
+    // one case where a clean status still has something to explain, so the
+    // guard asks about all of them rather than the status alone. `reply`
+    // goes wherever `detail` goes: it is only ever the text that detail is
+    // about.
+    let (detail, reply) = if status == Status::Ok && record_literals_ok && record_refuter_ok && record_gate_ok {
+        (None, None)
+    } else {
+        (tel.detail.take(), tel.reply.take())
+    };
+    Record {
+        seq,
+        mint: subject.mint.clone(),
+        verb: subject.verb.clone(),
+        status: status.as_str().to_string(),
+        model,
+        approach,
+        literals,
+        findings,
+        at: workspace::now_unix(),
+        cost: tel.cost,
+        elapsed_ms: elapsed.as_millis() as u64,
+        attempts: tel.attempts,
+        not_verbatim: tel.not_verbatim,
+        literals_refuted: tel.literals_refuted,
+        not_a_quantity: tel.not_a_quantity,
+        kind_off_verb: tel.kind_off_verb,
+        refuted: tel.refuted,
+        // The refuter that ran, not the one configured: a typed refuter
+        // this verb's row refuses, or the check model refuting itself,
+        // ran nothing, and a record naming it would be counted by the
+        // report as a refuted run and printed by `block` over findings
+        // nothing refuted.
+        refuter: leg.runs(),
+        refuter_not_run: leg.not_run(),
+        literals_status: literals_status.map(|s| s.as_str().to_string()),
+        refuter_status: tel.refuter_status.map(|s| s.as_str().to_string()),
+        typed_versions: std::mem::take(&mut tel.typed_versions),
+        gate_calls: tel.gate_calls,
+        gate_status: tel.gate_status.map(|s| s.as_str().to_string()),
+        typed_classify_calls: tel.typed_classify_calls,
+        typed_literal_calls: tel.typed_literal_calls,
+        detail,
+        reply,
+        revision: Some(subject.revision),
+    }
 }
 
 /// The providers a verification of `verb` calls, or `None` when a leg
@@ -1483,7 +1647,12 @@ fn providers_for(
 pub struct Telemetry {
     pub cost: f64,
     pub attempts: u32,
+    /// Written through [`explain`](Self::explain) and
+    /// [`explain_quoting`](Self::explain_quoting), never directly, so that
+    /// [`reply`](Self::reply) always belongs to the detail beside it.
     pub detail: Option<String>,
+    /// See [`Record::reply`].
+    pub reply: Option<String>,
     /// Text the model attributed to the author that the author did not
     /// write, dropped rather than passed on: a classify assertion that was
     /// not a substring of the claim, or a literal the literal check could
@@ -1531,6 +1700,28 @@ pub struct Telemetry {
     pub typed_classify_calls: Option<u32>,
     /// See [`Record::typed_literal_calls`].
     pub typed_literal_calls: Option<u32>,
+}
+
+impl Telemetry {
+    /// Say why, in words the author may be shown. Clears any reply text an
+    /// earlier write quoted, because that text explained the earlier
+    /// detail and not this one.
+    fn explain(&mut self, why: impl Into<String>) {
+        self.detail = Some(why.into());
+        self.reply = None;
+    }
+
+    /// Say why, and keep what the model or provider actually returned
+    /// beside it for the log alone. See [`Record::reply`].
+    fn explain_quoting(&mut self, why: impl Into<String>, reply: impl Into<String>) {
+        self.detail = Some(why.into());
+        self.reply = Some(reply.into());
+    }
+}
+
+/// The first `n` characters of a reply, for [`Telemetry::explain_quoting`].
+fn beginning(text: &str) -> String {
+    text.chars().take(200).collect()
 }
 
 /// The legs a verification may run beside the check, as configured. Which
@@ -1618,8 +1809,11 @@ fn run(
         // used to see was not an answer.
         match parse_assertions(&body, &subject.text, tel) {
             Ok(canonical) => Some(canonical),
-            Err(why) => {
-                tel.detail = Some(why);
+            Err((why, label)) => {
+                match label {
+                    Some(label) => tel.explain_quoting(why, label),
+                    None => tel.explain(why),
+                }
                 return (Status::Unparsable, Vec::new(), None);
             }
         }
@@ -1666,11 +1860,10 @@ fn run(
             None => {
                 // Say what could not be read. "Unparsable" alone sends
                 // whoever is tuning this back to the provider to guess.
-                tel.detail = Some(format!(
-                    "reply was not a usable answer; {} bytes beginning: {}",
-                    body.len(),
-                    body.chars().take(200).collect::<String>()
-                ));
+                tel.explain_quoting(
+                    format!("reply was not a usable answer ({} bytes); `--spans` shows its beginning", body.len()),
+                    beginning(&body),
+                );
                 (Status::Unparsable, Vec::new(), None)
             }
         },
@@ -1693,7 +1886,7 @@ fn call(
     let mut cap = FIRST_TOKEN_CAP;
     for _ in 0..MAX_ATTEMPTS {
         let Some(left) = budget.checked_sub(started.elapsed()) else {
-            tel.detail = Some(format!(
+            tel.explain(format!(
                 "budget of {}ms expired before an attempt could start",
                 budget.as_millis()
             ));
@@ -1721,7 +1914,7 @@ fn call(
         if !truncated && !content.trim().is_empty() {
             return Ok(content.to_string());
         }
-        tel.detail = Some(format!(
+        tel.explain(format!(
             "draw {} came back {} at a {cap}-token cap",
             tel.attempts,
             if truncated { "truncated" } else { "empty" }
@@ -1756,18 +1949,18 @@ fn post(
         // A timeout inside the client is still the budget expiring;
         // anything else is transport or a non-2xx.
         Err(ureq::Error::Timeout(_)) => {
-            tel.detail = Some("provider did not answer within the remaining budget".into());
+            tel.explain("provider did not answer within the remaining budget");
             return Err(Status::Timeout);
         }
         // The distinction that makes this field worth having: a 429,
         // a 500 and a name-resolution failure are all `unavailable`
         // and call for three different responses.
         Err(ureq::Error::StatusCode(code)) => {
-            tel.detail = Some(format!("provider replied {code}"));
+            tel.explain(format!("provider replied {code}"));
             return Err(Status::Unavailable);
         }
         Err(e) => {
-            tel.detail = Some(format!("transport failure: {e}"));
+            tel.explain(format!("transport failure: {e}"));
             return Err(Status::Unavailable);
         }
     };
@@ -1778,16 +1971,16 @@ fn post(
         // so this is where a slow draw usually runs out: TET-84's 19
         // `unavailable` mints each stopped at the full budget.
         Err(ureq::Error::Timeout(_)) => {
-            tel.detail = Some("provider did not finish its reply within the remaining budget".into());
+            tel.explain("provider did not finish its reply within the remaining budget");
             return Err(Status::Timeout);
         }
         Err(e) => {
-            tel.detail = Some(format!("reply body could not be read: {e}"));
+            tel.explain(format!("reply body could not be read: {e}"));
             return Err(Status::Unavailable);
         }
     };
     serde_json::from_str::<serde_json::Value>(&text).map_err(|_| {
-        tel.detail = Some(format!("provider envelope was not JSON ({} bytes)", text.len()));
+        tel.explain(format!("provider envelope was not JSON ({} bytes)", text.len()));
         Status::Unparsable
     })
 }
@@ -1813,7 +2006,7 @@ fn ask_typed(
     tel: &mut Telemetry,
 ) -> Result<serde_json::Value, Status> {
     let Some(left) = budget.checked_sub(started.elapsed()) else {
-        tel.detail = Some(format!(
+        tel.explain(format!(
             "budget of {}ms expired before an attempt could start",
             budget.as_millis()
         ));
@@ -1840,10 +2033,10 @@ fn ask_typed(
     match v.get("answers") {
         Some(a) if a.is_object() => Ok(a.clone()),
         _ => {
-            tel.detail = Some(format!(
-                "typed reply carried no answers; beginning: {}",
-                v.to_string().chars().take(200).collect::<String>()
-            ));
+            tel.explain_quoting(
+                "typed reply carried no answers; `--spans` shows its beginning",
+                beginning(&v.to_string()),
+            );
             Err(Status::Unparsable)
         }
     }
@@ -2109,7 +2302,7 @@ fn gate_skips(
     match gate_score(gate, units.len(), &answers) {
         Some(score) => Ok(score < gate.threshold),
         None => {
-            tel.detail = Some("the gate's reply did not give a probability for every option it offered".into());
+            tel.explain("the gate's reply did not give a probability for every option it offered");
             Err(Status::Unparsable)
         }
     }
@@ -2221,7 +2414,7 @@ fn typed_classify(
     let mut assertions = Vec::new();
     for (i, u) in units.iter().enumerate() {
         let Some(label) = classify_label(&answers[format!("u{i}")]) else {
-            tel.detail = Some(format!("typed classify gave no usable label for part u{i}"));
+            tel.explain(format!("typed classify gave no usable label for part u{i}"));
             return Err(Status::Unparsable);
         };
         assertions.push(json!({"text": u, "label": label}));
@@ -2529,7 +2722,7 @@ fn typed_literal_findings(
     for (i, lit) in judged.into_iter().enumerate() {
         let p = |key: String| answers[key]["noul"].as_f64();
         let (Some(quantity), Some(carried)) = (p(format!("q{i}")), p(format!("c{i}"))) else {
-            tel.detail = Some(format!("typed literal leg gave no probability for q{i} or c{i}"));
+            tel.explain(format!("typed literal leg gave no probability for q{i} or c{i}"));
             return Err(Status::Unparsable);
         };
         if quantity < TYPED_QUANTITY_AT || carried >= TYPED_CARRIED_BELOW {
@@ -2680,20 +2873,27 @@ const CLASSIFY_LABELS: [&str; 3] = ["current", "proposed", "argument"];
 /// produced nothing usable has not done what `split` means, and returning
 /// `None` there would quietly run the `direct` comparison under the
 /// `split` name.
-fn parse_assertions(body: &str, claim: &str, tel: &mut Telemetry) -> Result<String, String> {
-    let v = json_object(body).ok_or("classify reply held no JSON object")?;
+///
+/// The error carries the explanation and, apart from it, the model's own
+/// text when that is what went wrong, so that only the explanation can
+/// reach the author — see [`Record::reply`].
+fn parse_assertions(body: &str, claim: &str, tel: &mut Telemetry) -> Result<String, (String, Option<String>)> {
+    let fixed = |why: &str| (why.to_string(), None);
+    let v = json_object(body).ok_or_else(|| fixed("classify reply held no JSON object"))?;
     let rows = v
         .get("assertions")
         .and_then(|a| a.as_array())
-        .ok_or("classify reply had no `assertions` array")?;
+        .ok_or_else(|| fixed("classify reply had no `assertions` array"))?;
     let mut kept = Vec::new();
     for row in rows {
         let text = str_field(row, "text");
         let label = str_field(row, "label");
         if !CLASSIFY_LABELS.contains(&label.as_str()) {
-            return Err(format!(
-                "classify returned the label {label:?}, which is not one of {}",
-                CLASSIFY_LABELS.join(", ")
+            // The label is the model's own text, so it goes beside the
+            // explanation rather than into it.
+            return Err((
+                format!("classify returned a label that is not one of {}", CLASSIFY_LABELS.join(", ")),
+                Some(label),
             ));
         }
         if text.is_empty() || !claim.contains(&text) {
@@ -2703,9 +2903,9 @@ fn parse_assertions(body: &str, claim: &str, tel: &mut Telemetry) -> Result<Stri
         kept.push(json!({"text": text, "label": label}));
     }
     if kept.is_empty() {
-        return Err(format!(
-            "classify returned {} assertion(s), none of them quoted verbatim from the claim",
-            rows.len()
+        return Err((
+            format!("classify returned {} assertion(s), none of them quoted verbatim from the claim", rows.len()),
+            None,
         ));
     }
     Ok(json!({"assertions": kept}).to_string())
@@ -2822,15 +3022,14 @@ fn literal_findings(
     let prompt = format!("TEXT:\n{}\n\n{}", subject.text, evidence_text(subject));
     let body = call(llm, model, LITERALS_SYSTEM, &prompt, started, budget, tel)?;
     let Some(v) = json_object(&body) else {
-        tel.detail = Some(format!(
-            "literal check replied with no JSON object; {} bytes beginning: {}",
-            body.len(),
-            body.chars().take(200).collect::<String>()
-        ));
+        tel.explain_quoting(
+            format!("literal check replied with no JSON object ({} bytes); `--spans` shows its beginning", body.len()),
+            beginning(&body),
+        );
         return Err(Status::Unparsable);
     };
     let Some(rows) = v.get("unevidenced").and_then(|u| u.as_array()) else {
-        tel.detail = Some("literal check reply had no `unevidenced` array".into());
+        tel.explain("literal check reply had no `unevidenced` array");
         return Err(Status::Unparsable);
     };
     let mut out = Vec::new();
@@ -3224,7 +3423,7 @@ fn refute_findings(
         // `config::DEFAULT_REFUTER`, so an author who moved `verify.model`
         // onto that model reaches this with nothing of their own to
         // correct. The remedy is what the message has to carry.
-        tel.detail = Some(format!(
+        tel.explain(format!(
             "the refuter and verify.model are both {refuter}; a model refuting itself scored \
              17% and the leg is skipped — set verify.refuter_model to a different model, or to \
              `{off}` to go unrefuted deliberately",
@@ -3251,7 +3450,7 @@ fn refute_findings(
                 ask_typed(typed, refuter, &user, &typed_refute_questions(), started, budget, tel)
                     .and_then(|a| {
                         a["verdict"]["choice"].as_str().map(str::to_ascii_uppercase).ok_or_else(|| {
-                            tel.detail = Some("typed refuter answered no verdict".into());
+                            tel.explain("typed refuter answered no verdict");
                             Status::Unparsable
                         })
                     })
@@ -3264,7 +3463,7 @@ fn refute_findings(
                 json_object(&b)
                     .map(|v| str_field(&v, "verdict").to_ascii_uppercase())
                     .ok_or_else(|| {
-                        tel.detail = Some("refuter reply was not a JSON object".into());
+                        tel.explain("refuter reply was not a JSON object");
                         Status::Unparsable
                     })
             }),
@@ -3491,13 +3690,15 @@ An empty list is the common and correct answer."#;
 
 /// The captured side for a claim: the facts it cites **together with** the
 /// overlap set, which is what keeps the author from narrowing the
-/// comparison by selection.
+/// comparison by selection. `revision` is the claim's `revisions` count,
+/// which the caller has already replayed and this does not read.
 pub fn claim_subject(
     dir: &Path,
     id: &str,
     prop: &str,
     cited: &[String],
     overlap: &[(String, Vec<String>)],
+    revision: usize,
 ) -> io::Result<Subject> {
     let all = facts::load_all(dir)?;
     let mut wanted: Vec<String> = cited.to_vec();
@@ -3511,6 +3712,7 @@ pub fn claim_subject(
         verb: "claim".to_string(),
         text: prop.to_string(),
         evidence: collect(&all, &wanted),
+        revision: revision as u64,
     })
 }
 
@@ -3518,24 +3720,26 @@ pub fn claim_subject(
 /// where the two sides were never separable.
 pub fn fact_subject(dir: &Path, id: &str) -> io::Result<Subject> {
     let all = facts::load_all(dir)?;
-    let note = all
+    let (note, revision) = all
         .iter()
         .find(|f| f.id == id)
-        .map(|f| f.note.clone())
+        .map(|f| (f.note.clone(), f.revisions))
         .unwrap_or_default();
     Ok(Subject {
         mint: id.to_string(),
         verb: "fact".to_string(),
         text: note,
         evidence: collect(&all, std::slice::from_ref(&id.to_string())),
+        revision: revision as u64,
     })
 }
 
 /// The captured side for a prose block: the facts under the claims it
 /// cites. The least-evidenced of the three comparisons — neither case
 /// file in the eval contains one — which is why the verb is off unless
-/// asked for.
-pub fn prose_subject(dir: &Path, id: &str, text: &str, cites: &[String]) -> io::Result<Subject> {
+/// asked for. `revision` is the block's `revisions` count, as for
+/// [`claim_subject`].
+pub fn prose_subject(dir: &Path, id: &str, text: &str, cites: &[String], revision: usize) -> io::Result<Subject> {
     let all_facts = facts::load_all(dir)?;
     let all_claims = crate::claims::load_all(dir)?;
     let mut wanted: Vec<String> = Vec::new();
@@ -3553,6 +3757,7 @@ pub fn prose_subject(dir: &Path, id: &str, text: &str, cites: &[String]) -> io::
         verb: "prose".to_string(),
         text: text.to_string(),
         evidence: collect(&all_facts, &wanted),
+        revision: revision as u64,
     })
 }
 
@@ -3714,6 +3919,18 @@ pub fn report_text(memo: &Path, show_spans: bool) -> io::Result<String> {
         out.push_str("\n  why the non-ok ones failed:\n");
         for d in details {
             out.push_str(&format!("    - {}\n", d.chars().take(160).collect::<String>()));
+        }
+    }
+    // The reply text those details are about, kept out of them so that
+    // identical causes collapse above, and shown only when asked for, as
+    // the withheld spans are.
+    if show_spans {
+        let replies: Vec<&Record> = records.iter().filter(|r| r.reply.is_some()).collect();
+        if !replies.is_empty() {
+            out.push_str("\n  what those replies said:\n");
+            for r in replies {
+                out.push_str(&format!("    - {} {}: {}\n", r.verb, r.mint, r.reply.as_deref().unwrap_or_default().replace('\n', " ")));
+            }
         }
     }
 
@@ -4209,6 +4426,7 @@ mod tests {
     fn subject_fixture(text: &str, evidence: &[(&str, &[&str])]) -> Subject {
         Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: text.into(),
             evidence: evidence
@@ -4249,7 +4467,7 @@ mod tests {
     fn a_block_with_nothing_delivered_carries_no_findings_key() {
         // The whole reason `verify` is an object: "found nothing" and
         // "did not look" must not be the same payload.
-        let b = block(&settings_fixture(), "claim", None, Trigger::Queued("C7"));
+        let b = block(&settings_fixture(), "claim", None, Trigger::Queued("C7"), None);
         assert_eq!(b["status"], "queued");
         assert!(b.get("findings").is_none(), "{b}");
         assert_eq!(b["queued_for"], "C7");
@@ -4263,7 +4481,7 @@ mod tests {
         // `literals` most of all, since with it off the author sees
         // findings of two kinds and nothing saying a third exists.
         for delivered in [None, Some(&record_fixture())] {
-            let b = block(&settings_fixture(), "claim", delivered, Trigger::NotAttempted);
+            let b = block(&settings_fixture(), "claim", delivered, Trigger::NotAttempted, None);
             for key in ["model", "approach", "timeout_ms", "verbs", "literals"] {
                 assert!(b.get(key).is_some(), "{key} missing from {b}");
             }
@@ -4300,13 +4518,15 @@ mod tests {
             typed_classify_calls: None,
             typed_literal_calls: None,
             detail: None,
+            reply: None,
+            revision: None,
         }
     }
 
     #[test]
     fn a_delivered_block_names_the_mint_it_is_about() {
         // It is no longer the id sitting beside the findings.
-        let b = block(&settings_fixture(), "claim", Some(&record_fixture()), Trigger::Queued("C4"));
+        let b = block(&settings_fixture(), "claim", Some(&record_fixture()), Trigger::Queued("C4"), None);
         assert_eq!(b["status"], "ok");
         assert_eq!(b["for_mint"], "C3");
         assert_eq!(b["queued_for"], "C4");
@@ -4328,7 +4548,7 @@ mod tests {
         let (records, skipped) = read_log(&dir);
         assert_eq!(records.len(), 2, "readable records were lost");
         assert_eq!(skipped, 1, "the unreadable line was not counted");
-        assert!(peek_delivered(&dir).is_some(), "deliveries stopped");
+        assert!(peek_delivered(&dir).delivered.is_some(), "deliveries stopped");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4403,7 +4623,7 @@ mod tests {
         for status in ["unavailable", "timeout", "unparsable"] {
             let mut r = record_fixture();
             r.status = status.into();
-            let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+            let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
             assert_eq!(b["status"], status);
             assert!(b.get("findings").is_none(), "{status} carried findings: {b}");
             // The mint is still named — the reader has to know which
@@ -4411,7 +4631,7 @@ mod tests {
             assert_eq!(b["for_mint"], "C3", "{b}");
         }
         // And `ok` still carries them, including when empty.
-        let b = block(&settings_fixture(), "claim", Some(&record_fixture()), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "claim", Some(&record_fixture()), Trigger::NotAttempted, None);
         assert_eq!(b["status"], "ok");
         assert_eq!(b["findings"], serde_json::json!([]));
     }
@@ -4421,7 +4641,7 @@ mod tests {
         // With the verb on, a heading or an uncited block must not answer
         // "off" — that tells an author who has just enabled the feature
         // that it is disabled.
-        let b = block(&settings_fixture(), "claim", None, Trigger::NothingToCompare);
+        let b = block(&settings_fixture(), "claim", None, Trigger::NothingToCompare, None);
         assert_eq!(b["status"], "skipped", "{b}");
         assert!(b.get("queued_for").is_none(), "{b}");
     }
@@ -4434,7 +4654,7 @@ mod tests {
         // which is how the two defects hid each other.
         let mut s = settings_fixture();
         s.model = None; // stands in for "nothing to call with"
-        let b = block(&s, "claim", None, Trigger::NotAttempted);
+        let b = block(&s, "claim", None, Trigger::NotAttempted, None);
         assert_eq!(b["status"], "unauthorized", "{b}");
         assert!(b.get("queued_for").is_none(), "{b}");
     }
@@ -4445,7 +4665,7 @@ mod tests {
         // with the feature enabled — the switch, the verb list and a
         // missing credential are three different answers to "why am I
         // getting nothing".
-        let b = block(&settings_fixture(), "prose", None, Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "prose", None, Trigger::NotAttempted, None);
         assert_eq!(b["status"], "off", "{b}");
     }
 
@@ -4453,6 +4673,7 @@ mod tests {
     fn an_unreadable_reply_is_not_a_clean_bill() {
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "x".into(),
             evidence: vec![("F1".into(), vec![], vec!["captured".to_string()])],
@@ -4482,6 +4703,7 @@ mod tests {
         let big = "x".repeat(MAX_EVIDENCE_BYTES * 2);
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "a claim".into(),
             evidence: vec![("F1".into(), vec!["big.txt".into()], vec![big])],
@@ -4499,6 +4721,7 @@ mod tests {
     fn a_capture_that_fits_is_sent_whole_and_unmarked() {
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "a claim".into(),
             evidence: vec![("F1".into(), vec![], vec!["fn a() {}".into()])],
@@ -4530,6 +4753,7 @@ mod tests {
         // suppression as an accuracy signal for the kind it suppressed.
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "the buffer is 4096 bytes".into(),
             evidence: vec![(
@@ -4554,6 +4778,7 @@ mod tests {
         // in the capture.
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "x".into(),
             evidence: vec![
@@ -4618,6 +4843,7 @@ mod tests {
         // same predicate for every verb that does report it.
         let subject = Subject {
             mint: "C1".into(),
+            revision: 0,
             verb: "claim".into(),
             text: "the search covered every file".into(),
             evidence: vec![(
@@ -4816,7 +5042,7 @@ mod tests {
         r.literals = true;
         r.findings = vec![finding_fixture()];
         r.literals_status = Some(Status::Timeout.as_str().to_string());
-        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
 
         assert_eq!(b["status"], "ok", "a failed literal leg must not fail the verification");
         assert_eq!(
@@ -4831,7 +5057,7 @@ mod tests {
         let mut ok = record_fixture();
         ok.literals = true;
         ok.findings = vec![finding_fixture()];
-        let b = block(&settings_fixture(), "claim", Some(&ok), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "claim", Some(&ok), Trigger::NotAttempted, None);
         assert!(b.get("literals_incomplete").is_none(), "{b}");
     }
 
@@ -5071,14 +5297,14 @@ mod tests {
                 let s = Settings { refuter: refuter.clone(), verbs: vec![verb.into()], ..settings_fixture() };
                 // Not `NotAttempted`: with the verb on, that is `unauthorized`,
                 // whose `detail` depends on what the environment holds.
-                let b = block(&s, verb, None, Trigger::NothingToCompare);
+                let b = block(&s, verb, None, Trigger::NothingToCompare, None);
                 assert_eq!(keys_of(&b), untyped_keys(false), "{verb} {refuter:?}: {b}");
-                let b = block(&s, verb, Some(&record_fixture()), Trigger::NothingToCompare);
+                let b = block(&s, verb, Some(&record_fixture()), Trigger::NothingToCompare, None);
                 assert_eq!(keys_of(&b), untyped_keys(true), "{verb} {refuter:?}: {b}");
             }
         }
         let off = Settings { refuter: None, ..settings_fixture() };
-        assert!(block(&off, "claim", None, Trigger::NotAttempted)["refuter_model"].is_null());
+        assert!(block(&off, "claim", None, Trigger::NotAttempted, None)["refuter_model"].is_null());
     }
 
     #[test]
@@ -5158,13 +5384,13 @@ mod tests {
         // Invariant 9, on the response. Revert: leave `refuter_model` in
         // the object for a `NotRun` leg.
         let s = Settings { refuter: Some("typesafe/jev-latest".into()), ..settings_fixture() };
-        let b = block(&s, "claim", None, Trigger::NotAttempted);
+        let b = block(&s, "claim", None, Trigger::NotAttempted, None);
         assert!(b.get("refuter_model").is_none(), "{b}");
         assert_eq!(b["refuter_not_run"]["verb"], "claim", "{b}");
         assert_eq!(b["refuter_not_run"]["refuter_model"], "typesafe/jev-latest", "{b}");
         assert!(b["refuter_not_run"]["reason"].as_str().is_some_and(|r| r.contains("`fact` only")), "{b}");
         // On its own row it is the refuter in force, printed as any other.
-        let b = block(&s, "fact", None, Trigger::NotAttempted);
+        let b = block(&s, "fact", None, Trigger::NotAttempted, None);
         assert_eq!(b["refuter_model"], "typesafe/jev-latest", "{b}");
         assert!(b.get("refuter_not_run").is_none(), "{b}");
     }
@@ -5183,7 +5409,7 @@ mod tests {
             refuter: Some("typesafe/jev-latest".into()),
             ..record_fixture()
         };
-        let b = block(&s, "claim", Some(&fact), Trigger::NotAttempted);
+        let b = block(&s, "claim", Some(&fact), Trigger::NotAttempted, None);
         assert_eq!(b["refuter_model"], "typesafe/jev-latest", "{b}");
         assert!(b.get("refuter_not_run").is_none(), "{b}");
         // A `claim` record nothing refuted, delivered on a `fact` call.
@@ -5191,7 +5417,7 @@ mod tests {
             refuter_not_run: RefuterLeg::NotRun("typesafe/jev-latest").not_run(),
             ..record_fixture()
         };
-        let b = block(&s, "fact", Some(&claim), Trigger::NotAttempted);
+        let b = block(&s, "fact", Some(&claim), Trigger::NotAttempted, None);
         assert!(b.get("refuter_model").is_none(), "{b}");
         assert_eq!(b["refuter_not_run"]["verb"], "claim", "{b}");
         assert_eq!(b["refuter_not_run"]["refuter_model"], "typesafe/jev-latest", "{b}");
@@ -5208,7 +5434,7 @@ mod tests {
         let m = "openai/gpt-5.6-luna";
         assert_eq!(refuter_leg(Some(m), Some(m), "fact").runs(), None);
         let s = Settings { refuter: Some(m.into()), ..settings_fixture() };
-        let b = block(&s, "claim", None, Trigger::NotAttempted);
+        let b = block(&s, "claim", None, Trigger::NotAttempted, None);
         assert!(b.get("refuter_model").is_none(), "{b}");
         // Said, with the remedy, rather than looking like `off`.
         assert_eq!(b["refuter_not_run"]["refuter_model"], m, "{b}");
@@ -5280,10 +5506,10 @@ mod tests {
             refuter_status: Some("unavailable".into()),
             ..record_fixture()
         };
-        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
         assert_eq!(b["refuter_incomplete"], "unavailable", "{b}");
         let clean = Record { refuter_status: None, ..r };
-        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted).get("refuter_incomplete").is_none());
+        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted, None).get("refuter_incomplete").is_none());
     }
 
     #[test]
@@ -5305,12 +5531,12 @@ mod tests {
         // Invariant 7. Revert: move the version keys inside the `ok` guard.
         for status in ["ok", "unavailable", "timeout"] {
             let r = Record { status: status.into(), typed_versions: vec!["jev-1.14.0".into()], ..record_fixture() };
-            let b = block(&settings_fixture(), "fact", Some(&r), Trigger::NotAttempted);
+            let b = block(&settings_fixture(), "fact", Some(&r), Trigger::NotAttempted, None);
             assert_eq!(b["typed_model_unmeasured"], true, "{status}: {b}");
             assert_eq!(b["typed_model_versions"], json!(["jev-1.14.0"]), "{status}: {b}");
         }
         let measured = Record { typed_versions: vec![MEASURED_TYPED_VERSION.into()], ..record_fixture() };
-        let b = block(&settings_fixture(), "fact", Some(&measured), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "fact", Some(&measured), Trigger::NotAttempted, None);
         assert!(b.get("typed_model_unmeasured").is_none(), "{b}");
         assert_eq!(b["typed_model_versions"], json!([MEASURED_TYPED_VERSION]));
     }
@@ -5367,23 +5593,23 @@ mod tests {
             ..settings_fixture()
         };
         for verb in ["claim", "fact"] {
-            let b = block(&s, verb, None, Trigger::NotAttempted);
+            let b = block(&s, verb, None, Trigger::NotAttempted, None);
             assert_eq!(b["typed_model_not_run"]["typed_model"], config::DEFAULT_TYPED_MODEL, "{verb}: {b}");
             let why = b["typed_model_not_run"]["reason"].as_str().unwrap_or_default();
             assert!(why.contains(TYPED_KEY_VAR) && why.contains("`off`"), "{verb}: {why}");
             assert!(b.get("typed_model").is_none(), "{verb}: {b}");
             assert_eq!(unauthorized_detail(&s, verb, true, false), None, "{verb}");
         }
-        let b = block(&s, "prose", None, Trigger::NotAttempted);
+        let b = block(&s, "prose", None, Trigger::NotAttempted, None);
         assert!(b.get("typed_model_not_run").is_none(), "{b}");
         let quiet = Settings { typed_default_without_key: false, ..s.clone() };
-        assert!(block(&quiet, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        assert!(block(&quiet, "fact", None, Trigger::NotAttempted, None).get("typed_model_not_run").is_none());
         // Verification off, or the verb not listed: nothing would have run,
         // so there is nothing to have missed.
         let off = Settings { enabled: false, ..s.clone() };
-        assert!(block(&off, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        assert!(block(&off, "fact", None, Trigger::NotAttempted, None).get("typed_model_not_run").is_none());
         let unlisted = Settings { verbs: vec!["fact".into()], ..s };
-        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted, None).get("typed_model_not_run").is_none());
     }
 
     #[test]
@@ -5644,10 +5870,10 @@ mod tests {
             assert!(!llm.bodies().is_empty());
         }
         let r = Record { findings: vec![finding_fixture()], gate_calls: 1, gate_status: Some("unavailable".into()), ..record_fixture() };
-        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted);
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
         assert_eq!(b["gate_incomplete"], "unavailable", "{b}");
         let clean = Record { gate_status: None, ..r };
-        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted).get("gate_incomplete").is_none());
+        assert!(block(&settings_fixture(), "claim", Some(&clean), Trigger::NotAttempted, None).get("gate_incomplete").is_none());
     }
 
     #[test]
@@ -5690,7 +5916,7 @@ mod tests {
         // outside it (invariant 7). Revert: emit `findings` for `gated`.
         let r = Record { status: "gated".into(), typed_versions: vec!["jev-1.14.0".into()], ..record_fixture() };
         let s = Settings { typed_model: Some(JEV.into()), ..settings_fixture() };
-        let b = block(&s, "claim", Some(&r), Trigger::NotAttempted);
+        let b = block(&s, "claim", Some(&r), Trigger::NotAttempted, None);
         assert!(b.get("findings").is_none(), "{b}");
         assert_eq!(b["typed_model_unmeasured"], true, "{b}");
         assert_eq!(b["typed_model"], JEV, "{b}");
@@ -5987,17 +6213,17 @@ mod tests {
             ..settings_fixture()
         };
         for verb in ["claim", "fact"] {
-            let b = block(&s, verb, None, Trigger::NotAttempted);
+            let b = block(&s, verb, None, Trigger::NotAttempted, None);
             assert_eq!(b["typed_model_refused"], why, "{verb}: {b}");
             assert!(b.get("typed_model").is_none() && b.get("typed_model_not_run").is_none(), "{verb}: {b}");
             assert_eq!(unauthorized_detail(&s, verb, true, false), None, "{verb}");
         }
-        let b = block(&s, "prose", None, Trigger::NotAttempted);
+        let b = block(&s, "prose", None, Trigger::NotAttempted, None);
         assert!(b.get("typed_model_refused").is_none(), "{b}");
         let off = Settings { enabled: false, ..s.clone() };
-        assert!(block(&off, "fact", None, Trigger::NotAttempted).get("typed_model_refused").is_none());
+        assert!(block(&off, "fact", None, Trigger::NotAttempted, None).get("typed_model_refused").is_none());
         let unlisted = Settings { verbs: vec!["fact".into()], ..s };
-        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted).get("typed_model_refused").is_none());
+        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted, None).get("typed_model_refused").is_none());
     }
 
     #[test]
@@ -6041,6 +6267,290 @@ mod tests {
         // the 63% describes a run nobody made.
         assert!(FACT_SYSTEM.contains(KIND_OVERREACHES), "the bound is mechanical, not prompted");
         assert!(!kind_reported_for("fact", KIND_OVERREACHES));
+    }
+
+    // -----------------------------------------------------------------
+    // TET-84: a verification that did not run says so.
+    // -----------------------------------------------------------------
+
+    /// What each of the four reply-text sites is driven with. Short, and
+    /// inside the 200 characters every excerpt keeps.
+    const SENTINEL: &str = "SENTINEL-7f3a-reply-text";
+
+    #[test]
+    fn a_delivered_failure_says_why() {
+        // C8 (1). Revert: remove the `detail` insert in `block`.
+        let r = Record {
+            status: "timeout".into(),
+            revision: Some(0),
+            detail: Some("provider did not answer within the remaining budget".into()),
+            ..record_fixture()
+        };
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
+        assert_eq!(b["detail"], "provider did not answer within the remaining budget", "{b}");
+        // And under the other two failure statuses.
+        for status in ["unavailable", "unparsable"] {
+            let r = Record { status: status.into(), detail: Some("provider replied 503".into()), revision: Some(0), ..record_fixture() };
+            let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
+            assert_eq!(b["detail"], "provider replied 503", "{status}: {b}");
+        }
+    }
+
+    #[test]
+    fn a_failure_written_before_the_split_delivers_no_detail() {
+        // A record from before this change has no revision, and its detail
+        // may quote the reply it could not read. Revert: drop the
+        // `revision.is_some()` conjunct.
+        let r = Record {
+            status: "unparsable".into(),
+            detail: Some(format!("reply was not a usable answer; 40 bytes beginning: {SENTINEL}")),
+            ..record_fixture()
+        };
+        assert_eq!(r.revision, None, "premise: a legacy record");
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
+        assert!(b.get("detail").is_none(), "{b}");
+        assert_eq!(b["guidance"], UNCHECKED_GUIDANCE, "still told the mint went unchecked: {b}");
+    }
+
+    #[test]
+    fn a_clean_status_delivers_no_detail_even_when_its_record_has_one() {
+        // C8 (2). Revert: widen the insert to every record with a detail.
+        let r = Record {
+            refuter_status: Some("timeout".into()),
+            detail: Some("provider did not answer within the remaining budget".into()),
+            ..record_fixture()
+        };
+        let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
+        assert_eq!(b["refuter_incomplete"], "timeout", "premise: the qualifier names the leg: {b}");
+        assert!(b.get("detail").is_none(), "{b}");
+        let gated = Record { status: "gated".into(), ..r };
+        let b = block(&settings_fixture(), "claim", Some(&gated), Trigger::NotAttempted, None);
+        assert!(b.get("detail").is_none(), "{b}");
+    }
+
+    /// `spawn`'s path from a finished `run` to the logged record, without
+    /// the thread or the credential.
+    fn record_after(subject: &Subject, approach: &str, legs: Legs<'_>, providers: &Providers, budget: Duration) -> Record {
+        let mut tel = Telemetry::default();
+        let started = Instant::now();
+        let out = run(providers, "openai/gpt-5.6-luna", approach, legs, subject, started, budget, &mut tel);
+        let ran = Ran { model: "openai/gpt-5.6-luna".into(), approach: approach.into(), literals: legs.literals, refuter: legs.refuter };
+        record_of(1, subject, ran, out, tel, started.elapsed())
+    }
+
+    #[test]
+    fn a_failure_after_a_failed_gate_delivers_its_own_cause_not_the_gates() {
+        // C8 (3). The gate is the one leg that fails without ending the
+        // verification, so its detail is written first and must not be
+        // what is delivered. Revert: have the gate's failure arm write the
+        // detail after the check call has returned.
+        let typed = Mock::start(|_| (503, json!({})));
+        let providers = Providers {
+            llm: headers_then(Some(Duration::from_secs(3))),
+            typed: Some(Endpoint { url: typed.url.clone(), key: "typed-key".into() }),
+        };
+        let subject = fact_subject();
+        let legs = Legs { literals: false, refuter: None, typed_model: Some(JEV) };
+        let r = record_after(&subject, "direct", legs, &providers, Duration::from_millis(600));
+        assert_eq!(r.status, "timeout", "{r:?}");
+        assert_eq!(r.gate_status.as_deref(), Some("unavailable"), "premise: the gate failed first: {r:?}");
+        let b = block(&settings_fixture(), "fact", Some(&r), Trigger::NotAttempted, None);
+        assert_eq!(b["detail"], "provider did not finish its reply within the remaining budget", "{b}");
+        assert!(!b.to_string().contains("provider replied 503"), "{b}");
+    }
+
+    /// The record's `detail` and everything delivered from it are free of
+    /// the sentinel, and its log-only `reply` carries it.
+    fn assert_reply_split_off(site: &str, r: &Record) {
+        let detail = r.detail.as_deref().unwrap_or_else(|| panic!("{site}: no detail at all: {r:?}"));
+        assert!(!detail.contains(SENTINEL), "{site}: reply text in detail: {detail}");
+        let reply = r.reply.as_deref().unwrap_or_default();
+        assert!(reply.contains(SENTINEL), "{site}: reply text not kept for the log: {r:?}");
+        let b = block(&settings_fixture(), &r.verb, Some(r), Trigger::NotAttempted, None);
+        assert!(!b.to_string().contains(SENTINEL), "{site}: reply text reached the author: {b}");
+        // The record answers for the revision it was dispatched at.
+        assert_eq!(r.revision, Some(7), "{site}");
+    }
+
+    fn sentinel_subject() -> Subject {
+        Subject { revision: 7, ..subject_fixture("the function returns early", &[("F1", &["return"])]) }
+    }
+
+    #[test]
+    fn the_check_legs_unreadable_reply_stays_out_of_detail() {
+        // C8 (4), check leg. Revert: format the excerpt back into `detail`.
+        let llm = Mock::start(|_| (200, llm_reply(&format!("not an answer: {SENTINEL}"))));
+        let legs = Legs { literals: false, refuter: None, typed_model: None };
+        let r = record_after(&sentinel_subject(), "direct", legs, &providers_fixture(&llm.url, DEAD), Duration::from_secs(20));
+        assert_eq!(r.status, "unparsable", "{r:?}");
+        assert_reply_split_off("check", &r);
+    }
+
+    #[test]
+    fn a_typed_reply_without_answers_stays_out_of_detail() {
+        // C8 (4), the typed call. Jev classify ends the verification here;
+        // the gate before it fails the same way and is overwritten.
+        // Revert: format the excerpt back into `detail`.
+        let typed = Mock::start(|_| (200, json!({"model": MEASURED_TYPED_VERSION, "error": SENTINEL})));
+        let legs = Legs { literals: false, refuter: None, typed_model: Some(JEV) };
+        let r = record_after(&sentinel_subject(), "split", legs, &providers_fixture(DEAD, &typed.url), Duration::from_secs(20));
+        assert_eq!(r.status, "unparsable", "{r:?}");
+        assert_eq!(r.typed_classify_calls, Some(1), "premise: Jev classify was the leg that failed: {r:?}");
+        assert_reply_split_off("typed", &r);
+    }
+
+    #[test]
+    fn the_literal_legs_unreadable_reply_stays_out_of_detail() {
+        // C8 (4), the literal check. The record ends `ok`, and its detail is
+        // kept because the leg did not complete. Revert: format the excerpt
+        // back into `detail`.
+        let llm = Mock::start(|body| {
+            let system = body["messages"][0]["content"].as_str().unwrap_or("");
+            (200, llm_reply(&if system == LITERALS_SYSTEM {
+                format!("no object here: {SENTINEL}")
+            } else {
+                r#"{"disagreements":[]}"#.to_string()
+            }))
+        });
+        let legs = Legs { literals: true, refuter: None, typed_model: None };
+        let r = record_after(&sentinel_subject(), "direct", legs, &providers_fixture(&llm.url, DEAD), Duration::from_secs(20));
+        assert_eq!((r.status.as_str(), r.literals_status.as_deref()), ("ok", Some("unparsable")), "{r:?}");
+        assert_reply_split_off("literal", &r);
+    }
+
+    #[test]
+    fn a_classify_label_outside_the_vocabulary_stays_out_of_detail() {
+        // C8 (4), parse_assertions. Revert: format the label back into its
+        // explanation.
+        let llm = Mock::start(|_| {
+            (200, llm_reply(&format!(r#"{{"assertions":[{{"text":"the function returns early","label":"{SENTINEL}"}}]}}"#)))
+        });
+        let legs = Legs { literals: false, refuter: None, typed_model: None };
+        let r = record_after(&sentinel_subject(), "split", legs, &providers_fixture(&llm.url, DEAD), Duration::from_secs(20));
+        assert_eq!(r.status, "unparsable", "{r:?}");
+        assert!(r.detail.as_deref().unwrap_or_default().contains("not one of"), "{r:?}");
+        assert_reply_split_off("classify", &r);
+    }
+
+    #[test]
+    fn a_failure_is_guided_as_unchecked_and_only_ok_as_findings() {
+        // C8 (5). Revert: send GUIDANCE unconditionally.
+        for status in ["timeout", "unavailable", "unparsable"] {
+            let r = Record { status: status.into(), ..record_fixture() };
+            let b = block(&settings_fixture(), "claim", Some(&r), Trigger::NotAttempted, None);
+            assert_ne!(b["guidance"], GUIDANCE, "{status}");
+            assert_eq!(b["guidance"], UNCHECKED_GUIDANCE, "{status}");
+        }
+        let b = block(&settings_fixture(), "claim", Some(&record_fixture()), Trigger::NotAttempted, None);
+        assert_eq!(b["guidance"], GUIDANCE);
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tetel-unverified-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn plant(dir: &Path, records: &[Record]) -> Vec<Record> {
+        let lines: Vec<String> = records.iter().map(|r| serde_json::to_string(r).unwrap()).collect();
+        std::fs::write(log_path(dir), format!("{}\n", lines.join("\n"))).unwrap();
+        peek_delivered(dir).log
+    }
+
+    fn at(verb: &str, mint: &str, revision: Option<u64>, status: &str) -> Record {
+        Record { verb: verb.into(), mint: mint.into(), revision, status: status.into(), ..record_fixture() }
+    }
+
+    fn verbs(settings: Settings, verbs: &[&str]) -> Settings {
+        Settings { verbs: verbs.iter().map(|v| (*v).to_string()).collect(), ..settings }
+    }
+
+    #[test]
+    fn unverified_names_the_mints_whose_latest_verification_failed() {
+        // C8 (6).
+        let dir = scratch("tally");
+        let events = [
+            crate::claims::ClaimEvent::Create { id: "E".into(), prop: "p".into(), from: vec!["F1".into()], timestamp: 0 },
+            crate::claims::ClaimEvent::Withdraw { id: "E".into(), why: "w".into(), timestamp: 0 },
+        ];
+        let ledger: Vec<String> = events.iter().map(|e| serde_json::to_string(e).unwrap()).collect();
+        std::fs::write(dir.join("claims.jsonl"), format!("{}\n", ledger.join("\n"))).unwrap();
+        let log = plant(&dir, &[
+            at("claim", "A", Some(0), "timeout"),
+            at("claim", "A", Some(1), "ok"),
+            at("claim", "B", Some(0), "unavailable"),
+            // G's revision finished first. Red if "latest" is log
+            // position, `seq` or `at` — the out-of-order case.
+            at("claim", "G", Some(1), "ok"),
+            at("claim", "G", Some(0), "timeout"),
+            at("claim", "D", Some(2), "unparsable"),
+            // Withdrawn. Red if the ledger is not consulted.
+            at("claim", "E", Some(0), "timeout"),
+            // A verb no longer verified. Red if the verb filter is dropped.
+            at("prose", "H", Some(0), "timeout"),
+        ]);
+        let s = verbs(settings_fixture(), &["claim"]);
+        let u = unverified(&dir, &s, &log);
+        assert_eq!(u, Some(Unverified { count: 2, mints: vec!["D".into(), "B".into()] }));
+        let b = block(&s, "claim", None, Trigger::NotAttempted, u.as_ref());
+        assert_eq!(b["unverified"], json!({"count": 2, "mints": ["D", "B"]}), "{b}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unverified_counts_every_mint_and_names_ten() {
+        // C8 (7). Revert: drop the `take`.
+        let dir = scratch("cap");
+        let records: Vec<Record> = (0..11).map(|i| at("fact", &format!("F{i}"), Some(0), "timeout")).collect();
+        let log = plant(&dir, &records);
+        let u = unverified(&dir, &verbs(settings_fixture(), &["fact"]), &log).expect("eleven failures");
+        assert_eq!((u.count, u.mints.len()), (11, 10));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unverified_is_absent_when_verification_is_off_and_present_on_an_off_verb() {
+        // C8 (8). Reverts: drop the `enabled` check; insert the key only
+        // when the reply's own verb is verified.
+        let dir = scratch("off");
+        let log = plant(&dir, &[at("claim", "C1", Some(0), "timeout")]);
+        let disabled = Settings { enabled: false, ..settings_fixture() };
+        let u = unverified(&dir, &disabled, &log);
+        assert!(block(&disabled, "claim", None, Trigger::NotAttempted, u.as_ref()).get("unverified").is_none());
+        // Verification on for `claim`; this reply is `prose`'s, which is not.
+        let on = settings_fixture();
+        let u = unverified(&dir, &on, &log);
+        let b = block(&on, "prose", None, Trigger::NotAttempted, u.as_ref());
+        assert_eq!(b["status"], "off", "premise: this reply's verb is not verified: {b}");
+        assert_eq!(b["unverified"], json!({"count": 1, "mints": ["C1"]}), "{b}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_without_a_revision_sorts_behind_one_with_a_revision() {
+        // C8 (9). Revert: `revision: u64` defaulting to 0 — the second case
+        // then ties at 0 and the later, unrevisioned `ok` wins.
+        let dir = scratch("legacy");
+        let s = verbs(settings_fixture(), &["fact"]);
+        let log = plant(&dir, &[at("fact", "F1", None, "timeout"), at("fact", "F1", Some(0), "ok")]);
+        assert_eq!(unverified(&dir, &s, &log), None);
+        let log = plant(&dir, &[at("fact", "F1", Some(0), "timeout"), at("fact", "F1", None, "ok")]);
+        assert_eq!(unverified(&dir, &s, &log), Some(Unverified { count: 1, mints: vec!["F1".into()] }));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_tie_at_one_revision_goes_to_the_later_record() {
+        // C8 (10). Revert: break the tie toward the earlier record (`<=`
+        // for `<`).
+        let dir = scratch("tie");
+        let s = verbs(settings_fixture(), &["fact"]);
+        let log = plant(&dir, &[at("fact", "F1", Some(1), "ok"), at("fact", "F1", Some(1), "timeout")]);
+        assert_eq!(unverified(&dir, &s, &log), Some(Unverified { count: 1, mints: vec!["F1".into()] }));
+        let log = plant(&dir, &[at("fact", "F1", Some(1), "timeout"), at("fact", "F1", Some(1), "ok")]);
+        assert_eq!(unverified(&dir, &s, &log), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
