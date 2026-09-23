@@ -423,10 +423,11 @@ fn key_def(name: &str) -> Option<&'static KeyDef> {
 /// back to the reader.
 ///
 /// One predicate, consulted by every site that would otherwise print a
-/// value it refused — [`set`], [`list_text`] and the `config <key>` read
-/// path. The rule is worth nothing if it holds at two of the three: an
-/// author who pasted a credential into `verify.model` by hand meets the
-/// refusal on *read*, not on write, and that is the path most likely to
+/// value it refused — [`set`], [`list_text`], the `config <key>` read
+/// path, and the refusal notices `verify` puts in its reply. The rule is
+/// worth nothing if one site skips it: an author who pasted a credential
+/// into `verify.model` by hand meets the refusal on *read*, not on write,
+/// and that is the path most likely to
 /// end up in a terminal capture or a bug report.
 ///
 /// Judged on the value as well as the key. A well-formed model name is
@@ -777,7 +778,7 @@ pub fn verify_model_refusal(workspace_dir: Option<&Path>) -> Option<String> {
         return None;
     };
     let raw = raw.trim();
-    Some(if is_model_name(raw) {
+    Some(if !hides_rejected_value(KEY_VERIFY_MODEL, raw) {
         format!("{} (in the {scope} settings file)", typed_model_refusal(KEY_VERIFY_MODEL, raw))
     } else {
         format!(
@@ -818,7 +819,7 @@ fn typed_model_refusal_notice(source: Source) -> Option<String> {
         return None;
     };
     let raw = raw.trim();
-    let why = if is_model_name(raw) {
+    let why = if !hides_rejected_value(KEY_VERIFY_TYPED_MODEL, raw) {
         typed_key_refusal(KEY_VERIFY_TYPED_MODEL, raw)
     } else {
         format!(
@@ -826,9 +827,13 @@ fn typed_model_refusal_notice(source: Source) -> Option<String> {
 the value is not echoed in case it is a credential"
         )
     };
+    // Says what runs from now on, not what ran: a reply can also deliver a
+    // verification started before the file was edited. And names this
+    // key's legs only, since a `typesafe/` refuter runs either way.
     Some(format!(
-        "{why} (in the {scope} settings file). It counts as `{REFUTER_OFF}`, so no typed leg runs; \
-write `{REFUTER_OFF}` to keep them off without this notice"
+        "{why} (in the {scope} settings file). It counts as `{REFUTER_OFF}`, so verifications started \
+now run none of this key's legs — the gate, classify, the literal leg; write `{REFUTER_OFF}` to keep \
+them off without this notice"
     ))
 }
 
