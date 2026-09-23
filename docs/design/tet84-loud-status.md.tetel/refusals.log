@@ -1,0 +1,11 @@
+1790173843	target	F17 does not census `Record`: it searched for `(struct|enum) Record\b|Record \{|verify::Record` — a census must search for the symbol itself, byte for byte
+a census is one search of the whole worktree for the symbol itself:
+    tetel look --grep Record <worktree root>
+    tetel fact --note "..."
+then cite that fact. The refusal is about the search's existence and where it was rooted, never about what it found.
+1790173843	target	F20 does not census `spawn`: it searched for `verify::spawn|[^_a-z]spawn\(dir|fn spawn\(`, `detail` — a census must search for the symbol itself, byte for byte
+a census is one search of the whole worktree for the symbol itself:
+    tetel look --grep spawn <worktree root>
+    tetel fact --note "..."
+then cite that fact. The refusal is about the search's existence and where it was rooted, never about what it found.
+1790174992	claim	--revise requires a new --proposition and/or --cites

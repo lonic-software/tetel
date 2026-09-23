@@ -1,0 +1,9 @@
+{"event":"Declare","id":"T1","symbol":"verify::block","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T2","symbol":"GUIDANCE","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T3","symbol":"verify_block","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T4","symbol":"report_text","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T5","symbol":"parse_assertions","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T6","symbol":"Telemetry","from":"F16","timestamp":1790173656}
+{"event":"Declare","id":"T7","symbol":"verify::Record","from":"F21","timestamp":1790173860}
+{"event":"Declare","id":"T8","symbol":"verify::spawn","from":"F21","timestamp":1790173860}
+{"event":"Declare","id":"T9","symbol":"verify::Subject","from":"F23","timestamp":1790174147}
