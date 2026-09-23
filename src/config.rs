@@ -132,8 +132,8 @@ pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
 /// `verify::TYPED_LEGS` names — the gate, classify under `split`, the
 /// literal leg when [`KEY_VERIFY_LITERALS`] is on — as `typesafe/model`.
 /// Unset means [`DEFAULT_TYPED_MODEL`] when TypeSafe's key is in the
-/// environment and none of them when it is not; [`REFUTER_OFF`] means none
-/// of them. A `typesafe/` value on [`KEY_VERIFY_REFUTER`] is a separate
+/// environment and none of them when it is not; [`REFUTER_OFF`], or a value
+/// the key refuses, means none of them. A `typesafe/` value on [`KEY_VERIFY_REFUTER`] is a separate
 /// typed leg and runs either way. Only a [`TYPED_VENDOR`] model: see
 /// [`Accepts::TypedModelName`].
 pub const KEY_VERIFY_TYPED_MODEL: &str = "verify.typed_model";
@@ -157,15 +157,18 @@ pub const DEFAULT_REFUTER: &str = "anthropic/claude-sonnet-4.5";
 /// The typed model in force when [`KEY_VERIFY_TYPED_MODEL`] is unset and
 /// TypeSafe's key is in the environment.
 ///
-/// A default because TET-98 measured it on the shipped path, over the
-/// fitted memos and three held out: on `fact` the gate saved 37% of the
-/// spend and skipped only minor defects entirely; on `claim` it flagged
-/// sound claims at the untyped configuration's rate for under half its
-/// cost per draw. Conditional on the key, unlike [`DEFAULT_REFUTER`],
+/// A default because TET-98 measured it through tetel's own verification
+/// path, over the fitted memos and three held out, with `literals` on and
+/// no refuter: on `fact` the gate saved 37% of the spend and skipped only
+/// minor defects entirely; on `claim`, read with the literal leg's findings
+/// set aside, it flagged sound claims at the untyped configuration's rate
+/// for under half its cost per draw. Pinned to the version that answered
+/// every call of that run, because the gate thresholds are that version's:
+/// an alias would move them without anyone deciding to. Conditional on the key, unlike [`DEFAULT_REFUTER`],
 /// because it is a second provider and a second credential: defaulting it
 /// on unconditionally would turn every setup with only an OpenRouter key
 /// `unauthorized`. `verify` says so in the reply when the key is missing.
-pub const DEFAULT_TYPED_MODEL: &str = "typesafe/jev-latest";
+pub const DEFAULT_TYPED_MODEL: &str = "typesafe/jev-1.13.0";
 
 /// What [`KEY_VERIFY_TYPED_MODEL`] resolves to, before the environment is
 /// consulted: `verify` alone knows whether TypeSafe's key is present, and
@@ -385,15 +388,16 @@ different questions when someone else asks the second one",
     KeyDef {
         name: KEY_VERIFY_TYPED_MODEL,
         summary: "which TypeSafe model gates `fact` and `claim`, as typesafe/model, or `off` \
-for none (unset: typesafe/jev-latest when TYPESAFE_API_KEY is in the environment, and none when it \
-is not, which the reply states as `typed_model_not_run`; a typesafe/ verify.refuter_model is \
+for none (unset: typesafe/jev-1.13.0 when TYPESAFE_API_KEY is in the environment, and none when it \
+is not, which the reply states as `typed_model_not_run`; a value this key refuses counts as off; a typesafe/ verify.refuter_model is \
 separate and runs either way). As a gate it asks, before anything else, whether any sentence or \
 clause disagrees with the evidence, and a subject it scores below that verb's threshold is \
 reported `gated` and not checked. On claim it also labels split's assertions in place of the LLM \
-classify call, and judges verify.literals' candidates. Measured 2026-09-23 on the shipped path, \
-over the fitted memos and three held out: on fact 37% of the spend saved, skipping only minor \
-defects entirely; on claim sound claims flagged at the untyped rate, 8 of 91, for under half the \
-cost, though the gate skipped 2 of the 10 warnings it was fitted to keep. A gate call that fails \
+classify call, and judges verify.literals' candidates. Measured 2026-09-23 through tetel's own \
+verification path, with literals on and no refuter, over the fitted memos and three held out: on \
+fact 37% of the spend saved, skipping only minor defects entirely; on claim, with the literal \
+leg's findings set aside, sound claims flagged at the untyped rate, 8 of 91, for under half the \
+cost per draw, though the gate skipped 2 of the 10 warnings it was fitted to keep. A gate call that fails \
 never skips: the check runs and the response says `gate_incomplete`. A value set here needs \
 TYPESAFE_API_KEY, and without it the verification is `unauthorized`",
         accepts: Accepts::TypedModelName,
@@ -601,10 +605,18 @@ pub fn verify_refuter(workspace_dir: Option<&Path>) -> Option<String> {
 /// [`DEFAULT_TYPED_MODEL`] or nothing, by the environment — `verify`
 /// decides which.
 pub fn verify_typed_model(workspace_dir: Option<&Path>) -> TypedModel {
-    match resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir).0 {
-        None => TypedModel::Unset,
-        Some(v) if v.trim().eq_ignore_ascii_case(REFUTER_OFF) => TypedModel::Off,
-        Some(v) => TypedModel::Set(v),
+    typed_model_choice(resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir))
+}
+
+/// A value the key refused is [`TypedModel::Off`], not unset: an author who
+/// wrote `none` or `false` meant off, and reading it as unset would start
+/// the default leg they tried to stop. `tetel config` lists the refusal.
+fn typed_model_choice(resolved: (Option<String>, Source)) -> TypedModel {
+    match resolved {
+        (Some(v), _) if v.trim().eq_ignore_ascii_case(REFUTER_OFF) => TypedModel::Off,
+        (Some(v), _) => TypedModel::Set(v),
+        (None, Source::Rejected(..)) => TypedModel::Off,
+        (None, _) => TypedModel::Unset,
     }
 }
 
@@ -1196,6 +1208,18 @@ mod tests {
         assert!(e.to_string().contains("at least 1"), "{e}");
         let e = set(Scope::Global, None, KEY_GROUNDING_FLOOR, "two").unwrap_err();
         assert!(e.to_string().contains("whole number"), "{e}");
+    }
+
+    #[test]
+    fn a_refused_typed_model_is_off_not_the_default() {
+        // Reverts: read a refused value as unset, which starts the default
+        // leg an author who wrote `none` was trying to stop.
+        let rejected = Source::Rejected(Scope::Global, "none".into());
+        assert_eq!(typed_model_choice((None, rejected)), TypedModel::Off);
+        assert_eq!(typed_model_choice((None, Source::Default)), TypedModel::Unset);
+        assert_eq!(typed_model_choice((Some("OFF".into()), Source::File(Scope::Global))), TypedModel::Off);
+        let m = "typesafe/jev-1.13.0".to_string();
+        assert_eq!(typed_model_choice((Some(m.clone()), Source::File(Scope::Global))), TypedModel::Set(m));
     }
 
     #[test]

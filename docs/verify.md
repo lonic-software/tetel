@@ -137,16 +137,17 @@ refuses any other vendor, since a gate is a set of typed questions and an OpenRo
 prompts.
 
 **It is on by default when `TYPESAFE_API_KEY` is in the environment.** Unset, it is
-`typesafe/jev-latest` when that key is present. When the key is missing, nothing below happens, and
-every `fact` and `claim` reply says why in `typed_model_not_run`:
+`typesafe/jev-1.13.0` when that key is present: the version the gate thresholds were fitted on, not
+the `jev-latest` alias, which would move them without anyone deciding to. When the key is missing, nothing below happens, and
+every `fact` and `claim` reply with verification on says why in `typed_model_not_run`:
 
 ```json
-{ "typed_model_not_run": { "typed_model": "typesafe/jev-latest",
-                           "reason": "`verify.typed_model` is unset, so it defaults to `typesafe/jev-latest`, which needs TYPESAFE_API_KEY in the environment; …" } }
+{ "typed_model_not_run": { "typed_model": "typesafe/jev-1.13.0",
+                           "reason": "`verify.typed_model` is unset, so it defaults to `typesafe/jev-1.13.0`, which needs TYPESAFE_API_KEY in the environment; …" } }
 ```
 
 `tetel config verify.typed_model off` turns it off and stops that notice; `--unset` restores the
-default. The default depends on the key, unlike the refuter's, because it is a second provider: an
+default. A value the key refuses, such as `none`, also counts as off. The default depends on the key, unlike the refuter's, because it is a second provider: an
 unconditional default would turn every setup with only an OpenRouter key `unauthorized`. A value
 you set yourself still needs the key, and is `unauthorized` without it. It became the default on
 2026-09-23, on TET-98's result below.
@@ -294,7 +295,7 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
 | `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above. A `typesafe/` model runs on `fact` only |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
-| `verify.typed_model` | `typesafe/model` or `off` | `typesafe/jev-latest` when `TYPESAFE_API_KEY` is set, none otherwise | the TypeSafe model that gates `fact` and `claim` before the check and, on `claim`, classifies and judges literals in the LLM's place — see above |
+| `verify.typed_model` | `typesafe/model` or `off` | `typesafe/jev-1.13.0` when `TYPESAFE_API_KEY` is set, none otherwise | the TypeSafe model that gates `fact` and `claim` before the check and, on `claim`, classifies and judges literals in the LLM's place — see above |
 
 ### `approach`
 
@@ -462,8 +463,8 @@ Under any status but `ok`, **there is no `findings` key at all**. Do not treat i
 disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
-`literals`, `refuter_model` — `null` when it is `off` — and `typed_model`, present only when one
-runs, or `typed_model_not_run` when the default was passed over for want of its key) plus `deterministic: false` and a
+`literals`, `refuter_model` — `null` when it is `off` — and `typed_model`, present whenever one is in force — set, or the default with its key — even on a
+verb it does not run on, or `typed_model_not_run` when the default was passed over for want of its key) plus `deterministic: false` and a
 `guidance` string — because tetel only admits a setting that is visible in the output it affects,
 and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
 here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the

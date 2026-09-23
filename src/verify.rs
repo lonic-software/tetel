@@ -603,7 +603,7 @@ impl GateUnit {
 
 const TYPED_LEGS: [(&str, TypedLegs); 3] = [
     // `pick_cls`: 60% of subjects skipped, none of 12 adjudicated defects;
-    // the lowest scored 0.50. On the shipped path (TET-98) it skipped 54%
+    // the lowest scored 0.50. Through tetel's own path (TET-98) it skipped 54%
     // of draws, and entirely only minor defects: 3 of 14 held out.
     (
         "fact",
@@ -615,9 +615,9 @@ const TYPED_LEGS: [(&str, TypedLegs); 3] = [
         },
     ),
     // `pick_clause`: 27% skipped, none of 10 adjudicated warnings in the
-    // fit, the lowest scoring 0.58. On the shipped path (TET-98) it skipped
-    // 2 of those 10 in most draws: their scores sat 0.02–0.10 above 0.53,
-    // and the subject tetel builds is not the harness's. A claim is usually one long sentence, so a
+    // fit. Through tetel's own path (TET-98) it skipped 2 of those 10 in
+    // most draws: across the fitting runs they had scored 0.55–0.63, and the
+    // subject tetel builds is not the harness's. A claim is usually one long sentence, so a
     // choice over sentences degenerates to a yes/no.
     (
         "claim",
@@ -1015,9 +1015,10 @@ pub fn block(
         map.insert("typed_model".into(), json!(tm));
     }
     // The default passed over for want of a key, stated where it would have
-    // run. Not on `prose`, where no typed leg exists to miss, and not once
-    // the author sets the key to `off`, which is the way to silence it.
-    if settings.typed_default_without_key && typed_model_has_a_leg(settings, verb) {
+    // run. Not while verification is off for the verb, where nothing would
+    // have run anyway; not on `prose`, where no typed leg exists to miss;
+    // and not once the author sets the key to `off`, which silences it.
+    if settings.typed_default_without_key && verb_enabled(settings, verb) && typed_model_has_a_leg(settings, verb) {
         map.insert(
             "typed_model_not_run".into(),
             json!({
@@ -5298,8 +5299,21 @@ mod tests {
         }
         let b = block(&s, "prose", None, Trigger::NotAttempted);
         assert!(b.get("typed_model_not_run").is_none(), "{b}");
-        let quiet = Settings { typed_default_without_key: false, ..s };
+        let quiet = Settings { typed_default_without_key: false, ..s.clone() };
         assert!(block(&quiet, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        // Verification off, or the verb not listed: nothing would have run,
+        // so there is nothing to have missed.
+        let off = Settings { enabled: false, ..s.clone() };
+        assert!(block(&off, "fact", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+        let unlisted = Settings { verbs: vec!["fact".into()], ..s };
+        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted).get("typed_model_not_run").is_none());
+    }
+
+    #[test]
+    fn the_default_typed_model_is_the_version_the_gate_was_fitted_on() {
+        // Reverts: default to an alias such as `jev-latest`, which moves
+        // the thresholds when TypeSafe moves it.
+        assert_eq!(config::DEFAULT_TYPED_MODEL, format!("{}/{MEASURED_TYPED_VERSION}", config::TYPED_VENDOR));
     }
 
     // -----------------------------------------------------------------
