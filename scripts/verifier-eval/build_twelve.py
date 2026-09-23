@@ -2,9 +2,10 @@
 """Render the twelve quote-verified findings on claims that later graded clean."""
 import json, html
 from pathlib import Path
+from data import DATA  # noqa: E402
 
 HERE = Path(__file__).parent
-D = json.loads((HERE / "twelve.json").read_text())
+D = json.loads((DATA / "twelve.json").read_text())
 e = html.escape
 
 # My reading of each, after reading all twelve against their claims. Grouped by

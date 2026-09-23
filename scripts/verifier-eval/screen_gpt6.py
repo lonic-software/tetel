@@ -10,12 +10,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
-ROOT = HERE.parents[2]
-sys.argv = [sys.argv[0], str(ROOT / "tetel-eval-runs/tet98")]
 sys.path.insert(0, str(HERE))
+from data import DATA  # noqa: E402
+sys.argv = [sys.argv[0], str(DATA / "tet98")]
 import score_tet98 as S  # noqa: E402
 
-OLD, NEW = ROOT / "tetel-eval-runs/tet98", ROOT / "tetel-eval-runs/tet98-gpt6"
+OLD, NEW = DATA / "tet98", DATA / "tet98-gpt6"
 
 
 def load(run, name, draw0=False):

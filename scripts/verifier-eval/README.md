@@ -8,6 +8,21 @@ Run against `openai/gpt-5.6-luna` through OpenRouter, reasoning effort high,
 three runs per case. The key is read from `$OPENROUTER_API_KEY` (or
 `$OPENAI_API_KEY`) and is never written to any file here.
 
+**The data is not in this directory.** Every reply, draw and label the sections
+below name (each `.json`, `.jsonl` and run directory) is in the
+[tetel-eval-data](https://github.com/lonic-software/tetel-eval-data) repository,
+under `verifier-eval/`, at the same relative path. Inside tetel's worktree it
+matched almost every census tetel took of its own source (TET-97). Clone it beside
+tetel as `../tetel-eval-data`, or set `$TETEL_EVAL_DATA` to its root; `data.py`
+resolves it and stops with a message when it is missing. The scripts read and
+write their fixed files there wherever they are run from. File *arguments* are
+taken relative to the working directory, so the commands below are run from
+`../tetel-eval-data/verifier-eval`, naming each script by its path. A memo citing
+`scripts/verifier-eval/<file>` means the data repository's `verifier-eval/<file>`.
+In tetel's own history, tetel `612f59f` is the last commit to track these files and
+has every one a memo cites, but a memo's pin may predate the file: some were cited
+before they were committed.
+
     python3 direct_eval.py --repeat 3        # approach A
     python3 judge_eval.py  --repeat 3        # approach C
     python3 extract2.py    --repeat 3        # approach B
@@ -575,10 +590,9 @@ Every Jev call was answered by `jev-1.13.0`. Total spend was **$27.04**.
         --scratch scr/claim_candidate --draws 3 --jobs 20 --typed-model typesafe/jev-latest --literals
     python3 score_tet98.py [run dir]      # prints every table below; tet98_score.txt is its output
 
-The raw draws (about 3 MB) live outside the repository, in
-`../tetel-eval-runs/tet98/`, until TET-97 decides where run output goes. So
-`score_tet98.py` does not run from a fresh clone. `tet98_score.txt` is its
-output at the time of this result.
+The raw draws are in the data repository (above), as `verifier-eval/tet98/`;
+the `gpt-6-luna` screen's are `verifier-eval/tet98-gpt6/`. `tet98_score.txt` is
+`score_tet98.py`'s output at the time of this result.
 
 ### Claims — the sound-claim line is crossed by the literal leg, not by the gate
 
@@ -1019,6 +1033,9 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 
 ## Files
 
+Every `.json` and run directory named here is in the data repository, not beside
+the scripts (see the top of this file). `data.py` is where the scripts find it.
+
 | | |
 |---|---|
 | `cases.py` | the case set: proposition, extent, captured output, planted defect |
@@ -1035,7 +1052,7 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 | `classify_jev.py` / `classify_runs/` | the classify leg asked of Jev: mechanical clauses, one `choice` each |
 | `record_reply.py` / `jev_reply_*.json` | one raw Jev reply kept whole — the envelope and the resolved version `jev.ask()` discards |
 | `score_bundle.py` | the literal leg joined with the check leg and the claim gate — the table "what it adds" rests on |
-| `tet98_tasks.py` / `score_tet98.py` / `tet98_score.txt` | TET-98: the subjects, the scorer with every hand grade in it, and its output; the draws it reads are in `../tetel-eval-runs/tet98/` |
+| `tet98_tasks.py` / `score_tet98.py` / `tet98_score.txt` | TET-98: the subjects, the scorer with every hand grade in it, and its output; the draws it reads are the data repository's `verifier-eval/tet98/` |
 | `screen_gpt6.py` / `screen_gpt6.txt` | the one-draw `gpt-6-luna` screen against TET-98's draw 0, and its output |
 | `../../examples/verify_corpus.rs` | the driver: tetel's own subject builders and `verify::spawn` over a task list, resumable; `--dump` writes the subjects instead |
 | `score_classify_ab.py` / `retro_classify_{llm,jev}_x3.json` | the check leg fed LLM labels vs Jev labels, same day, same claims, every flag graded |

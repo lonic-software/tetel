@@ -39,8 +39,9 @@ sys.path.insert(0, str(HERE))
 import verbs_eval as V  # noqa: E402
 import jev  # noqa: E402
 import gate_jev as G  # noqa: E402
+from data import DATA  # noqa: E402
 
-RUNS = HERE / "gate_runs"
+RUNS = DATA / "gate_runs"
 MAX_QUESTIONS_PER_CALL = 40
 
 DISAGREES = ("asserts something the captured evidence, or the author's own figures elsewhere in "

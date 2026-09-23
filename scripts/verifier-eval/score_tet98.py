@@ -28,10 +28,11 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import score_classify_ab as SCA  # noqa: E402
+from data import DATA  # noqa: E402
 
-RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parents[2] / "tetel-eval-runs" / "tet98"
+RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else DATA / "tet98"
 LINE = 0.113  # design C19: sound claims flagged, as a rate
-FIT_DEFECTS = {tuple(s) for s in json.load(open(HERE / "defects_v1.json"))["fact"]["subjects"]}
+FIT_DEFECTS = {tuple(s) for s in json.load(open(DATA / "defects_v1.json"))["fact"]["subjects"]}
 
 # Out-of-sample findings, graded by hand against the snapshot's evidence:
 # (memo, id, clause prefix) -> (CORRECT|WRONG, why). "" matches every clause.

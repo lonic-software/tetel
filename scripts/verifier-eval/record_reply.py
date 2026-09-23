@@ -21,6 +21,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import jev  # noqa: E402
+from data import DATA  # noqa: E402
 
 REQUEST = {
     "state": "The build failed. Exit code 1. Three tests errored in payments/.",
@@ -43,7 +44,7 @@ def main():
     with urllib.request.urlopen(req, timeout=60) as r:
         reply = json.loads(r.read())
     now = datetime.datetime.now(datetime.timezone.utc)
-    out = HERE / f"jev_reply_{now:%Y-%m-%d}.json"
+    out = DATA / f"jev_reply_{now:%Y-%m-%d}.json"
     out.write_text(json.dumps({
         "recorded_at": now.isoformat(timespec="seconds"),
         "endpoint": jev.ENDPOINT,

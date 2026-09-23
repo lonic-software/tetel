@@ -22,6 +22,7 @@ here earns a run on the whole corpus, nothing more.
 
 import json, sys
 from collections import defaultdict
+from data import DATA  # noqa: E402
 
 
 def flagged_by_claim(path):
@@ -44,7 +45,7 @@ def flagged_by_claim(path):
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    cases = json.load(open("screen_cases.json"))
+    cases = json.load(open(DATA / "screen_cases.json"))
     buckets = defaultdict(list)
     for c in cases:
         buckets[c["bucket"]].append((c["memo"], c["id"]))

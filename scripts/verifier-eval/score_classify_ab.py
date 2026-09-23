@@ -25,9 +25,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import classify_jev as CJ  # noqa: E402
+from data import DATA  # noqa: E402
 
 LABELS = {(l["memo"], l["id"]): l for l in
-          json.load(open(HERE / "labels_claim_v1.json"))["labels"]}
+          json.load(open(DATA / "labels_claim_v1.json"))["labels"]}
 GOOD = {(m, i): c for m, i, c, w in CJ.DECISIVE if w == "must"}
 
 # Findings on claims or clauses the first adjudication never saw, graded by
@@ -68,7 +69,7 @@ def _seen():
     clause is (tet30 C12's second and fourth, for instance).
     """
     seen = collections.defaultdict(set)
-    for r in json.load(open(HERE / "retro_full125x3.json")):
+    for r in json.load(open(DATA / "retro_full125x3.json")):
         k = (r["memo"][:5], r["id"])
         if k in LABELS:
             for f in r.get("findings") or []:

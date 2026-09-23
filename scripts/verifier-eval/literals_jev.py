@@ -40,8 +40,9 @@ sys.path.insert(0, str(HERE))
 import literals_eval as L  # noqa: E402
 import jev  # noqa: E402
 import gate_variants as GV  # noqa: E402
+from data import DATA  # noqa: E402
 
-BASELINE = HERE / "literals_final_88x3.json"
+BASELINE = DATA / "literals_final_88x3.json"
 
 # A figure starts a token and ends on a word boundary, so a commit hash's
 # digits and a `file.rs:117` location do not qualify as figures of their own.
