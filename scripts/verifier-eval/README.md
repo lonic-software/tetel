@@ -540,6 +540,215 @@ where the gate also skips the literal leg (19 of 50, 4 of 38).
     python3 literals_jev.py --draws 3 --out literals_runs/jev_x3.json
     python3 literals_jev.py --summarise literals_runs/jev_x3.json --q 0.7 --c 0.5
 
+## Result, 2026-09-23 — TET-98: the shipped path, and three memos nothing was fitted on
+
+Every number above came from a Python harness that copies tetel's prompts and
+rebuilds its subjects. This run goes through tetel itself.
+`examples/verify_corpus.rs` builds each subject with `verify::fact_subject`, or
+with `claims::overlap_for` + `verify::claim_subject`, and verifies it with
+`verify::spawn`, the path a mint takes. Nothing is re-implemented. The corpus
+is the fitted one plus the memos written since. The fitted memos, "in", are the
+125 claims and 123 facts the thresholds were set on. The new memos, "out", are
+`tet42`, `tet-verifier-mint-warning` and `tet-verifier-jev`: 68 claims, and 126
+facts across six memos (`tet28` and `tet29` were never in the fact corpus).
+`tet98_tasks.py` lists both. Each arm ran 3 draws with check model
+`openai/gpt-5.6-luna`, approach `split`, refuter off and `timeout_ms` 300000.
+Every Jev call was answered by `jev-1.13.0`. Total spend was **$27.04**.
+
+**Scoring rules, the retrodiction's.**
+- A subject is flagged by the majority of its answered draws, where `gated`
+  counts as an answer.
+- Any other status is an error. It enters no denominator and was re-run. One
+  fact draw still failed after re-running (`tet-verifier-jev` F19, ungated).
+- In-sample claims are graded by `score_classify_ab.grade`, plus 9 findings no
+  earlier adjudication had seen.
+- Out-of-sample claims were graded by hand under
+  `claim_flagged_adjudicated.md`'s standard, with the memo's grader notes as a
+  second opinion.
+- An `unevidenced` finding is CORRECT only when the value is absent from the
+  cited capture and a grader found it wrong or could not establish it.
+- Out-of-sample facts: every finding in any ungated draw was graded against the
+  full stored capture, one reader per memo. Those readers were subagents given
+  the standard, and two verdicts per memo were checked against the capture.
+
+    cargo run --release --example verify_corpus -- --tasks claims.jsonl --out claim_candidate.jsonl \
+        --scratch scr/claim_candidate --draws 3 --jobs 20 --typed-model typesafe/jev-latest --literals
+    python3 score_tet98.py [run dir]      # prints every table below; tet98_score.txt is its output
+
+The raw draws (about 3 MB) live outside the repository, in
+`../tetel-eval-runs/tet98/`, until TET-97 decides where run output goes. So
+`score_tet98.py` does not run from a fresh clone. `tet98_score.txt` is its
+output at the time of this result.
+
+### Claims — the sound-claim line is crossed by the literal leg, not by the gate
+
+| arm | sound claims flagged: in (62) | out (29) | pooled (91) | correct warnings | wrong | $/draw |
+|---|---|---|---|---|---|---|
+| **candidate** — `typed_model` + `literals` | 5 — 8.1% | 6 — 20.7% | **11 — 12.1%** | 27 | 29 | **$0.0046** |
+| candidate, literal findings set aside | 3 — 4.8% | 5 — 17.2% | **8 — 8.8%** | 22 | 20 | (same draws) |
+| **default** — what ships today | 3 — 4.8% | 5 — 17.2% | **8 — 8.8%** | 24 | 21 | $0.0106 |
+
+- **The line is 11.3%, and pooled it is crossed by one claim.** The candidate
+  flags 11 of 91; ten would have been under the line. In-sample, where the
+  harness predicted it, the candidate is under the line: 5 of 62, against
+  `score_bundle.py`'s 4 of 38 for gate + check + Jev literals. The three extra
+  sound claims all come from the Jev literal leg. Setting its findings aside
+  gives exactly today's rate, 8 of 91, with 22 correct warnings against 24,
+  at less than half the cost per draw.
+  - That row is not an arm: it re-reads the candidate's draws without the
+    literal findings, and grades each flag on its check findings alone.
+  - Its cost still includes the literal calls, but at $0.00023 they barely
+    move it.
+- **The out-of-sample memos are harder in every arm, including today's
+  default.** They flag 17–21% of their sound claims. Two of the three are
+  designs of the verifier itself. Read the line on the pooled rate. The
+  out-of-sample rate alone would put today's default over it too.
+- **The literal leg's false positives are the limitation already recorded
+  under "Literals".** On `tet42` C2 and C12 and on `tet-verifier-jev` C13, the
+  literal carries its counted word ("275 and", "20 of 50"). The capture has
+  the bare number or another form ("20 / 50"), so the literal is reported as
+  uncaptured. Dropping a literal whose bare value is in the capture was already
+  rejected once, because it cost a real catch.
+- **The gate skipped 29% of claim draws.** That was 38.7% of fitted-memo draws
+  and 11.3% of new-memo draws, so on the new memos it scores far more claims
+  above its threshold.
+- **It loses three correct warnings the default raises, two to the gate and
+  one to the check:**
+  - `tet-verifier-mint-warning` C18, a minor miscount, gated in 3 of 3 draws;
+  - `tet56` C3, gated in 2 of 3 draws;
+  - `tet-verifier-mint-warning` C11, never gated and flagged in every draw, but
+    never on the clause that is wrong. The default names that clause in only
+    1 of its 3 draws, so this is a weak loss.
+  - With literal findings set aside the candidate also loses `tet61` C15,
+    which it catches only through a literal, and gains `tet-verifier-jev` C16
+    and `tet42` C14: 4 lost, 2 gained.
+- **Of the 10 warnings the claim gate was fitted to keep, the candidate raises
+  8 and the default 9.** With literal findings set aside the candidate raises 7:
+  `tet61` C15 is the one it keeps only through a literal. `tet28` C14 is missed by both arms, and the candidate
+  gates it in all three draws. `tet56` C3 is the other. In the fitting runs
+  (`gate_runs/claim_pick_clause_d*.json`) these two scored 0.59–0.63 and
+  0.55–0.60 against a threshold of 0.53. The shipped subject is not the
+  harness's: `claim_subject` assembles the overlap set from the snapshot as it
+  stands now, which includes facts minted after the claim's first render. A
+  margin of 0.02–0.10 did not survive that difference. So the source comment's
+  "none of 10 adjudicated warnings" is the fit's number, not the shipped
+  path's.
+
+### Facts — the gate keeps every defect that matters, at 63% of the cost
+
+| arm | subjects flagged (of 249) | draws gated | cost |
+|---|---|---|---|
+| gated — `typed_model` set, `literals` on | 47 | 403 of 747 — 54% | **$6.95** |
+| ungated — the same with the gate off | 74 | 0 | $10.99 |
+
+- **The saving is 37% of the spend, not the 58% measured on the harness.** The
+  gate skips 54% of draws, but the notes it lets through are the long ones.
+  Subjects it skips have a median of 2,068 characters of note and capture;
+  those it passes have 5,346. The skipped draws cost $4.23 of the ungated
+  arm's $10.99.
+- **Fitted positives.** The gated arm raises 11 of the 12 subjects in
+  `defects_v1.json`, and the ungated arm all 12.
+  - The one the gated arm misses, `tet47` F6, was answered and flagged in only
+    1 of 3 draws: check-model variance, not the gate.
+  - `tet56` F29 was gated in 1 of 3 draws and still raised.
+- **Held-out positives.** 53 out-of-sample facts drew a finding in some ungated
+  draw. 14 of them have a CORRECT one, and 9 of those 14 are minor. The gate
+  skipped four in at least one draw:
+  - `tet-verifier-mint-warning` F18, gated 3 of 3: "the body is four lines",
+    where the capture shows five;
+  - `tet42` F8, gated 3 of 3: "one byte", where `printf 'x\n'` appends two;
+  - `tet42` F12, gated 3 of 3: a symlink said to be in a commit it was made
+    after;
+  - `tet42` F6, gated 1 of 3 and still raised by majority.
+
+  The three fully gated ones are all minor. Of the 5 held-out defects that are
+  not minor, the gated arm raises 4 by majority and the ungated arm 5. The one
+  missing, `tet-verifier-mint-warning` F9, was answered in all three draws and
+  flagged in one. Held out, the gate costs minor defects and nothing else
+  measured.
+
+Facts were measured at their latest note (`fact_subject` reads the last
+revision), which is also the wording `fact_v1.json` was measured on.
+
+### The default budget cuts off 11–30% of the draws that ran the check, the ones most likely to carry findings
+
+The run set `timeout_ms` to 300 s. Left unset, `default_budget_ms` gives these
+configurations (refuter off, as run) 90 s for the candidate claim, 120 s for
+the default claim, and 190 s and 180 s for the fact arms. Latency was measured
+at 20–40 concurrent requests, so this is a direction, not a replay:
+
+| arm | draws that ran the check, over its default budget | with findings: over it | within it | median draw |
+|---|---|---|---|---|
+| candidate claim, 90 s | 46 of 411 — 11% | 35 — 76% | 40% | 21 s |
+| default claim, 120 s | 99 of 579 — 17% | 34 — 34% | 23% | 54 s |
+| gated fact, 190 s | 104 of 344 — 30% | 61 — 59% | 35% | 140 s |
+| ungated fact, 180 s | 115 of 746 — 15% | 60 — 52% | 26% | 97 s |
+
+Re-scored as if those draws had timed out:
+- the candidate would keep 25 correct warnings, against 27;
+- the default would keep 21, against 24;
+- 6 and 14 claims respectively would have no answer at all.
+
+The comparison between the arms survives, but both lose warnings. A slow draw
+is a draw with something to say. `docs/verify.md` sizes the budget from a
+per-call median "under 10 seconds and its p90 around 50". Today the default
+claim arm's two calls take 54 s at the median. Like the doubled cost recorded
+under "Classify", that means the model has slowed since the budget was set.
+
+### What this says about the two defaults
+
+- **`verify.typed_model`: the evidence supports turning it on.**
+  - On `fact` it costs 37% less and, held out, gives up only minor defects.
+  - On `claim` without literals it flags sound claims at today's rate and
+    raises two correct warnings fewer, for less than half the spend. That is
+    net: claim by claim it loses 4 the default raises and gains 2, and it
+    keeps 7 of the 10 warnings the gate was fitted to keep.
+- **`verify.literals`: turning it on with Jev puts the pooled rate one claim
+  over the line.** The literal leg adds 5 correct warnings and 3 sound-claim
+  flags, and the flags come from the counted-word limitation above. That is a
+  reason to fix the literal's form before flipping it, or to flip it knowingly.
+- **Neither flip addresses the budget.** `typed_model` shrinks the claim
+  budget from 120 s to 90 s while the check it waits on is still an LLM call.
+
+## Screen, 2026-09-23 — `openai/gpt-6-luna` as the check model
+
+`gpt-6-luna` costs $0.10 in and $0.50 out per million tokens on OpenRouter,
+against `gpt-5.6-luna`'s $0.20 and $1.20. It ran one draw of the arms that
+would ship, claim `typed_model` + `literals` and gated fact, with every other
+setting as TET-98 ran them. It is compared against draw 0 of the same TET-98
+arms, so both sides are one draw. Spend was $1.17. The records name
+`openai/gpt-6-luna` on every call and `jev-1.13.0` on every Jev call.
+
+| claims, one draw | 5.6 | 6 |
+|---|---|---|
+| sound claims flagged (line 11.3%) | 13/91, 14.3% | 10/91, 11.0% |
+| with literal findings set aside | 11/91, 12.1% | 9/91, 9.9% |
+| correct / wrong flags | 28 / 27 | 24 / 21 |
+| cost | $1.02 | $0.43 |
+| median answered draw | 20 s | 16 s |
+
+| facts, one draw, gated | 5.6 | 6 |
+|---|---|---|
+| fitted defects raised | 11/12 | 12/12 |
+| held-out positives raised | 8/14 | 9/14 |
+| flags on held-out facts whose graded findings were all WRONG | 16 | 21 |
+| cost | $2.38 | $0.74 |
+| median answered draw | 134 s | 93 s |
+
+- **It was adopted on this screen, without the three-draw confirmation.**
+  The configured `verify.model` and `docs/verify.md` now name `gpt-6-luna`.
+  The saving is not in doubt: 58% on `claim` and 69% on `fact`.
+- **Quality is only screened.** One draw is noisy: 5.6's draw 0 flags 13
+  sound claims where its three-draw majority flags 11. Read it as no clear
+  loss, not as a gain.
+  - It raised 4 fewer correct claim warnings than 5.6's draw 0.
+  - Six findings are ungraded: four claims and two facts, listed at the end
+    of `screen_gpt6.txt`.
+  - The fact flags counted against a WRONG grade are matched by fact, not by
+    clause, so some may be new findings nobody has read.
+- **Every figure elsewhere in this file, and in `docs/verify.md`, was
+  measured on `gpt-5.6-luna` or earlier.** They were not re-measured.
+
 ## Result, 2026-08-10
 
 15 cases (11 with a planted defect, 4 sound), 3 runs each.
@@ -826,6 +1035,9 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 | `classify_jev.py` / `classify_runs/` | the classify leg asked of Jev: mechanical clauses, one `choice` each |
 | `record_reply.py` / `jev_reply_*.json` | one raw Jev reply kept whole — the envelope and the resolved version `jev.ask()` discards |
 | `score_bundle.py` | the literal leg joined with the check leg and the claim gate — the table "what it adds" rests on |
+| `tet98_tasks.py` / `score_tet98.py` / `tet98_score.txt` | TET-98: the subjects, the scorer with every hand grade in it, and its output; the draws it reads are in `../tetel-eval-runs/tet98/` |
+| `screen_gpt6.py` / `screen_gpt6.txt` | the one-draw `gpt-6-luna` screen against TET-98's draw 0, and its output |
+| `../../examples/verify_corpus.rs` | the driver: tetel's own subject builders and `verify::spawn` over a task list, resumable; `--dump` writes the subjects instead |
 | `score_classify_ab.py` / `retro_classify_{llm,jev}_x3.json` | the check leg fed LLM labels vs Jev labels, same day, same claims, every flag graded |
 | `literals_jev.py` / `literals_runs/` | the literal leg asked of Jev: code proposes, shipped filters, two nouls per survivor |
 | `claim_flagged_adjudicated.md` / `labels_claim_v1.json` | the 23 claims the claim check leg flags, graded: 10 warnings worth printing, 13 false alarms |

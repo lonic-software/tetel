@@ -1,0 +1,71 @@
+CLAIM — flagged by majority of three draws
+
+  arm        sample  claims errors flagged correct wrong unread    sound flagged refuted flagged  gated draws
+  candidate  in         125      0      28      15    13      0       5/62  8.1%       4/9       145/375 38.7%
+  candidate  out         68      0      28      12    16      0       6/29 20.7%       3/8       23/204 11.3%
+  candidate  all        193      0      56      27    29      0      11/91 12.1%       7/17      168/579 29.0%
+             $2.664 over 579 draws ($0.0046/draw); Jev jev-1.13.0×579
+  cand-lit   in         125      0      20      10    10      0       3/62  4.8%       3/9       145/375 38.7%
+  cand-lit   out         68      0      22      12    10      0       5/29 17.2%       2/8       23/204 11.3%
+  cand-lit   all        193      0      42      22    20      0       8/91  8.8%       5/17      168/579 29.0%
+  default    in         125      0      25      12    13      0       3/62  4.8%       4/9        0/375  0.0%
+  default    out         68      0      20      12     8      0       5/29 17.2%       1/8        0/204  0.0%
+  default    all        193      0      45      24    21      0       8/91  8.8%       5/17       0/579  0.0%
+             $6.138 over 579 draws ($0.0106/draw)
+
+  line: sound claims flagged under 11.3%
+
+  Correct warnings the default arm raises and the candidate does not (not flagged, or flagged only on a wrong clause):
+    tet-verifier-mint-warning.md C11  candidate: 0/3 draws gated, 3 flagged, graded WRONG
+    tet-verifier-mint-warning.md C18  candidate: 3/3 draws gated, 0 flagged, graded not flagged
+    tet56-bounded-grep-return.md C3  candidate: 2/3 draws gated, 1 flagged, graded not flagged
+    3 lost
+  cand-lit loses 4: tet-verifier-mint-warning C11, tet-verifier-mint-warning C18, tet56-bounded-grep-return C3, tet61-residue-scoped-acknowledgement C15
+  cand-lit gains 2: tet-verifier-jev C16, tet42-committed-artifact-paths C14
+
+  The 10 correct warnings the claim gate was fitted to keep, still raised:
+    candidate  8 of 10
+    cand-lit   7 of 10
+    default    9 of 10
+
+FACT — flagged by majority of three draws
+
+  arm      sample   facts errors flagged  gated draws     cost
+  gated    in         123      0      22 212/369 57.5% $  2.695
+  gated    out        126      0      25 191/378 50.5% $  4.256
+  gated    all        249      0      47 403/747 53.9% $  6.951
+  ungated  in         123      0      40  0/369  0.0% $  4.557
+  ungated  out        126      1      34  0/377  0.0% $  6.433
+  ungated  all        249      1      74  0/746  0.0% $ 10.990
+
+  Positives the gate skipped (any draw gated):
+    fitted, defects_v1: 1 of 12
+      tet56-bounded-grep-return.md F29 gated 1/3
+    held out, OUT_FACT: 4 of 14
+      tet-verifier-mint-warning.md F18 gated 3/3
+      tet42-committed-artifact-paths.md F12 gated 3/3
+      tet42-committed-artifact-paths.md F6 gated 1/3
+      tet42-committed-artifact-paths.md F8 gated 3/3
+
+  Held out: 53 facts with a finding in some ungated draw, 14 with a CORRECT one, 9 of them minor. Raised by majority:
+    all held-out positives   gated arm 10, ungated arm 12, of 14
+    not minor                gated arm 4, ungated arm 5, of 5
+    fitted, defects_v1       gated arm 11, ungated arm 12, of 12
+    draws the gate skipped: median subject 2,068 characters; the same draws cost $4.23 ungated
+    draws the gate passed : median subject 5,346 characters; the same draws cost $6.76 ungated
+
+BUDGET — had `verify.timeout_ms` been left at its default (refuter off, as run)
+
+  claim_candidate  default 90s: 46 of 411 draws that ran the check over it (11%), 35 of them with findings (76%, against 40% within); median 21s
+  claim_default    default 120s: 99 of 579 draws that ran the check over it (17%), 34 of them with findings (34%, against 23% within); median 54s
+  fact_gated       default 190s: 104 of 344 draws that ran the check over it (30%), 61 of them with findings (59%, against 35% within); median 140s
+  fact_ungated     default 180s: 115 of 746 draws that ran the check over it (15%), 60 of them with findings (52%, against 26% within); median 97s
+  candidate  at  300s: correct warnings 27, sound flagged 11/91 12.1%, 0 claims with every draw timed out
+  candidate  at   90s: correct warnings 25, sound flagged 9/88 10.2%, 6 claims with every draw timed out
+  default    at  300s: correct warnings 24, sound flagged 8/91  8.8%, 0 claims with every draw timed out
+  default    at  120s: correct warnings 21, sound flagged 6/87  6.9%, 14 claims with every draw timed out
+
+SPEND — every draw paid for, re-runs included: $27.04
+
+TO READ — findings no adjudication covers
+
