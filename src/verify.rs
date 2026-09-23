@@ -1768,9 +1768,20 @@ fn post(
             return Err(Status::Unavailable);
         }
     };
-    let Ok(text) = reply.body_mut().read_to_string() else {
-        tel.detail = Some("reply body could not be read".into());
-        return Err(Status::Unavailable);
+    let text = match reply.body_mut().read_to_string() {
+        Ok(text) => text,
+        // The budget covers the body as well as the headers. A provider can
+        // answer 200 at once and send the reply only when the model is done,
+        // so this is where a slow draw usually runs out: TET-84's 19
+        // `unavailable` mints each stopped at the full budget.
+        Err(ureq::Error::Timeout(_)) => {
+            tel.detail = Some("provider did not finish its reply within the remaining budget".into());
+            return Err(Status::Timeout);
+        }
+        Err(e) => {
+            tel.detail = Some(format!("reply body could not be read: {e}"));
+            return Err(Status::Unavailable);
+        }
     };
     serde_json::from_str::<serde_json::Value>(&text).map_err(|_| {
         tel.detail = Some(format!("provider envelope was not JSON ({} bytes)", text.len()));
@@ -4102,6 +4113,55 @@ mod tests {
         fn raw(&self) -> Vec<String> {
             self.raw.lock().expect("lock").clone()
         }
+    }
+
+    /// A server that answers 200 with a 100-byte body at once, sends two
+    /// bytes of it, then either holds the connection for `hold` or closes.
+    fn headers_then(hold: Option<Duration>) -> Endpoint {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else { return };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n\n\n");
+            let _ = stream.flush();
+            if let Some(hold) = hold {
+                std::thread::sleep(hold);
+            }
+        });
+        Endpoint { url, key: "k".into() }
+    }
+
+    #[test]
+    fn a_body_still_arriving_when_the_budget_ends_is_a_timeout() {
+        // TET-84: 19 of 61 mints came back `unavailable`, "reply body could
+        // not be read", each at the full budget. Revert: map every body
+        // read error to `Unavailable` — the stalled case is then red.
+        let budget = Duration::from_millis(300);
+        let mut tel = Telemetry::default();
+        let started = Instant::now();
+        let got = post(&headers_then(Some(Duration::from_secs(3))), "{}", budget, &mut tel);
+        assert_eq!(got.err(), Some(Status::Timeout), "{:?}", tel.detail);
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        assert_eq!(
+            tel.detail.as_deref(),
+            Some("provider did not finish its reply within the remaining budget")
+        );
+
+        // The contrast: a body cut short inside the budget is not a
+        // timeout. Revert: map every body read error to `Timeout`.
+        let mut tel = Telemetry::default();
+        let got = post(&headers_then(None), "{}", Duration::from_secs(5), &mut tel);
+        assert_eq!(got.err(), Some(Status::Unavailable), "{:?}", tel.detail);
+        let detail = tel.detail.unwrap_or_default();
+        assert!(detail.starts_with("reply body could not be read: "), "{detail}");
     }
 
     /// An OpenRouter reply whose content is `content`.
