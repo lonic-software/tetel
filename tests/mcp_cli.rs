@@ -1566,7 +1566,7 @@ async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default()
     // without it. The echo is the only place an author who set nothing
     // learns a second model is in the loop.
     assert_eq!(claimed["verify"]["refuter_model"], tetel::config::DEFAULT_REFUTER);
-    // The timeout default is computed rather than constant — 60s per
+    // The timeout default is computed rather than constant — 100s per
     // provider call the approach makes, so `split` is two, plus two more
     // charged for the refutation leg. `tetel config verify.timeout_ms`
     // reports the *file's* value and prints "(unset)" here, which is
@@ -1574,7 +1574,7 @@ async fn every_authoring_verb_carries_a_verify_object_and_it_is_off_by_default()
     // force invisible. This echo is the only place it appears, and this
     // file's rule is that a setting must be visible in the output it
     // affects.
-    assert_eq!(claimed["verify"]["timeout_ms"], 240_000);
+    assert_eq!(claimed["verify"]["timeout_ms"], 400_000);
 
     client.cancel().await.expect("clean shutdown");
 }

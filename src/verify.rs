@@ -446,15 +446,18 @@ pub struct Settings {
 /// How long one OpenRouter call is allowed, when nothing configured a budget.
 ///
 /// The default is per *leg* rather than per verification, because a
-/// verification is one, two or three calls in series and a flat number
-/// silently means three different things. Measured over the corpus, a
-/// single call's median is under 10 seconds and its p90 around 50 — so the
-/// flat 60 seconds this replaced gave a two-call `split` run no headroom at
-/// all, and a three-call run with `literals` on almost none. Nothing waits
-/// on this budget: it bounds a detached thread whose only job is to write a
-/// log line, so being generous costs a slow failure, while being tight
-/// costs findings.
-const DEFAULT_MS_PER_LEG: u64 = 60_000;
+/// verification is several calls in series and a flat number silently means
+/// different things for different runs. 60 seconds a leg was too little on
+/// `openai/gpt-6-luna`. In the 2026-09-23 screen, 12 of 113 answered gated
+/// `fact` draws ran past that budget, the slowest at 286 seconds, and TET-98
+/// found that the slow draws were more often the ones with findings
+/// (`scripts/verifier-eval/README.md`, "Screen, 2026-09-23" and "The default
+/// budget cuts off"). At 100 seconds the same arm gets 310, more than any
+/// screened draw took. Those were measured at 20–40 concurrent requests.
+/// Nothing waits on this budget: it bounds a detached thread whose only job
+/// is to write a log line, so being generous costs a slow failure, while
+/// being tight costs findings.
+const DEFAULT_MS_PER_LEG: u64 = 100_000;
 
 /// How long one TypeSafe call is allowed, when nothing configured a budget.
 ///
@@ -4834,10 +4837,9 @@ mod tests {
 
     #[test]
     fn the_default_budget_grows_with_the_number_of_calls_it_has_to_cover() {
-        // A flat budget silently means three different things. One call's
-        // p90 over the corpus is around 50 seconds, so the flat 60,000 this
-        // replaced left a two-call run no headroom and a three-call run
-        // none at all.
+        // A flat budget silently means three different things: one
+        // number would cover a one-call run and leave a four-call run
+        // short.
         let per_leg = DEFAULT_MS_PER_LEG;
         let off = RefuterLeg::Off;
         assert_eq!(default_budget_ms(expected_calls("direct", false, off, TypedCalls::default())), per_leg);
@@ -4845,7 +4847,7 @@ mod tests {
         assert_eq!(default_budget_ms(expected_calls("split", true, off, TypedCalls::default())), per_leg * 3);
         // The shipped defaults: `split`, and the default refuter's two legs.
         let llm = RefuterLeg::Llm(crate::config::DEFAULT_REFUTER);
-        assert_eq!(default_budget_ms(expected_calls("split", false, llm, TypedCalls::default())), 240_000);
+        assert_eq!(default_budget_ms(expected_calls("split", false, llm, TypedCalls::default())), 400_000);
         // And with TypeSafe's key, the default typed model's legs: the
         // figures docs/verify.md quotes for the shipped configuration.
         let m = Some("openai/gpt-6-luna");
@@ -4853,7 +4855,7 @@ mod tests {
         let shipped = |verb| {
             default_budget_ms(planned_calls(verb, "split", false, Some(crate::config::DEFAULT_REFUTER), m, typed))
         };
-        assert_eq!((shipped("claim"), shipped("fact")), (200_000, 250_000));
+        assert_eq!((shipped("claim"), shipped("fact")), (320_000, 410_000));
     }
 
     #[test]
@@ -4863,7 +4865,7 @@ mod tests {
         assert_eq!(fact, Calls { llm: 2, typed: 2 });
         // A number, not the constants: a typed call charged at the LLM rate
         // would reproduce itself on both sides of an assertion written in them.
-        assert_eq!(default_budget_ms(fact), 140_000);
+        assert_eq!(default_budget_ms(fact), 220_000);
         // Not run on `claim`, so not paid for there either.
         let claim = expected_calls("split", false, refuter_leg(Some(typed), None, "claim"), TypedCalls::default());
         assert_eq!(claim, Calls { llm: 2, typed: 0 });

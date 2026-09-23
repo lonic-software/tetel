@@ -293,7 +293,7 @@ and a workspace can override any of them in its own state directory with `--work
 | `verify.enabled` | `true` / `false` | `false` | whether any comparison happens at all |
 | `verify.model` | `vendor/model`, never `typesafe/` | *(none)* | which model compares. No default — nothing runs until you set one |
 | `verify.approach` | `split` / `direct` | `split` | one call or two — see below |
-| `verify.timeout_ms` | integer ≥ 1000 | 60000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 120s `split`, plus two refuter calls at the refuter's rate, 60s for `literals` and 10s for each TypeSafe leg (on `claim`, Jev's classify and literal legs are charged 10s in place of the 60s they replace) — at the shipped defaults 200s on `claim` and 250s on `fact` with `TYPESAFE_API_KEY`, 240s on both without it |
+| `verify.timeout_ms` | integer ≥ 1000 | 100000 per OpenRouter call, 10000 per TypeSafe call | how long one verification may take, **end to end across retries**. Unset, the default scales with the calls the verb would make: 200s `split`, plus two refuter calls at the refuter's rate, 100s for `literals` and 10s for each TypeSafe leg (on `claim`, Jev's classify and literal legs are charged 10s in place of the 100s they replace) — at the shipped defaults 320s on `claim` and 410s on `fact` with `TYPESAFE_API_KEY`, 400s on both without it |
 | `verify.verbs` | any of `fact`, `claim`, `prose` | `claim`, `fact` | which verbs are verified. The empty list turns verification off without unsetting the rest |
 | `verify.refuter_model` | `vendor/model` or `off` | `anthropic/claude-sonnet-4.5` | which model checks each finding before you see it — see above. A `typesafe/` model runs on `fact` only |
 | `verify.literals` | `true` / `false` | `false` | whether to also report literals your text states and no capture carries — see below |
@@ -390,20 +390,20 @@ comparison happened. That principle is right and the trade was wrong: the disagr
 is the whole reason `verify` is an object.
 
 `verify.timeout_ms` bounds the whole verification end to end, not each call, so its **default scales
-with the number of calls**: 60s per OpenRouter leg, meaning 60s for `direct` and 120s for `split`,
-with the refuter charged a flat two legs and `literals` one — 240s for the shipped configuration
-without TypeSafe's key. With it, the default typed model makes that 200s on `claim` and 250s on
+with the number of calls**: 100s per OpenRouter leg, meaning 100s for `direct` and 200s for `split`,
+with the refuter charged a flat two legs and `literals` one — 400s for the shipped configuration
+without TypeSafe's key. With it, the default typed model makes that 320s on `claim` and 410s on
 `fact`, by the TypeSafe charges below.
-Measured over the corpus a single call's median is under 10 seconds and its p90 around 50, so a flat
-budget would have left `split` no headroom and four legs none at all. That measurement is stale.
-On 2026-09-23 a two-call `claim` draw under `split` took 54s at the median, 17% of the draws ran
-past 120s, and the slow draws were disproportionately the ones with findings (TET-98). This was
-measured at 20–40 concurrent requests. If warnings go missing as `unavailable`, raise
+The rate was 60s until 2026-09-23. On `openai/gpt-6-luna` that cut off 12 of 113 answered gated
+`fact` draws, the slowest taking 286s, and TET-98 found the slow draws were disproportionately the
+ones with findings. At 100s that arm gets 310s. This was measured at 20–40 concurrent requests. A
+verification that runs out of budget is recorded as `timeout`, including when the provider had
+already started its reply. If warnings go missing that way, raise
 `verify.timeout_ms`. A TypeSafe leg is charged 10s,
 since Jev answers in about one; the count is per verb, so a `typesafe/` refuter adds 20s on `fact`
 and nothing on the verbs it does not run on. `verify.typed_model` adds 10s for the gate on `fact`
 and `claim`. On `claim` it also moves classify (under `split`) and the literal leg (when on) to
-TypeSafe, so each of those is charged 10s instead of 60s. Each typed leg is charged one call: it asks
+TypeSafe, so each of those is charged 10s instead of 100s. Each typed leg is charged one call: it asks
 at most 40 questions a call, and no measured subject needed a second.
 Set it explicitly and your number is used as-is:
 

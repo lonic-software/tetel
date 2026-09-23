@@ -356,12 +356,12 @@ call `direct` makes does both jobs",
         name: KEY_VERIFY_TIMEOUT_MS,
         summary: "how long one mint's verification may take end to end, across every retry \
 (milliseconds, at least 1000). Unset, it is worked out per verb from the calls that verb would \
-make: 60000 for each OpenRouter call and 10000 for each typesafe/ one, since Jev answers in about \
-a second where a reasoning model can take fifty. That is 60s for `direct` and 120s for `split`, \
-plus 60s for `verify.literals`, room for two refuter calls at the refuter's rate, and 10s for each \
+make: 100000 for each OpenRouter call and 10000 for each typesafe/ one, since Jev answers in about \
+a second where one reasoning-model call can take well over a minute. That is 100s for `direct` and 200s for `split`, \
+plus 100s for `verify.literals`, room for two refuter calls at the refuter's rate, and 10s for each \
 leg `verify.typed_model` runs — on claim, Jev's classify and literal legs cost 10s in place of \
-the 60s they replace — at the shipped defaults 200s on claim and 250s on fact with \
-TYPESAFE_API_KEY in the environment, 240s without it. It does not sit in front of a reply, so it can be generous",
+the 100s they replace — at the shipped defaults 320s on claim and 410s on fact with \
+TYPESAFE_API_KEY in the environment, 400s without it. It does not sit in front of a reply, so it can be generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
