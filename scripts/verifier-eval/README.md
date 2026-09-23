@@ -710,6 +710,45 @@ under "Classify", that means the model has slowed since the budget was set.
 - **Neither flip addresses the budget.** `typed_model` shrinks the claim
   budget from 120 s to 90 s while the check it waits on is still an LLM call.
 
+## Screen, 2026-09-23 — `openai/gpt-6-luna` as the check model
+
+`gpt-6-luna` costs $0.10 in and $0.50 out per million tokens on OpenRouter,
+against `gpt-5.6-luna`'s $0.20 and $1.20. It ran one draw of the arms that
+would ship, claim `typed_model` + `literals` and gated fact, with every other
+setting as TET-98 ran them. It is compared against draw 0 of the same TET-98
+arms, so both sides are one draw. Spend was $1.17. The records name
+`openai/gpt-6-luna` on every call and `jev-1.13.0` on every Jev call.
+
+| claims, one draw | 5.6 | 6 |
+|---|---|---|
+| sound claims flagged (line 11.3%) | 13/91, 14.3% | 10/91, 11.0% |
+| with literal findings set aside | 11/91, 12.1% | 9/91, 9.9% |
+| correct / wrong flags | 28 / 27 | 24 / 21 |
+| cost | $1.02 | $0.43 |
+| median answered draw | 20 s | 16 s |
+
+| facts, one draw, gated | 5.6 | 6 |
+|---|---|---|
+| fitted defects raised | 11/12 | 12/12 |
+| held-out positives raised | 8/14 | 9/14 |
+| flags on held-out facts whose graded findings were all WRONG | 16 | 21 |
+| cost | $2.38 | $0.74 |
+| median answered draw | 134 s | 93 s |
+
+- **It was adopted on this screen, without the three-draw confirmation.**
+  The configured `verify.model` and `docs/verify.md` now name `gpt-6-luna`.
+  The saving is not in doubt: 58% on `claim` and 69% on `fact`.
+- **Quality is only screened.** One draw is noisy: 5.6's draw 0 flags 13
+  sound claims where its three-draw majority flags 11. Read it as no clear
+  loss, not as a gain.
+  - It raised 4 fewer correct claim warnings than 5.6's draw 0.
+  - Six findings are ungraded: four claims and two facts, listed at the end
+    of `screen_gpt6.txt`.
+  - The fact flags counted against a WRONG grade are matched by fact, not by
+    clause, so some may be new findings nobody has read.
+- **Every figure elsewhere in this file, and in `docs/verify.md`, was
+  measured on `gpt-5.6-luna` or earlier.** They were not re-measured.
+
 ## Result, 2026-08-10
 
 15 cases (11 with a planted defect, 4 sound), 3 runs each.
@@ -997,6 +1036,7 @@ reconstruction. Found by the Jev claim gate, whose `sentences()` raised on a
 | `record_reply.py` / `jev_reply_*.json` | one raw Jev reply kept whole — the envelope and the resolved version `jev.ask()` discards |
 | `score_bundle.py` | the literal leg joined with the check leg and the claim gate — the table "what it adds" rests on |
 | `tet98_tasks.py` / `score_tet98.py` / `tet98_score.txt` | TET-98: the subjects, the scorer with every hand grade in it, and its output; the draws it reads are in `../tetel-eval-runs/tet98/` |
+| `screen_gpt6.py` / `screen_gpt6.txt` | the one-draw `gpt-6-luna` screen against TET-98's draw 0, and its output |
 | `../../examples/verify_corpus.rs` | the driver: tetel's own subject builders and `verify::spawn` over a task list, resumable; `--dump` writes the subjects instead |
 | `score_classify_ab.py` / `retro_classify_{llm,jev}_x3.json` | the check leg fed LLM labels vs Jev labels, same day, same claims, every flag graded |
 | `literals_jev.py` / `literals_runs/` | the literal leg asked of Jev: code proposes, shipped filters, two nouls per survivor |

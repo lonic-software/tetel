@@ -1,0 +1,36 @@
+CLAIM, one draw, typed_model + literals
+
+  model    reading   sample claims  err flagged correct wrong read   sound flagged    cost
+  5.6      all       in        125    0      30      16    13    1      5/62  8.1% $ 0.459
+  5.6      all       out        68    0      31      12    14    5      8/29 27.6% $ 0.562
+  5.6      all       all       193    0      61      28    27    6     13/91 14.3% $ 1.021
+  5.6      no-lit    in        125    0      23      11    11    1      4/62  6.5% $ 0.459
+  5.6      no-lit    out        68    0      25      12     8    5      7/29 24.1% $ 0.562
+  5.6      no-lit    all       193    0      48      23    19    6     11/91 12.1% $ 1.021
+  5.6      median ok draw 20s
+
+  6        all       in        125    0      25      13    10    2      7/62 11.3% $ 0.193
+  6        all       out        68    0      24      11    11    2      3/29 10.3% $ 0.236
+  6        all       all       193    0      49      24    21    4     10/91 11.0% $ 0.428
+  6        no-lit    in        125    0      21      10     9    2      7/62 11.3% $ 0.193
+  6        no-lit    out        68    0      18      11     5    2      2/29  6.9% $ 0.236
+  6        no-lit    all       193    0      39      21    14    4      9/91  9.9% $ 0.428
+  6        median ok draw 16s
+
+FACT, one draw, gated
+
+  5.6  facts 249, errors 0, gated 132, flagged 48, cost $2.375, median ok draw 134s
+       fitted defects raised 11/12; held-out positives raised 8/14
+       flags elsewhere: in-sample not a fitted defect 11; held-out on a fact graded only WRONG 16; held-out never graded 2
+
+  6    facts 249, errors 0, gated 136, flagged 55, cost $0.740, median ok draw 93s
+       fitted defects raised 12/12; held-out positives raised 9/14
+       flags elsewhere: in-sample not a fitted defect 11; held-out on a fact graded only WRONG 21; held-out never graded 2
+
+To read: 6
+  claim tet-verifier-jev.md C22
+  claim tet-verifier-mint-warning.md C19
+  claim tet61-residue-scoped-acknowledgement.md C19
+  claim tet47-ground-what-is-owed.md C17
+  fact tet-verifier-jev.md F31
+  fact tet-verifier-jev.md F8

@@ -22,6 +22,9 @@
 //! `--dump` writes each task's subject (text and evidence, exactly as the
 //! verifier is shown it) to `--out` and verifies nothing: what a hand
 //! adjudication reads.
+//!
+//! `--model` names the check model; unset, it is `CHECK_MODEL`, the model
+//! TET-98 measured. Every line records it as `arm_model`.
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -43,6 +46,7 @@ struct Args {
     scratch: PathBuf,
     draws: u32,
     jobs: usize,
+    model: String,
     typed_model: Option<String>,
     literals: bool,
     limit: Option<usize>,
@@ -56,6 +60,7 @@ fn args() -> Args {
         scratch: PathBuf::new(),
         draws: 1,
         jobs: 4,
+        model: CHECK_MODEL.to_string(),
         typed_model: None,
         literals: false,
         limit: None,
@@ -70,6 +75,7 @@ fn args() -> Args {
             "--scratch" => a.scratch = v().into(),
             "--draws" => a.draws = v().parse().expect("--draws"),
             "--jobs" => a.jobs = v().parse().expect("--jobs"),
+            "--model" => a.model = v(),
             "--typed-model" => a.typed_model = Some(v()),
             "--limit" => a.limit = Some(v().parse().expect("--limit")),
             "--literals" => a.literals = true,
@@ -116,7 +122,7 @@ fn main() {
     let a = args();
     let settings = verify::Settings {
         enabled: true,
-        model: Some(CHECK_MODEL.to_string()),
+        model: Some(a.model.clone()),
         approach: "split".to_string(),
         timeout_ms: TIMEOUT_MS,
         verbs: vec!["claim".to_string(), "fact".to_string()],
@@ -171,6 +177,7 @@ fn main() {
         *cost += record["cost"].as_f64().unwrap_or(0.0);
         let mut line = task.clone();
         line["draw"] = json!(draw);
+        line["arm_model"] = json!(a.model);
         line["arm_typed_model"] = json!(a.typed_model);
         line["arm_literals"] = json!(a.literals);
         line["record"] = record;

@@ -248,8 +248,13 @@ pasted a key.
 
 ```sh
 tetel config verify.enabled true
-tetel config verify.model openai/gpt-5.6-luna
+tetel config verify.model openai/gpt-6-luna
 ```
+
+`gpt-6-luna` replaced `gpt-5.6-luna` here on 2026-09-23, on a one-draw screen. It cost 58% less on
+`claim` and 69% less on `fact`. On `claim` it flagged 10 sound claims of 91 against 13, and raised 24
+correct warnings against 28. On `fact` it raised one more real defect in each set. Every measurement in this document
+was taken on `gpt-5.6-luna` or earlier (`scripts/verifier-eval/README.md`, "Screen, 2026-09-23").
 
 That is the minimum. Everything else has a default. Check what is in force with:
 
