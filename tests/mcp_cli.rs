@@ -1744,6 +1744,39 @@ async fn a_typesafe_check_model_in_a_workspace_file_is_named_not_reported_unset(
     client.cancel().await.expect("clean shutdown");
 }
 
+/// A `verify.typed_model` the key refuses, written by hand into a
+/// workspace's settings file, turns the typed legs off — and the reply says
+/// so, naming the value and the scope, rather than carrying on silent.
+///
+/// Through the file and the server for the same reason as the check-model
+/// test above: only `settings()` can see a workspace-scope file. Revert:
+/// stop `settings()` carrying the refusal to `block()`.
+#[tokio::test]
+async fn a_refused_typed_model_in_a_workspace_file_is_named_in_the_reply() {
+    let sb = Sandbox::new("verify-refused-typed-model");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let cfg = sb.config_home();
+    std::fs::create_dir_all(&cfg).expect("config home");
+    std::fs::write(cfg.join("config.toml"), "[verify]\nenabled = true\nverbs = \"claim\"\n")
+        .expect("write global config");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    fact(&client, ws, "read_me.rs defines a()").await;
+    let state = sb.state_home().join("workspaces").join(ws);
+    std::fs::write(state.join("config.toml"), "[verify]\ntyped_model = \"openai/gpt-5.6-luna\"\n")
+        .expect("write workspace config");
+
+    let claimed = create_claim(&client, ws, "read_me.rs defines exactly one function", "F1").await;
+    let v = &claimed["verify"];
+    let why = v["typed_model_refused"].as_str().unwrap_or_default();
+    assert!(why.contains("openai/gpt-5.6-luna") && why.contains("workspace"), "{v}");
+    assert!(v.get("typed_model").is_none(), "a refused value was echoed as in force: {v}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 /// A verification is delivered exactly once, and a refused call cannot
 /// consume it.
 ///

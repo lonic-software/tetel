@@ -436,6 +436,11 @@ pub struct Settings {
     /// this an author looking at a file that sets the key would be told it
     /// is not set.
     pub model_refusal: Option<String>,
+    /// Why a `verify.typed_model` written in a settings file was refused,
+    /// when one was. Echoed as `typed_model_refused` where a typed leg
+    /// would run: the refused value counts as off, so the status alone
+    /// never shows it.
+    pub typed_model_refusal: Option<String>,
 }
 
 /// How long one OpenRouter call is allowed, when nothing configured a budget.
@@ -491,6 +496,7 @@ pub fn settings(workspace_dir: &Path, verb: &str) -> Settings {
         typed_model,
         typed_default_without_key,
         model_refusal: config::verify_model_refusal(d),
+        typed_model_refusal: config::verify_typed_model_refusal(d),
     }
 }
 
@@ -1034,6 +1040,13 @@ environment; export it, or set `{}` to `{}` to stop this notice",
                 ),
             }),
         );
+    }
+    // A refused value, stated under the same conditions: it counts as off,
+    // so without this the typed legs stop and nothing in the reply says why.
+    if let Some(why) = &settings.typed_model_refusal {
+        if verb_enabled(settings, verb) && typed_model_has_a_leg(settings, verb) {
+            map.insert("typed_model_refused".into(), json!(why));
+        }
     }
     if let Some(r) = delivered {
         map.insert("for_mint".into(), json!(r.mint));
@@ -4012,6 +4025,7 @@ mod tests {
             typed_model: None,
             typed_default_without_key: false,
             model_refusal: None,
+            typed_model_refusal: None,
         }
     }
 
@@ -5895,6 +5909,33 @@ mod tests {
         assert!(out.contains("not a quantity   0 "), "{out}");
         assert!(out.contains("50% of what it raised"), "{out}");
         assert!(out.contains("LITERALS, judged by Jev\n  unevidenced      1   over 1 verification(s)"), "{out}");
+    }
+
+    #[test]
+    fn a_refused_typed_model_is_stated_where_a_typed_leg_would_run() {
+        // Reverts: never state it (the typed legs stop and the reply is
+        // silent, TET-99); state it on every verb (prose has no typed leg
+        // to lose); make it a gap (a refused value is off, not missing a
+        // credential, so the status must not change).
+        let why = "`verify.typed_model` takes a `typesafe/` model (sentinel 7f3e)".to_string();
+        let s = Settings {
+            typed_model_refusal: Some(why.clone()),
+            approach: "split".into(),
+            verbs: vec!["claim".into(), "fact".into(), "prose".into()],
+            ..settings_fixture()
+        };
+        for verb in ["claim", "fact"] {
+            let b = block(&s, verb, None, Trigger::NotAttempted);
+            assert_eq!(b["typed_model_refused"], why, "{verb}: {b}");
+            assert!(b.get("typed_model").is_none() && b.get("typed_model_not_run").is_none(), "{verb}: {b}");
+            assert_eq!(unauthorized_detail(&s, verb, true, false), None, "{verb}");
+        }
+        let b = block(&s, "prose", None, Trigger::NotAttempted);
+        assert!(b.get("typed_model_refused").is_none(), "{b}");
+        let off = Settings { enabled: false, ..s.clone() };
+        assert!(block(&off, "fact", None, Trigger::NotAttempted).get("typed_model_refused").is_none());
+        let unlisted = Settings { verbs: vec!["fact".into()], ..s };
+        assert!(block(&unlisted, "claim", None, Trigger::NotAttempted).get("typed_model_refused").is_none());
     }
 
     #[test]

@@ -132,6 +132,7 @@ fn main() {
         typed_model: a.typed_model.clone(),
         typed_default_without_key: false,
         model_refusal: None,
+        typed_model_refusal: None,
     };
 
     let tasks: Vec<Value> = BufReader::new(fs::File::open(&a.tasks).expect("open --tasks"))

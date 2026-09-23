@@ -389,7 +389,7 @@ different questions when someone else asks the second one",
         name: KEY_VERIFY_TYPED_MODEL,
         summary: "which TypeSafe model gates `fact` and `claim`, as typesafe/model, or `off` \
 for none (unset: typesafe/jev-1.13.0 when TYPESAFE_API_KEY is in the environment, and none when it \
-is not, which the reply states as `typed_model_not_run`; a value this key refuses counts as off; a typesafe/ verify.refuter_model is \
+is not, which the reply states as `typed_model_not_run`; a value this key refuses counts as off, which the reply states as `typed_model_refused`; a typesafe/ verify.refuter_model is \
 separate and runs either way). As a gate it asks, before anything else, whether any sentence or \
 clause disagrees with the evidence, and a subject it scores below that verb's threshold is \
 reported `gated` and not checked. On claim it also labels split's assertions in place of the LLM \
@@ -787,6 +787,51 @@ and is being ignored; the value is not echoed in case it is a credential"
     })
 }
 
+/// Why [`KEY_VERIFY_TYPED_MODEL`] refused a well-formed model name that
+/// does not route to TypeSafe.
+///
+/// One wording for the write path and the read path, as
+/// [`typed_model_refusal`] is for the other direction.
+pub fn typed_key_refusal(key: &str, value: &str) -> String {
+    format!(
+        "`{key}` takes a `{TYPED_VENDOR}/` model, such as {TYPED_VENDOR}/jev-1.13.0, or `{REFUTER_OFF}`; \
+`{value}` routes to OpenRouter, which answers prompts rather than the typed questions this key asks"
+    )
+}
+
+/// What the author should be told about a [`KEY_VERIFY_TYPED_MODEL`] value
+/// that is written in a file and was refused, or `None` when there is none.
+///
+/// The twin of [`verify_model_refusal`], and needed for the same reason
+/// with a worse consequence: a refused value counts as off
+/// ([`typed_model_choice`]), so the typed legs stop and the verification
+/// still reports its usual status. Without this nothing in the reply says
+/// why. Withholds a value that is not a model name, as that one does.
+pub fn verify_typed_model_refusal(workspace_dir: Option<&Path>) -> Option<String> {
+    typed_model_refusal_notice(resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir).1)
+}
+
+/// [`verify_typed_model_refusal`] from the resolved source, apart so the
+/// wording is tested without touching the global file.
+fn typed_model_refusal_notice(source: Source) -> Option<String> {
+    let Source::Rejected(scope, raw) = source else {
+        return None;
+    };
+    let raw = raw.trim();
+    let why = if is_model_name(raw) {
+        typed_key_refusal(KEY_VERIFY_TYPED_MODEL, raw)
+    } else {
+        format!(
+            "`{KEY_VERIFY_TYPED_MODEL}` holds a value that is not a model identifier; \
+the value is not echoed in case it is a credential"
+        )
+    };
+    Some(format!(
+        "{why} (in the {scope} settings file). It counts as `{REFUTER_OFF}`, so no typed leg runs; \
+write `{REFUTER_OFF}` to keep them off without this notice"
+    ))
+}
+
 /// Set `key` to `value` in `scope`, creating the file if needed.
 ///
 /// Refuses an unknown key and a value the key does not accept, and writes
@@ -823,11 +868,9 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                 Accepts::ModelName if is_model_name(value.trim()) => {
                     typed_model_refusal(key, value.trim())
                 }
-                Accepts::TypedModelName if is_model_name(value.trim()) => format!(
-                    "`{key}` takes a `{TYPED_VENDOR}/` model, such as {TYPED_VENDOR}/jev-1.13.0, or `{REFUTER_OFF}`; \
-`{}` routes to OpenRouter, which answers prompts rather than the typed questions this key asks",
-                    value.trim()
-                ),
+                Accepts::TypedModelName if is_model_name(value.trim()) => {
+                    typed_key_refusal(key, value.trim())
+                }
                 // Deliberately does not echo the value back. If an author
                 // did paste a credential here, repeating it into a
                 // terminal, a log or a bug report is the harm this rule
@@ -1365,6 +1408,22 @@ mod tests {
         assert!(hides_rejected_value(KEY_VERIFY_MODEL, "sk-or-v1-abc"));
         assert!(!hides_rejected_value(KEY_GROUNDING_FLOOR, "sk-or-v1-abc"));
         assert!(!hides_rejected_value("nonesuch", "sk-or-v1-abc"));
+    }
+
+    #[test]
+    fn a_refused_typed_model_notice_names_a_model_and_withholds_anything_else() {
+        // Reverts: echo every refused value (a pasted credential reaches the
+        // reply, and from there a transcript); name none (an author looking
+        // at `openai/…` in their file is told nothing about it).
+        let named = typed_model_refusal_notice(Source::Rejected(Scope::Workspace, "openai/gpt-5.6-luna".into()))
+            .expect("a notice");
+        assert!(named.contains("`openai/gpt-5.6-luna`") && named.contains("workspace settings file"), "{named}");
+        let secret = "sk-or-v1-7f3e9a";
+        let hidden = typed_model_refusal_notice(Source::Rejected(Scope::Global, format!(" {secret} ")))
+            .expect("a notice");
+        assert!(!hidden.contains(secret) && hidden.contains("global settings file"), "{hidden}");
+        assert_eq!(typed_model_refusal_notice(Source::Default), None);
+        assert_eq!(typed_model_refusal_notice(Source::File(Scope::Global)), None);
     }
 
     #[test]

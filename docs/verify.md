@@ -147,7 +147,9 @@ every `fact` and `claim` reply with verification on says why in `typed_model_not
 ```
 
 `tetel config verify.typed_model off` turns it off and stops that notice; `--unset` restores the
-default. A value the key refuses, such as `none`, also counts as off. The default depends on the key, unlike the refuter's, because it is a second provider: an
+default. A value the key refuses, such as `none` or an OpenRouter model, also counts as off, and
+the same replies say so in `typed_model_refused`, naming the settings file and — when it is a model
+name rather than something that could be a credential — the value. The default depends on the key, unlike the refuter's, because it is a second provider: an
 unconditional default would turn every setup with only an OpenRouter key `unauthorized`. A value
 you set yourself still needs the key, and is `unauthorized` without it. It became the default on
 2026-09-23, on TET-98's result below.
@@ -464,7 +466,7 @@ disagreements found".
 
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
 `literals`, `refuter_model` — `null` when it is `off` — and `typed_model`, present whenever one is in force — set, or the default with its key — even on a
-verb it does not run on, or `typed_model_not_run` when the default was passed over for want of its key) plus `deterministic: false` and a
+verb it does not run on, or `typed_model_not_run` when the default was passed over for want of its key, or `typed_model_refused` when a value in a settings file was refused and so counts as off) plus `deterministic: false` and a
 `guidance` string — because tetel only admits a setting that is visible in the output it affects,
 and all but one of those would otherwise be invisible. `timeout_ms` and `refuter_model` matter most
 here: both have defaults that `tetel config` prints as "(unset)", so this echo is the only place the
