@@ -870,10 +870,10 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                 ),
                 // A well-formed model name is not a credential, so this
                 // arm may name it; every other refusal below may not.
-                Accepts::ModelName if is_model_name(value.trim()) => {
+                Accepts::ModelName if !hides_rejected_value(key, value) => {
                     typed_model_refusal(key, value.trim())
                 }
-                Accepts::TypedModelName if is_model_name(value.trim()) => {
+                Accepts::TypedModelName if !hides_rejected_value(key, value) => {
                     typed_key_refusal(key, value.trim())
                 }
                 // Deliberately does not echo the value back. If an author
