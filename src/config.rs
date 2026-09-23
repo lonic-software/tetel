@@ -131,8 +131,10 @@ pub const KEY_VERIFY_REFUTER: &str = "verify.refuter_model";
 /// Which TypeSafe model runs the typed legs a verb's row in
 /// `verify::TYPED_LEGS` names — the gate, classify under `split`, the
 /// literal leg when [`KEY_VERIFY_LITERALS`] is on — as `typesafe/model`.
-/// Unset means none of them; a `typesafe/` value on [`KEY_VERIFY_REFUTER`]
-/// is a separate typed leg and runs either way. Only a [`TYPED_VENDOR`] model: see
+/// Unset means [`DEFAULT_TYPED_MODEL`] when TypeSafe's key is in the
+/// environment and none of them when it is not; [`REFUTER_OFF`] means none
+/// of them. A `typesafe/` value on [`KEY_VERIFY_REFUTER`] is a separate
+/// typed leg and runs either way. Only a [`TYPED_VENDOR`] model: see
 /// [`Accepts::TypedModelName`].
 pub const KEY_VERIFY_TYPED_MODEL: &str = "verify.typed_model";
 
@@ -152,6 +154,29 @@ pub const KEY_VERIFY_TYPED_MODEL: &str = "verify.typed_model";
 /// prints it.
 pub const DEFAULT_REFUTER: &str = "anthropic/claude-sonnet-4.5";
 
+/// The typed model in force when [`KEY_VERIFY_TYPED_MODEL`] is unset and
+/// TypeSafe's key is in the environment.
+///
+/// A default because TET-98 measured it on the shipped path, over the
+/// fitted memos and three held out: on `fact` the gate saved 37% of the
+/// spend and skipped only minor defects entirely; on `claim` it flagged
+/// sound claims at the untyped configuration's rate for under half its
+/// cost per draw. Conditional on the key, unlike [`DEFAULT_REFUTER`],
+/// because it is a second provider and a second credential: defaulting it
+/// on unconditionally would turn every setup with only an OpenRouter key
+/// `unauthorized`. `verify` says so in the reply when the key is missing.
+pub const DEFAULT_TYPED_MODEL: &str = "typesafe/jev-latest";
+
+/// What [`KEY_VERIFY_TYPED_MODEL`] resolves to, before the environment is
+/// consulted: `verify` alone knows whether TypeSafe's key is present, and
+/// an unset key means something different from one set to `off`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypedModel {
+    Unset,
+    Off,
+    Set(String),
+}
+
 /// The vendor half that routes a model value to TypeSafe instead of
 /// OpenRouter.
 ///
@@ -168,7 +193,8 @@ pub fn is_typed_model(model: &str) -> bool {
     model.trim().split_once('/').is_some_and(|(vendor, _)| vendor == TYPED_VENDOR)
 }
 
-/// The [`KEY_VERIFY_REFUTER`] value that turns refutation off.
+/// The [`KEY_VERIFY_REFUTER`] value that turns refutation off, and the
+/// [`KEY_VERIFY_TYPED_MODEL`] value that turns the typed legs off.
 ///
 /// A sentinel exists because `--unset` restores the default, so without a
 /// word for "off" a default-on leg would have no off switch that survives
@@ -273,7 +299,7 @@ enum Accepts {
     /// a shape any key resembles.
     ModelNameOrOff,
     /// A model identifier as [`Accepts::ModelName`] that routes to TypeSafe
-    /// ([`is_typed_model`]), and nothing else. The one key taking this,
+    /// ([`is_typed_model`]), or the word [`REFUTER_OFF`]. The one key taking this,
     /// [`KEY_VERIFY_TYPED_MODEL`], only ever asks typed questions; an
     /// OpenRouter model there would name a leg that cannot be asked of it.
     TypedModelName,
@@ -331,7 +357,8 @@ make: 60000 for each OpenRouter call and 10000 for each typesafe/ one, since Jev
 a second where a reasoning model can take fifty. That is 60s for `direct` and 120s for `split`, \
 plus 60s for `verify.literals`, room for two refuter calls at the refuter's rate, and 10s for each \
 leg `verify.typed_model` runs — on claim, Jev's classify and literal legs cost 10s in place of \
-the 60s they replace — 240s at the shipped defaults. It does not sit in front of a reply, so it can be generous",
+the 60s they replace — at the shipped defaults 200s on claim and 250s on fact with \
+TYPESAFE_API_KEY in the environment, 240s without it. It does not sit in front of a reply, so it can be generous",
         accepts: Accepts::IntAtLeast(1000),
     },
     KeyDef {
@@ -357,15 +384,18 @@ different questions when someone else asks the second one",
     },
     KeyDef {
         name: KEY_VERIFY_TYPED_MODEL,
-        summary: "which TypeSafe model gates `fact` and `claim`, as typesafe/model (unset: no \
-gate; a typesafe/ verify.refuter_model is separate and runs either way). On claim it also \
-labels split's assertions in place of the LLM classify call (the same 11 correct warnings over 125 \
-claims, at 39% of the cost) and judges verify.literals' candidates (82% precision against the LLM \
-leg's 80%, at a sixth of the cost). As a gate it asks, before anything else, whether any sentence or clause disagrees with the evidence, and a subject it scores below that verb's threshold is reported `gated` and \
-not checked: measured 2026-09-21, 58% of the check's cost saved on fact and 21% on claim, with \
-no adjudicated defect skipped — fitted on 12 and 10 positives with nothing held out. A gate call \
-that fails never skips: the check runs and the response says `gate_incomplete`. Needs \
-TYPESAFE_API_KEY in the environment. Only a typesafe/ model",
+        summary: "which TypeSafe model gates `fact` and `claim`, as typesafe/model, or `off` \
+for none (unset: typesafe/jev-latest when TYPESAFE_API_KEY is in the environment, and none when it \
+is not, which the reply states as `typed_model_not_run`; a typesafe/ verify.refuter_model is \
+separate and runs either way). As a gate it asks, before anything else, whether any sentence or \
+clause disagrees with the evidence, and a subject it scores below that verb's threshold is \
+reported `gated` and not checked. On claim it also labels split's assertions in place of the LLM \
+classify call, and judges verify.literals' candidates. Measured 2026-09-23 on the shipped path, \
+over the fitted memos and three held out: on fact 37% of the spend saved, skipping only minor \
+defects entirely; on claim sound claims flagged at the untyped rate, 8 of 91, for under half the \
+cost, though the gate skipped 2 of the 10 warnings it was fitted to keep. A gate call that fails \
+never skips: the check runs and the response says `gate_incomplete`. A value set here needs \
+TYPESAFE_API_KEY, and without it the verification is `unauthorized`",
         accepts: Accepts::TypedModelName,
     },
     KeyDef {
@@ -567,10 +597,15 @@ pub fn verify_refuter(workspace_dir: Option<&Path>) -> Option<String> {
     }
 }
 
-/// [`resolve`] for [`KEY_VERIFY_TYPED_MODEL`]. Absent means no typed leg
-/// runs on its account.
-pub fn verify_typed_model(workspace_dir: Option<&Path>) -> Option<String> {
-    resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir).0
+/// [`resolve`] for [`KEY_VERIFY_TYPED_MODEL`]. [`TypedModel::Unset`] is
+/// [`DEFAULT_TYPED_MODEL`] or nothing, by the environment — `verify`
+/// decides which.
+pub fn verify_typed_model(workspace_dir: Option<&Path>) -> TypedModel {
+    match resolve(KEY_VERIFY_TYPED_MODEL, workspace_dir).0 {
+        None => TypedModel::Unset,
+        Some(v) if v.trim().eq_ignore_ascii_case(REFUTER_OFF) => TypedModel::Off,
+        Some(v) => TypedModel::Set(v),
+    }
 }
 
 /// [`resolve`] for [`KEY_VERIFY_LITERALS`], parsed. Absent means off.
@@ -657,7 +692,9 @@ fn accepted(accepts: &Accepts, raw: &str) -> bool {
         Accepts::ModelNameOrOff => {
             raw.trim().eq_ignore_ascii_case(REFUTER_OFF) || is_model_name(raw)
         }
-        Accepts::TypedModelName => is_model_name(raw) && is_typed_model(raw),
+        Accepts::TypedModelName => {
+            raw.eq_ignore_ascii_case(REFUTER_OFF) || (is_model_name(raw) && is_typed_model(raw))
+        }
     }
 }
 
@@ -775,7 +812,7 @@ pub fn set(scope: Scope, workspace_dir: Option<&Path>, key: &str, value: &str) -
                     typed_model_refusal(key, value.trim())
                 }
                 Accepts::TypedModelName if is_model_name(value.trim()) => format!(
-                    "`{key}` takes a `{TYPED_VENDOR}/` model, such as {TYPED_VENDOR}/jev-1.13.0; \
+                    "`{key}` takes a `{TYPED_VENDOR}/` model, such as {TYPED_VENDOR}/jev-1.13.0, or `{REFUTER_OFF}`; \
 `{}` routes to OpenRouter, which answers prompts rather than the typed questions this key asks",
                     value.trim()
                 ),
@@ -790,7 +827,7 @@ is a credential: API keys are read from the environment and never stored in a co
 file, which is shared, committed and pasted into issues",
                     match def.accepts {
                         Accepts::ModelNameOrOff => format!("openai/gpt-5.6-luna, or `{REFUTER_OFF}`"),
-                        Accepts::TypedModelName => format!("{TYPED_VENDOR}/jev-1.13.0"),
+                        Accepts::TypedModelName => format!("{TYPED_VENDOR}/jev-1.13.0, or `{REFUTER_OFF}`"),
                         _ => "openai/gpt-5.6-luna".to_string(),
                     }
                 ),
@@ -1159,6 +1196,19 @@ mod tests {
         assert!(e.to_string().contains("at least 1"), "{e}");
         let e = set(Scope::Global, None, KEY_GROUNDING_FLOOR, "two").unwrap_err();
         assert!(e.to_string().contains("whole number"), "{e}");
+    }
+
+    #[test]
+    fn the_typed_model_key_takes_off_and_the_check_model_key_does_not() {
+        // `off` is how a default-on typed leg is turned off, since
+        // `--unset` restores the default. Reverts: refuse it (no off
+        // switch); accept it for verify.model (a check model named "off").
+        for off in ["off", "OFF", " off "] {
+            assert!(accepted(&Accepts::TypedModelName, off), "{off:?}");
+            assert!(!accepted(&Accepts::ModelName, off), "{off:?}");
+        }
+        assert!(accepted(&Accepts::TypedModelName, "typesafe/jev-latest"));
+        assert!(!accepted(&Accepts::TypedModelName, "openai/gpt-6-luna"));
     }
 
     #[test]

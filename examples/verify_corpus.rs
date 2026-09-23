@@ -130,6 +130,7 @@ fn main() {
         // Off in every arm: the rows this run is compared against had none.
         refuter: None,
         typed_model: a.typed_model.clone(),
+        typed_default_without_key: false,
         model_refusal: None,
     };
 
