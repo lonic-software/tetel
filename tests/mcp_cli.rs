@@ -82,6 +82,21 @@ impl Sandbox {
         DummyClientHandler.serve(transport).await.expect("mcp initialise handshake failed")
     }
 
+    /// `connect`, with every provider credential removed from the child's
+    /// environment, for a test that turns verification on and must not
+    /// have a developer's key start real provider calls.
+    async fn connect_keyless(&self) -> RunningService<RoleClient, DummyClientHandler> {
+        let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_tetel"));
+        cmd.arg("mcp");
+        cmd.current_dir(&self.dir);
+        cmd.env("TETEL_STATE_HOME", self.state_home()).env("TETEL_CONFIG_HOME", self.config_home());
+        for key in ["OPENROUTER_API_KEY", "TETEL_API_KEY", "TYPESAFE_API_KEY"] {
+            cmd.env_remove(key);
+        }
+        let transport = TokioChildProcess::new(cmd).expect("failed to spawn `tetel mcp`");
+        DummyClientHandler.serve(transport).await.expect("mcp initialise handshake failed")
+    }
+
     /// Spawn `tetel mcp` from a *copy* of the test binary placed inside
     /// this sandbox, and return the path it was launched from.
     ///
@@ -1825,6 +1840,63 @@ async fn a_finding_survives_a_refused_call_and_is_delivered_once() {
     // Nothing left owed.
     let third = create_claim(&client, ws, "read_me.rs is readable", "F1").await;
     assert!(third["verify"].get("for_mint").is_none(), "{third}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// A failed verification reaches the author through the server: the
+/// delivered record says why, the guidance says the mint went unchecked,
+/// and `unverified` names it until a withdrawal takes it off the list.
+///
+/// Through the server because `unverified` is computed after the dispatch,
+/// which only `verify_block` can show. Reverts: stop leaving withdrawn
+/// claims out (the withdrawal reply still names C1); drop the key, or the
+/// delivered `detail`, from `block`.
+#[tokio::test]
+async fn a_failed_verification_is_named_until_its_claim_is_withdrawn() {
+    let sb = Sandbox::new("verify-unverified");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let cfg = sb.config_home();
+    std::fs::create_dir_all(&cfg).expect("config home");
+    std::fs::write(cfg.join("config.toml"), "[verify]\nenabled = true\nverbs = \"claim\"\n")
+        .expect("write global config");
+    let client = sb.connect_keyless().await;
+    let ws = "ws";
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    fact(&client, ws, "read_me.rs defines a()").await;
+    let c1 = create_claim(&client, ws, "read_me.rs defines exactly one function", "F1").await;
+    assert_eq!(c1["verify"]["status"], "unauthorized", "premise: no key, so nothing runs: {c1}");
+
+    let state = sb.state_home().join("workspaces").join(ws);
+    std::fs::write(
+        state.join("verify.log"),
+        concat!(
+            r#"{"seq":1,"mint":"C1","verb":"claim","status":"timeout","model":"m/x","approach":"split","#,
+            r#""at":1,"findings":[],"detail":"provider did not answer within the remaining budget","revision":0}"#,
+            "\n"
+        ),
+    )
+    .expect("plant verify.log");
+
+    let c2 = create_claim(&client, ws, "read_me.rs is a file", "F1").await;
+    let v = &c2["verify"];
+    assert_eq!((v["status"].as_str(), v["for_mint"].as_str()), (Some("timeout"), Some("C1")), "{v}");
+    assert_eq!(v["detail"], "provider did not answer within the remaining budget", "{v}");
+    assert!(v["guidance"].as_str().unwrap_or_default().starts_with("Not a finding."), "{v}");
+    assert_eq!(v["unverified"], serde_json::json!({"count": 1, "mints": ["C1"]}), "{v}");
+
+    let withdrawn = client
+        .call_tool(CallToolRequestParams::new("claim").with_arguments(args(serde_json::json!({
+            "workspace": ws,
+            "withdraw": "C1",
+            "why": "superseded",
+        }))))
+        .await
+        .expect("claim call failed at protocol level");
+    let w = withdrawn.structured_content.expect("structured withdrawal");
+    assert_eq!(w["action"], "withdrawn", "{w}");
+    assert!(w["verify"].get("unverified").is_none(), "a withdrawn claim is still listed: {w}");
 
     client.cancel().await.expect("clean shutdown");
 }

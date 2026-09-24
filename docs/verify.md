@@ -464,6 +464,14 @@ unreadable, and an empty array would read as a clean bill in every one of those 
 Under any status but `ok`, **there is no `findings` key at all**. Do not treat its absence as "no
 disagreements found".
 
+Under `timeout`, `unavailable` and `unparsable`, `detail` says why the verification did not complete:
+a status code, a transport error, a byte count or the budget. It is not delivered under `ok` or
+`gated`, where the `*_incomplete` keys below say which leg did not finish. Nor is it delivered from a record
+written before tetel recorded revisions, whose detail may quote the reply. It never quotes the
+model's or the provider's reply. That text looks like evidence and is not, so it stays in the log,
+and `tetel verify-report --spans` prints its beginning. Under those three statuses `guidance` is a
+different string, saying that the mint named by `for_mint` was not checked.
+
 Every response also echoes the settings in force (`model`, `approach`, `timeout_ms`, `verbs`,
 `literals`, `refuter_model` — `null` when it is `off` — and `typed_model`, present whenever one is in force — set, or the default with its key — even on a
 verb it does not run on, or `typed_model_not_run` when the default was passed over for want of its key, or `typed_model_refused` when a value in a settings file was refused and so counts as off) plus `deterministic: false` and a
@@ -483,6 +491,12 @@ did not complete.
 `typed_model_versions` lists the TypeSafe versions that answered, on any status, once a TypeSafe
 call has returned, and `typed_model_unmeasured: true` sits beside it when one of them is not the
 version the typed legs were measured on.
+`unverified` — `{"count": n, "mints": [...]}`, at most ten ids, highest revision first — names
+every mint whose latest verification ended `timeout`, `unavailable` or `unparsable`. It appears
+while verification is enabled, even on a reply whose own verb is not verified. It lists only mints
+of verbs still in `verify.verbs`, and leaves out withdrawn claims. "Latest" is the record for the
+mint's highest revision, since records land in the order they finish. A mint leaves the list when a
+later verification of it completes. Resending the same text starts no new one.
 
 ### A finding
 

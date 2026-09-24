@@ -102,7 +102,7 @@ fn subject(task: &Value) -> Result<verify::Subject, String> {
                 .map(|c| c.as_str().unwrap_or_default().to_string())
                 .collect();
             let overlap = claims::overlap_for(dir, &cites).map_err(|e| e.to_string())?;
-            verify::claim_subject(dir, id, s("prop")?, &cites, &overlap).map_err(|e| e.to_string())?
+            verify::claim_subject(dir, id, s("prop")?, &cites, &overlap, 0).map_err(|e| e.to_string())?
         }
         v => return Err(format!("unknown verb {v}")),
     };
