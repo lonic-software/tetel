@@ -193,6 +193,24 @@ pub enum Status {
 }
 
 impl Status {
+    /// Every status, for the checks that a list written elsewhere names
+    /// them all — the tool descriptions of `fact` and `claim`, and the
+    /// distinctness test below. `as_str`'s match is exhaustive, so a new
+    /// variant fails to compile there; the count asserted in
+    /// `every_status_has_a_word_and_they_are_distinct` is what then
+    /// fails until it is added here.
+    pub const ALL: [Status; 9] = [
+        Status::Off,
+        Status::Unauthorized,
+        Status::Queued,
+        Status::Skipped,
+        Status::Ok,
+        Status::Gated,
+        Status::Unavailable,
+        Status::Timeout,
+        Status::Unparsable,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Status::Off => "off",
@@ -4444,18 +4462,8 @@ mod tests {
         // count below is asserted, and `as_str`'s own match is
         // exhaustive, so a new variant fails to compile there and fails
         // the count here.
-        let all = [
-            Status::Off,
-            Status::Unauthorized,
-            Status::Queued,
-            Status::Skipped,
-            Status::Ok,
-            Status::Gated,
-            Status::Unavailable,
-            Status::Timeout,
-            Status::Unparsable,
-        ];
-        assert_eq!(all.len(), 9, "a status was added without being listed here");
+        let all = Status::ALL;
+        assert_eq!(all.len(), 9, "a status was added without being listed in `Status::ALL`");
         let mut words: Vec<&str> = all.iter().map(|s| s.as_str()).collect();
         words.sort_unstable();
         let before = words.len();

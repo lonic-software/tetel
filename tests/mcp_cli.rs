@@ -814,6 +814,18 @@ async fn tool_descriptions_stay_tied_to_the_behaviour_they_promise() {
     assert!(rec.contains("from_fact") && rec.contains("input"), "record must name both paths: {rec}");
     assert!(rec.contains("witnessed"), "record must name the witnessed path: {rec}");
 
+    // `fact` and `claim` both spell out the `verify` status vocabulary.
+    // `fact` used to point at `claim`'s description instead, which the
+    // grounder and attacker agents do not carry, and `claim`'s list had
+    // left out `skipped`.
+    for verb in ["fact", "claim"] {
+        let d = desc(verb);
+        for status in tetel::verify::Status::ALL {
+            let word = format!("`{}`", status.as_str());
+            assert!(d.contains(&word), "{verb} description is missing verify status {word}: {d}");
+        }
+    }
+
     // `run` must warn that captured output is permanent and ships.
     assert!(
         desc("run").contains("unrevisable") && desc("run").contains("snapshot"),
