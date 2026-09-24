@@ -338,7 +338,7 @@ struct LineRange {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct LookParams {
-    /// The authoring workspace this observation is recorded into.
+    /// The workspace whose pending buffer receives the output.
     workspace: String,
     /// The file to open (plain mode) — must be a regular file, or a
     /// symlink to one; a directory is refused there — or the
@@ -368,7 +368,7 @@ struct LookParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RunParams {
-    /// The authoring workspace this observation is recorded into.
+    /// The workspace whose pending buffer receives the output.
     workspace: String,
     /// The command and its arguments — executed directly, never through
     /// a shell. `command[0]` is the program name.
@@ -390,7 +390,7 @@ struct FactParams {
     /// revised — only the note can change.
     #[serde(default)]
     revise: Option<String>,
-    /// Required with `revise`: why the note is changing.
+    /// Required with `revise`. Free text, stored with the edit.
     #[serde(default)]
     why: Option<String>,
 }
@@ -399,21 +399,21 @@ struct FactParams {
 struct TargetParams {
     /// The authoring workspace this target belongs to.
     workspace: String,
-    /// The symbol this design tells an implementer to modify. Compared
-    /// byte-for-byte against the pattern of the census behind it, so it
-    /// must be the symbol itself and not a longer phrase containing it.
+    /// The symbol to be modified, exactly as searched: it is compared
+    /// byte-for-byte with the census pattern, so give the symbol itself,
+    /// not a longer phrase containing it.
     #[serde(default)]
     symbol: Option<String>,
-    /// The fact whose captured extent censuses the symbol: a `look`
-    /// with `grep` set to exactly this symbol and `path` set to the
-    /// worktree root. One fact id, not a list.
+    /// Id of the fact holding the census: a `look` with `grep` set to
+    /// exactly this symbol and `path` set to the worktree root. One fact
+    /// id, not a list.
     #[serde(default)]
     cites: Option<String>,
     /// Withdraw this existing target instead of declaring one. There is
     /// no `revise`: a changed symbol is a different census.
     #[serde(default)]
     withdraw: Option<String>,
-    /// Required with `withdraw`: why.
+    /// Required with `withdraw`. Free text, stored with the withdrawal.
     #[serde(default)]
     why: Option<String>,
 }
@@ -453,7 +453,7 @@ struct TransplantParams {
     /// `revise`: a premise is a selection of immutable bytes.
     #[serde(default)]
     withdraw: Option<String>,
-    /// Required with `withdraw`: why.
+    /// Required with `withdraw`. Free text, stored with the withdrawal.
     #[serde(default)]
     why: Option<String>,
 }
@@ -481,7 +481,7 @@ struct ClaimParams {
     /// Withdraw this existing claim instead of creating a new one.
     #[serde(default)]
     withdraw: Option<String>,
-    /// Required with `revise`/`withdraw`: why.
+    /// Required with `revise`/`withdraw`. Free text, stored with the change.
     #[serde(default)]
     why: Option<String>,
 }
@@ -518,7 +518,7 @@ struct ProseParams {
     /// Revise this existing block's text instead of creating a new one.
     #[serde(default)]
     revise: Option<String>,
-    /// Required with `revise` or `ack`: why.
+    /// Required with `revise` or `ack`. Free text, stored with the change.
     #[serde(default)]
     why: Option<String>,
     /// Acknowledge this existing block's *current* text and citations
@@ -532,7 +532,7 @@ struct ProseParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RenderParams {
-    /// The authoring workspace to assemble into markdown.
+    /// Name of the workspace to render.
     workspace: String,
     /// Write the document to this path (**absolute** — a relative path
     /// resolves against this server's working directory, not yours), and
@@ -565,7 +565,7 @@ enum QueryWhat {
 /// convenience made this one lie.
 #[derive(Debug, Deserialize, JsonSchema)]
 struct ReviewParams {
-    /// The authoring workspace whose prose and claims to pair up.
+    /// The workspace whose prose and claims to list.
     workspace: String,
 }
 
@@ -600,10 +600,9 @@ struct BriefParams {
     /// Ignored when `authoring` is true.
     #[serde(default)]
     json: bool,
-    /// Emit the authoring rhythm brief instead of a grounding brief for
-    /// a memo — the exact text handed to whoever is about to write a
-    /// document with `look`/`run`/`fact`/`claim`/`prose`/`render`. Takes
-    /// no memo.
+    /// Print the writing guide for the `look`/`run`/`fact`/`claim`/
+    /// `prose`/`render` sequence instead of a memo's claims for grading.
+    /// Takes no memo.
     #[serde(default)]
     authoring: bool,
     /// How many distinct non-author workspaces must already have graded a
@@ -615,41 +614,46 @@ struct BriefParams {
     confirm: Option<u32>,
 }
 
-/// The published shape of `record`'s `input`.
-///
-/// `input` deserialises as a bare [`serde_json::Value`] so that both an
-/// object and a JSON-encoded string are accepted — but `Value`'s own
-/// generated schema carries **no `type` at all**, just a description. A
-/// client with nothing telling it this is an object reasonably
-/// serialises one into a string, and then `record` refuses with
-/// "invalid type: string, expected struct RecordInput". That happened
-/// three times to one agent before this existed.
-///
-/// So the runtime type stays permissive and the *schema* is declared
-/// here, field by field, mirroring [`crate::evidence::RecordInput`]. A
-/// caller now sees what to send instead of guessing from prose.
+// The published shape of `record`'s `input`.
+//
+// `input` deserialises as a bare [`serde_json::Value`] so that both an
+// object and a JSON-encoded string are accepted — but `Value`'s own
+// generated schema carries **no `type` at all**, just a description. A
+// client with nothing telling it this is an object reasonably
+// serialises one into a string, and then `record` refuses with
+// "invalid type: string, expected struct RecordInput". That happened
+// three times to one agent before this existed.
+//
+// So the runtime type stays permissive and the *schema* is declared
+// here, field by field, mirroring [`crate::evidence::RecordInput`]. A
+// caller now sees what to send instead of guessing from prose.
+//
+// Plain comments, not doc comments: schemars serves a struct's doc
+// comment as the schema's `description`, so this history reached every
+// model that loaded `record` (TET-91).
 #[derive(Debug, Deserialize, JsonSchema)]
 struct IngestedRecord {
     /// The claim id this result grades — must exist in the memo's ledger.
     claim: String,
-    /// Which grounding pass this is. Free text on this path, and
-    /// validated only for being non-empty: nothing can check it. Use
-    /// `from_fact` instead if you want independence to be derivable.
+    /// Which grading pass this is. Free text on this path, and validated
+    /// only for being non-empty: nothing can check it. Use `from_fact`
+    /// instead for independence that can be derived.
     pass: String,
     /// `supports` | `refutes` | `qualifies`. A `qualifies` requires
     /// `note`.
     verdict: String,
-    /// What kind of act you say this was: `run` | `reading` | `observed`
-    /// | `attested`. Recorded verbatim and never consulted when standing
-    /// is derived — the tool witnessed the saying, not the act, so every
-    /// ingested record caps at attested regardless of what this says.
+    /// The kind of act being reported: `run` | `reading` | `observed` |
+    /// `attested`. Stored as given and never consulted when standing is
+    /// derived — this path records a report of an act, not the act, so
+    /// every ingested record caps at attested regardless of this value.
     reported_kind: String,
-    /// Where the act is recorded: a file path, or
-    /// `proc:<session-or-agent>` for a transcript-only act. Required — a
-    /// record naming nothing preserved anywhere is refused.
+    /// Where the act is preserved: a file path, or
+    /// `proc:<session-or-agent>` when the only record of it is the session
+    /// or agent that performed it. Required — a record naming nothing
+    /// preserved anywhere is rejected.
     source: String,
-    /// What the act examined. Typed by you on this path, which is exactly
-    /// what marks the record as reported rather than witnessed.
+    /// What the act examined. Supplied by hand on this path, which is what
+    /// marks the record as reported rather than witnessed.
     #[serde(default)]
     extent: Vec<String>,
     #[serde(default)]
@@ -660,11 +664,10 @@ struct IngestedRecord {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordParams {
-    /// Path to the memo the claim id must be defined in. **Absolute** —
-    /// a relative path resolves against this server's working directory,
-    /// not yours.
+    /// Absolute path of the memo file whose ledger defines the claim id (a
+    /// relative path resolves against the server's working directory).
     memo: String,
-    /// One grounding result, shaped as `evidence::RecordInput`: `claim`,
+    /// One grading result, shaped as `evidence::RecordInput`: `claim`,
     /// `pass`, `verdict` (`supports`|`refutes`|`qualifies`),
     /// `reported_kind` (`run`|`reading`|`observed`|`attested`), `source`
     /// (a file path, or `proc:<session-or-agent>`), and optional
@@ -672,20 +675,19 @@ struct RecordParams {
     /// JSON end to end, so there is no reason to make this a
     /// JSON-encoded string a caller has to escape into.
     ///
-    /// This is the **ingested** path: `extent` and `source` are typed by
-    /// you, so the tool witnessed the report and not the act, and the
-    /// record caps at attested standing. Prefer `from_fact` below for
-    /// anything you observed yourself through this server.
+    /// This is the **ingested** path: `extent` and `source` are supplied
+    /// by hand, so the server holds a report of the act and not the act,
+    /// and the record caps at attested standing. Prefer `from_fact` below
+    /// for anything captured through this server.
     #[serde(default)]
     #[schemars(with = "Option<IngestedRecord>")]
     input: Option<serde_json::Value>,
-    /// Ground `claim` on a fact **this workspace captured** — the
-    /// witnessed path. The extent is copied from the fact, where
-    /// `look`/`run` captured it, and there is no field here by which you
-    /// could supply one; that absence is what separates this from
-    /// `input`. The record carries the workspace's identity, so `check`
-    /// can recompute whether a grounding pass rested on its own
-    /// observations or inherited someone else's.
+    /// Grade `claim` against a fact **this workspace captured** — the
+    /// witnessed path. The extent is copied from the fact, as `look`/`run`
+    /// captured it, and this path has no field for supplying one; that is
+    /// what separates it from `input`. The record carries the workspace's
+    /// identity, so `check` can recompute whether a grading pass relied on
+    /// output it captured itself or on another workspace's.
     ///
     /// Requires `workspace`, `claim` and `verdict`.
     #[serde(default)]
@@ -693,7 +695,7 @@ struct RecordParams {
     /// The workspace whose fact is being cited. Required with `from_fact`.
     #[serde(default)]
     workspace: Option<String>,
-    /// Which claim is being grounded. Required with `from_fact`.
+    /// Which claim is being graded. Required with `from_fact`.
     #[serde(default)]
     claim: Option<String>,
     /// `supports` | `refutes` | `qualifies`. Required with `from_fact`.
@@ -705,7 +707,8 @@ struct RecordParams {
     /// `supports`.
     #[serde(default)]
     verdict: Option<String>,
-    /// Why, in your words. Required when `verdict` is `qualifies`.
+    /// Explanation. Required when `verdict` is `qualifies`: name the
+    /// condition the proposition omits, or what could not be established.
     #[serde(default)]
     note: Option<String>,
 }
@@ -759,7 +762,7 @@ impl TetelServer {
         Self { tool_router }
     }
 
-    #[tool(description = "Open a path into the pending observation buffer, or search it with `grep` — the evidence a `fact` is later minted from. `path` must be a regular file (or a symlink to one), or, with `grep`, a directory to search recursively. `grep` is POSIX extended regular expressions (the `grep -E` dialect), never a literal string — parentheses group, so a literal `(`, `)`, and likewise `+ ? { } |`, needs its own backslash; for a whole-string literal search, use `run` with `[\"grep\", \"-P\", …]` instead, whose own argv records the dialect it ran under. A malformed pattern is refused before anything is searched. A FIFO, socket or device named directly as `path` is refused rather than read in either mode: it does not behave like a file to read (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF), so it is refused up front instead — but one reached by recursing into a searched directory is not covered, and still blocks the search. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
+    #[tool(description = "Read a file, or search a file or directory with `grep`, and hold the result in the workspace's pending buffer until `fact` mints it. `path` must be a regular file (or a symlink to one), or, with `grep`, a directory to search recursively. `grep` is POSIX extended regular expressions (the `grep -E` dialect), never a literal string — parentheses group, so a literal `(`, `)`, and likewise `+ ? { } |`, needs its own backslash; for a whole-string literal search, use `run` with `[\"grep\", \"-P\", …]` instead, whose own argv records the dialect it ran under. A malformed pattern is rejected before anything is searched. A FIFO, socket or device named directly as `path` is rejected up front in either mode, because it does not behave like a file (a FIFO with no writer blocks forever; a device like `/dev/zero` never reaches EOF) — but one reached by recursing into a searched directory is not covered, and still blocks the search. `workspace` is required (never defaulted); ids elsewhere are workspace-relative only.")]
     async fn look(&self, Parameters(p): Parameters<LookParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Refused after the workspace is open, not before, so it reaches
@@ -798,7 +801,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Mint a fact from the pending buffer (refuses on an empty buffer — run `look`/`run` first), or `revise` an existing fact's note (extent/output/pin were set once at mint time and are never revised). Check the `attention` array in the result: a non-empty entry means your note names a location this fact's extent does not cover — read that location and mint a fact for it, or revise the note, rather than leaving a conclusion about code you did not open. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (what was refused in the window that produced it, verbatim) — a refused `look` leaves the buffer untouched, so if you expected to fold a file and see a refusal instead, that is where it went. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary. On `fact` it is on by default: 88% of what it reports about a note is correct, and it reports something about roughly one note in fourteen. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
+    #[tool(description = "Mint a fact from the pending buffer (rejected when the buffer is empty — call `look`/`run` first), or `revise` an existing fact's note (extent, output and pin are set once at mint time and never revised). The result's `attention` array lists every location the note names that the fact's captured extent does not cover; each entry needs either a `look` at that location and a fact for it, or a narrower note. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (the `look`/`run` calls this server rejected since the previous mint, with their error messages) — a rejected `look` leaves the buffer untouched, so a file missing from `folded` shows up there instead. The result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an earlier call, which `for_mint` names; `findings` is meaningful only under `ok`. On `fact` it is on by default: 88% of what it reports about a note is correct, and it reports something about roughly one note in fourteen. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -865,7 +868,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -962,7 +965,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Declare a symbol this design tells an implementer to modify, citing the fact that censuses it. REFUSES unless that fact's captured extent contains a search of the WHOLE WORKTREE for exactly this symbol \u{2014} so capture it with `look` using `grep: \"<symbol>\"` and `path: \"<worktree root>\"`, then `fact`, then cite that fact here. The refusal is about the search's existence and where it was rooted, never about what it found; a symbol with no occurrences is censused by the search establishing it has none. Declaring is not required by anything \u{2014} nothing can detect a recommendation you did not declare \u{2014} so an undeclared target is invisible, and the rendered section says so. `workspace` is required (never defaulted); ids (T#) are workspace-relative only.")]
+    #[tool(description = "Declare a symbol this design tells an implementer to modify, citing the fact that censuses it. Rejected unless that fact's captured extent contains a search of the WHOLE WORKTREE for exactly this symbol \u{2014} so capture it with `look` using `grep: \"<symbol>\"` and `path: \"<worktree root>\"`, then `fact`, then cite that fact here. The check is on whether the search exists and where it was rooted, never on what it found; a symbol with no occurrences is censused by a search showing it has none. Declaring is not required by anything \u{2014} nothing can detect a recommendation that was not declared \u{2014} so an undeclared target is invisible, and the rendered section says so. `workspace` is required (never defaulted); ids (T#) are workspace-relative only.")]
     async fn target(&self, Parameters(p): Parameters<TargetParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let req = if let Some(id) = p.withdraw {
@@ -1023,7 +1026,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block whose current text and citations you re-read against the claims they cite and found nothing to change (requires `why`; discharges a `prose-revised-since-proof` finding for it, and refuses if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `prose` it is `off` unless you have turned the verb on, this being the highest-volume verb of the three and the only one whose precision sits at the floor of what is worth printing rather than above it. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
+    #[tool(description = "Append a paragraph or heading to the document's prose, `revise` an existing block, or `ack` a block: record that its current text and citations were compared with the claims they cite and need no change (requires `why`; clears a `prose-revised-since-proof` finding for it, and is rejected if combined with `text`, `revise`, `heading_level`, `cites` or `before`). Write prose as soon as a claim exists to say something about — don't defer to a writing phase at the end. The result also carries `verify`, an object with a mandatory `status` — see the `claim` tool's description for the vocabulary; on `prose` it is `off` unless you have turned the verb on, this being the highest-volume verb of the three and the only one whose precision sits at the floor of what is worth printing rather than above it. `workspace` is required (never defaulted); ids (P#) are workspace-relative only.")]
     async fn prose(&self, Parameters(p): Parameters<ProseParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -1128,7 +1131,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assemble the workspace into the finished document: prose in order, then an evidence ledger of every non-withdrawn claim, then a Facts table carrying each fact's note and its CAPTURED extent — which is what lets a reader check a note against what was actually opened without the workspace in hand. Run `review` before this and read each paragraph against the claims it cites. With `out`, also writes the workspace snapshot to `<out>.tetel/` in the same act, and mints the workspace identity if it has none; without a snapshot beside it a memo's citation ids resolve to nothing and `check` cannot tell self-grounding from independent grounding. Warns if observations are still pending, never minted into a fact. `workspace` is required (never defaulted).")]
+    #[tool(description = "Builds the finished markdown document from the workspace: prose in order, then an evidence ledger of every non-withdrawn claim, then a Facts table with each fact's note and its CAPTURED extent, so a reader can compare a note with what was actually opened without having the workspace. Call `review` first and compare each paragraph with the claims it cites. With `out`, also writes the workspace snapshot to `<out>.tetel/` in the same step, and assigns the workspace identity if it has none; without a snapshot beside it a memo's citation ids resolve to nothing and `check` cannot tell self-grounding from independent grounding. Warns if captured output is still pending, never minted into a fact. `workspace` is required (never defaulted).")]
     async fn render(&self, Parameters(p): Parameters<RenderParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let rendered = match compose::render(&dir) {
@@ -1195,7 +1198,7 @@ they are in the snapshot but nothing in the document rests on them"
         }
     }
 
-    #[tool(description = "Every paragraph beside the claims it cites, assembled for reading. Use this before `render --out`: read each paragraph against its propositions and ask whether the paragraph says what its claims say, no more. A paragraph asserting something none of its claims carries is the failure this is for — nothing detects it mechanically, and seeing the two together will. `workspace` is required (never defaulted).")]
+    #[tool(description = "Lists each paragraph of the workspace's prose next to the claims it cites. Use it before `render --out` to compare each paragraph with its claims: a paragraph stating something none of its cited claims states is the error this view exists to expose, and no automatic check detects it. `workspace` is required (never defaulted).")]
     async fn review(&self, Parameters(p): Parameters<ReviewParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         match crate::review::render(&dir) {
@@ -1260,7 +1263,7 @@ they are in the snapshot but nothing in the document rests on them"
     // it must never be merged into or substituted for AUTHORING_BRIEF, so
     // a future run can still tell brief-driven behavior apart from
     // description-driven behavior.
-    #[tool(description = "Emit the grounding brief for a memo's evidence ledger (id + proposition only, scope withheld), or with `authoring: true`, the authoring rhythm brief for whoever is about to write a document with look/run/fact/claim/prose/render.")]
+    #[tool(description = "Print a memo's claims for grading (id and proposition only, without the memo's other text), or with `authoring: true`, the writing guide for the `look`/`run`/`fact`/`claim`/`prose`/`render` sequence.")]
     async fn brief(&self, Parameters(p): Parameters<BriefParams>) -> Result<CallToolResult, ErrorData> {
         if p.authoring {
             return text_result(crate::brief::AUTHORING_BRIEF);
@@ -1304,7 +1307,7 @@ schedule a switched-off flag produces. The floor is at least 1.",
         }
     }
 
-    #[tool(description = "Append one grounding result to the memo's evidence log. Two paths: `from_fact` (witnessed — the extent is copied from a fact this workspace captured and cannot be typed, and the record carries the workspace identity so `check` can recompute whether a pass grounded its own observations) or `input` (ingested — extent and source typed by you, capped at attested standing). Prefer `from_fact` for anything you observed through this server. Refuses an unknown claim id, an invalid verdict, a `qualifies` with no note, or malformed input, and never performs a partial write.")]
+    #[tool(description = "Append one grading result to the memo's evidence log. Two paths: `from_fact` (witnessed — the extent is copied from a fact this workspace captured and cannot be supplied by hand, and the record carries the workspace identity so `check` can recompute whether a pass relied on output it captured itself) or `input` (ingested — extent and source supplied by hand, capped at attested standing). Prefer `from_fact` for anything captured through this server. Rejects an unknown claim id, an invalid verdict, a `qualifies` with no note, or malformed input, and never performs a partial write.")]
     async fn record(&self, Parameters(p): Parameters<RecordParams>) -> Result<CallToolResult, ErrorData> {
         let refused = |e: crate::evidence::RecordError| {
             Ok(CallToolResult::structured_error(json!({
