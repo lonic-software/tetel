@@ -1963,3 +1963,76 @@ async fn the_mcp_brief_honours_the_configured_grounding_floor() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// TET-93: Claude Code spills a reply over its threshold to a file an
+/// agent restricted to tetel cannot open, and a tool can declare its own
+/// threshold. Compared as exact sets, so a tool that is listed without
+/// the declaration fails here rather than passing a subset check.
+#[tokio::test]
+async fn every_listed_tool_declares_its_spill_threshold() {
+    let sb = Sandbox::new("spill-threshold");
+    let client = sb.connect().await;
+
+    let tools = client.list_all_tools().await.expect("list tools");
+    let listed: std::collections::BTreeSet<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+    let declared: std::collections::BTreeSet<&str> = tools
+        .iter()
+        .filter(|t| {
+            t.meta.as_ref().and_then(|m| m.get(tetel::reply::MAX_RESULT_SIZE_KEY))
+                == Some(&serde_json::json!(tetel::reply::DECLARED_MAX_RESULT_SIZE_CHARS))
+        })
+        .map(|t| t.name.as_ref())
+        .collect();
+    assert!(listed.len() >= 12, "premise: the tool list must be populated, got {listed:?}");
+    assert_eq!(declared, listed, "every listed tool, and only those, declares the threshold");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// `run` has no shaping of its own yet (A5), so its reply is held under the
+/// budget by the backstop in `call_tool` alone — which makes it the verb
+/// that shows the backstop is wired, through a real client. Three sizes:
+/// under the budget untouched, content fitting with the structured copy
+/// dropped, and content alone over it cut and marked.
+#[tokio::test]
+async fn call_tool_holds_every_reply_to_the_budget() {
+    let sb = Sandbox::new("reply-budget");
+    let client = sb.connect().await;
+    let budget = tetel::reply::REPLY_BUDGET;
+    let size = |r: &rmcp::model::CallToolResult| {
+        r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.len()).sum::<usize>()
+            + r.structured_content.as_ref().map_or(0, |v| v.to_string().len())
+    };
+    let run = |n: usize| {
+        client.call_tool(CallToolRequestParams::new("run").with_arguments(args(serde_json::json!({
+            "workspace": "ws-budget",
+            "command": ["seq", "1", n.to_string()],
+        }))))
+    };
+    let seq = |n: usize| (1..=n).map(|i| format!("{i}\n")).collect::<String>();
+
+    // Under the budget: both fields, as `structured()` built them.
+    let small = run(3).await.expect("run");
+    assert_eq!(small.structured_content.as_ref().expect("structured")["output"], seq(3));
+
+    // ~23k of content, ~46k counting both: only the structured copy goes.
+    let mid = run(4000).await.expect("run");
+    assert!(size(&mid) <= budget, "size {} over {budget}", size(&mid));
+    assert!(mid.structured_content.is_none(), "the structured copy must be dropped");
+    let text = &mid.content[0].as_text().expect("text").text;
+    let parsed: serde_json::Value = serde_json::from_str(text).expect("the content is still the whole JSON");
+    assert_eq!(parsed["output"], seq(4000), "nothing may be lost when only the copy is dropped");
+    assert_eq!(text, &parsed.to_string(), "the content must be what `structured()` sent, untouched");
+
+    // ~110k of content: cut, marked, within the budget.
+    let big = run(20000).await.expect("run");
+    assert!(size(&big) <= budget, "size {} over {budget}", size(&big));
+    assert!(big.structured_content.is_none());
+    let text = &big.content[0].as_text().expect("text").text;
+    assert!(text.contains("[tetel: this reply was cut"), "an over-budget reply must say it was cut");
+    // Line 5000 sits about 24k bytes into the output: the cut must spend the
+    // budget on the output, not stop before it.
+    assert!(text.contains("\\n5000\\n"), "the cut shows too little of the output:\n{}", &text[..text.len().min(300)]);
+
+    client.cancel().await.expect("clean shutdown");
+}

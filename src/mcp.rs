@@ -759,6 +759,16 @@ impl TetelServer {
         if let Some(route) = tool_router.map.get_mut("check") {
             route.attr.description = Some(std::borrow::Cow::Owned(check_description()));
         }
+        // Every tool declares its spill threshold, set here over the whole
+        // router rather than per `#[tool]` so a tool added later declares
+        // it without anyone remembering to. See `reply` on why the
+        // declared figure is headroom over the budget, not the budget.
+        for route in tool_router.map.values_mut() {
+            route.attr.meta.get_or_insert_with(rmcp::model::MetaObject::new).insert(
+                crate::reply::MAX_RESULT_SIZE_KEY.to_string(),
+                json!(crate::reply::DECLARED_MAX_RESULT_SIZE_CHARS),
+            );
+        }
         Self { tool_router }
     }
 
@@ -1417,15 +1427,20 @@ impl ServerHandler for TetelServer {
     /// longer contains this process), the remedy is singular (restart the
     /// client), and there is deliberately no override — an override is a
     /// way to reintroduce exactly the silence this closes.
+    ///
+    /// **Every outcome leaves through [`crate::reply::bound`]**, the
+    /// refusal above included, for the same one-place reason: a reply over
+    /// the budget is spilled to a file the caller cannot open, and a bound
+    /// each verb had to remember would be broken by the next verb.
     async fn call_tool(
         &self,
         request: rmcp::model::CallToolRequestParams,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::CallToolResponse, ErrorData> {
-        if let crate::buildid::Freshness::Stale { running, installed, path } =
+        let outcome = if let crate::buildid::Freshness::Stale { running, installed, path } =
             crate::buildid::freshness()
         {
-            return Ok(CallToolResult::structured_error(json!({
+            Ok(CallToolResult::structured_error(json!({
                 "error": "refused",
                 "command": request.name,
                 "guidance": crate::buildid::stale_guidance(&running, &installed, &path),
@@ -1433,10 +1448,12 @@ impl ServerHandler for TetelServer {
                 "installed_build": installed,
                 "binary": path,
             }))
-            .into());
-        }
-        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
-        self.tool_router.call(tcc).await
+            .into())
+        } else {
+            let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+            self.tool_router.call(tcc).await
+        };
+        crate::reply::bound(outcome)
     }
 
     /// Written out by hand for the same reason `call_tool` is: `#[tool_handler]`'s
