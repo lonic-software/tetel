@@ -136,15 +136,17 @@ fn smallest_first(fields: serde_json::Map<String, Value>) -> String {
     format!("{{{}}}", parts.join(","))
 }
 
-/// `data` goes first because it is the structured part, usually short, and
-/// the cut keeps the front: after a long message it would always be lost.
+/// The shorter of `data` and the message goes first, for the reason
+/// `smallest_first` orders fields: the cut keeps the front, so whichever
+/// came second after a long first part would always be lost.
 fn bound_error(mut err: ErrorData) -> ErrorData {
     let data_len = err.data.as_ref().map_or(0, |d| d.to_string().len());
     if err.message.len() + data_len <= REPLY_BUDGET {
         return err;
     }
     let text = match err.data.take() {
-        Some(data) => format!("{data}\n{}", err.message),
+        Some(data) if data.to_string().len() < err.message.len() => format!("{data}\n{}", err.message),
+        Some(data) => format!("{}\n{data}", err.message),
         None => err.message.into_owned(),
     };
     err.message = cut("", &text).into();
@@ -330,6 +332,11 @@ mod tests {
         assert!(out.data.is_none(), "data is folded into the text, not sent beside it");
         assert!(out.message.contains(CUT));
         assert!(out.message.contains("kept in the text"), "data must survive a long message");
+
+        let err = ErrorData::internal_error("the cause", Some(json!({ "echo": lines(1000) })));
+        let Err(out) = bound(Err(err)) else { panic!("an error stays an error") };
+        assert!(out.message.len() <= REPLY_BUDGET);
+        assert!(out.message.starts_with("the cause\n"), "a short message must survive long data");
     }
 
     #[test]
