@@ -74,11 +74,13 @@ fn content_text_len(result: &CallToolResult) -> usize {
 /// same JSON in the content, so nothing is lost and nothing is marked.
 /// Otherwise it becomes text only: the structured value's `verify` object
 /// first and whole, then a prefix of the rest, then a marker saying the
-/// reply was cut. The rest is cut at a line boundary where it has one; a
-/// structured value is kept in the compact form the content carried, whose
-/// newlines are all escaped, so it is cut at a char boundary instead. (Pretty
-/// printing was tried and rejected: a long string field, like `run`'s
-/// `output`, is one pretty line, so its line cut showed nothing of it.)
+/// reply was cut. A structured rest is compact JSON with its fields in
+/// ascending order of size, so the small identifying ones (`id`, `action`,
+/// `exit_code`) come before any long list or output that the cut falls in;
+/// `serde_json`'s own order is alphabetical and put `fact`'s `id` behind
+/// `attention` and `folded`. (Pretty printing was tried and rejected: a long
+/// string field, like `run`'s `output`, is one pretty line, so a line cut
+/// showed nothing of it.)
 ///
 /// `verify` is exempt from cutting because a finding is marked delivered
 /// while the reply is built (`verify_block` in `mcp.rs`), and no surface
@@ -116,7 +118,7 @@ fn bound_result(mut result: CallToolResult) -> CallToolResult {
                 .remove("verify")
                 .map(|v| format!("{}\n", serde_json::json!({ "verify": v })))
                 .unwrap_or_default();
-            (head, Value::Object(fields).to_string())
+            (head, smallest_first(fields))
         }
         Some(other) => (String::new(), other.to_string()),
         None => (String::new(), texts(&result.content)),
@@ -125,16 +127,26 @@ fn bound_result(mut result: CallToolResult) -> CallToolResult {
     result
 }
 
+/// A JSON object as compact text, its fields ordered by their serialized
+/// size, smallest first.
+fn smallest_first(fields: serde_json::Map<String, Value>) -> String {
+    let mut parts: Vec<String> =
+        fields.into_iter().map(|(k, v)| format!("{}:{v}", Value::String(k))).collect();
+    parts.sort_by_key(String::len);
+    format!("{{{}}}", parts.join(","))
+}
+
+/// `data` goes first because it is the structured part, usually short, and
+/// the cut keeps the front: after a long message it would always be lost.
 fn bound_error(mut err: ErrorData) -> ErrorData {
     let data_len = err.data.as_ref().map_or(0, |d| d.to_string().len());
     if err.message.len() + data_len <= REPLY_BUDGET {
         return err;
     }
-    let mut text = err.message.into_owned();
-    if let Some(data) = err.data.take() {
-        text.push('\n');
-        text.push_str(&data.to_string());
-    }
+    let text = match err.data.take() {
+        Some(data) => format!("{data}\n{}", err.message),
+        None => err.message.into_owned(),
+    };
     err.message = cut("", &text).into();
     err
 }
@@ -160,14 +172,17 @@ fn cut(head: &str, rest: &str) -> String {
 }
 
 /// The longest prefix of `s` within `room` bytes that ends at a line
-/// boundary, or at a char boundary where no line boundary is in reach.
+/// boundary, or at a char boundary where the last line boundary in reach
+/// would give up more than half the room: a short header followed by one
+/// long line (`look` on a minified file) would otherwise show only the
+/// header.
 fn prefix(s: &str, room: usize) -> &str {
     let mut end = room.min(s.len());
     while !s.is_char_boundary(end) {
         end -= 1;
     }
     match s[..end].rfind('\n') {
-        Some(i) if i > 0 => &s[..i],
+        Some(i) if i >= end / 2 => &s[..i],
         _ => &s[..end],
     }
 }
@@ -278,6 +293,26 @@ mod tests {
     }
 
     #[test]
+    fn a_short_header_before_one_long_line_does_not_waste_the_budget() {
+        let body = format!("==> /tmp/min.js <==\n{}", "x".repeat(100_000));
+        let out = unwrap_complete(bound(complete(CallToolResult::success(vec![ContentBlock::text(body)]))));
+        let text = text_of(&out);
+        assert!(text.len() <= REPLY_BUDGET);
+        assert!(text.len() > REPLY_BUDGET / 2, "only {} bytes shown: the cut stopped at the header", text.len());
+    }
+
+    #[test]
+    fn a_minted_id_is_not_cut_behind_a_long_list() {
+        // `folded` sorts before `id` alphabetically.
+        let folded: Vec<String> = (0..2000).map(|i| format!("search {i}: {}", "y".repeat(40))).collect();
+        let value = json!({ "id": "F77", "action": "minted", "attention": [], "folded": folded, "verify": { "status": "off" } });
+        let out = unwrap_complete(bound(complete(CallToolResult::structured(value))));
+        let text = text_of(&out);
+        assert!(text.len() <= REPLY_BUDGET);
+        assert!(text.contains(r#""id":"F77""#), "the minted id was cut away: {}", &text[..200]);
+    }
+
+    #[test]
     fn one_long_line_is_cut_at_a_char_boundary() {
         // Three-byte chars, so a byte-offset cut would split one.
         let body = "中".repeat(20_000);
@@ -294,6 +329,7 @@ mod tests {
         assert!(out.message.len() <= REPLY_BUDGET, "message {} over the budget", out.message.len());
         assert!(out.data.is_none(), "data is folded into the text, not sent beside it");
         assert!(out.message.contains(CUT));
+        assert!(out.message.contains("kept in the text"), "data must survive a long message");
     }
 
     #[test]
