@@ -83,6 +83,7 @@ pub mod parse;
 pub mod pending;
 pub mod prose;
 pub mod query;
+pub mod reply;
 pub mod report;
 pub mod review;
 pub mod scope;
