@@ -4577,3 +4577,195 @@ fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels()
     assert!(report.contains("2 different roots"), "{report}");
     assert!(!report.contains("provenance-drift"), "TET-42 must not reach render: {report}");
 }
+
+// --- TET-93: `look` shapes its own reply to the reply budget -------------
+
+/// Every entry in a workspace's pending buffer, as `(label, output)`.
+fn pending_outputs(sb: &Sandbox) -> Vec<(String, String)> {
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json"))
+        .expect("pending buffer must exist");
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["label"].as_str().unwrap().to_string(), e["output"].as_str().unwrap().to_string()))
+        .collect()
+}
+
+/// TET-93 C9: a file read over the budget pages to whole lines, and the
+/// capture is narrowed to exactly the lines returned, with a label naming
+/// that range, so a fact minted from it never claims more than was shown.
+/// Through `--lines` too, where the page starts at the range, not line 1.
+#[test]
+fn a_file_read_over_the_budget_pages_and_captures_only_what_it_showed() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("look-pages");
+    let body: String = (1..=20000).map(|i| format!("line number {i}\n")).collect();
+    sb.write("big.txt", &body);
+
+    for (args, first, end) in [(vec!["look", "big.txt"], 1, 20000), (vec!["look", "big.txt", "--lines", "5000:15000"], 5000, 15000)] {
+        let (code, out, err) = sb.run(&args);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.len() <= budget, "{args:?}: {} bytes over the budget", out.len());
+        let mut lines = out.lines();
+        assert_eq!(lines.next(), Some("==> big.txt <=="));
+        let shown: Vec<&str> = lines.clone().skip(1).collect();
+        let k = first + shown.len() - 1;
+        assert!(shown.len() > 1000, "{args:?}: the page spent too little of the budget: {} lines", shown.len());
+        assert_eq!(shown[0], format!("line number {first}"));
+        assert_eq!(
+            lines.next().unwrap(),
+            format!("[tetel: showed lines {first}-{k} of 20000; continue with lines {}-{end} — a reply is held to {budget} bytes]", k + 1),
+            "{args:?}: the caveat must sit under the header and name the next range"
+        );
+
+        let (label, output) = pending_outputs(&sb).pop().unwrap();
+        assert_eq!(label, format!("big.txt lines {first}-{k}"), "{args:?}: the label must name the range shown");
+        assert_eq!(output, shown.join("\n"), "{args:?}: the capture must be exactly the lines returned");
+    }
+}
+
+/// TET-93 C9, the floor: a selection whose first line alone is over the
+/// budget returns that line cut, never nothing, and says so in the label.
+#[test]
+fn a_file_read_whose_first_line_is_over_the_budget_returns_it_cut() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("look-cut-line");
+    sb.write("long.txt", &format!("{}\ntail\n", "x".repeat(50000)));
+
+    let (code, out, err) = sb.run(&["look", "long.txt"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    let cut = out.lines().nth(2).expect("a cut line, not nothing");
+    assert!(cut.len() > budget / 2 && cut.bytes().all(|b| b == b'x'), "the cut line spent too little: {}", cut.len());
+    assert!(
+        out.contains(&format!("showed line 1 cut to its first {} of 50000 bytes; continue with lines 2-2", cut.len())),
+        "{}",
+        &out[..300]
+    );
+    let (label, output) = pending_outputs(&sb).pop().unwrap();
+    assert_eq!(label, format!("long.txt lines 1-1, cut to its first {} of 50000 bytes", cut.len()));
+    assert_eq!(output, cut, "the capture holds exactly what was shown");
+}
+
+/// TET-93 C10: a search with more matches than fit returns a reply within
+/// the budget while its capture keeps every match line. The reply and the
+/// capture are checked apart, because the defect this guards is a reply
+/// that fits while the capture quietly lost matches. The shortfall leads
+/// the reply, above the matches, where a cut of the reply cannot reach it.
+#[test]
+fn a_search_over_the_budget_shows_what_fits_and_captures_every_match() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("grep-bounded");
+    let body: String = (1..=20000).map(|i| format!("line number {i}\n")).collect();
+    sb.write("src/big.txt", &body);
+    sb.write("src/small.txt", "line number zero\n");
+
+    let (code, out, err) = sb.run(&["look", "--grep", "number", "src"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    let first_match = out.find("src/big.txt:").expect("matches must be shown");
+    let shortfall = out.find("[tetel: showed ").expect("the reply must state its shortfall");
+    let note = out.find("(skipped tetel's own output").expect("the exclusion note must be in the reply");
+    assert!(note < first_match && shortfall < first_match, "the caveats must lead the reply:\n{}", &out[..600]);
+    let shown = out.lines().filter(|l| l.starts_with("src/")).count();
+    assert!(shown > 500, "the reply spent too little of the budget on matches: {shown}");
+    assert!(out.contains(&format!("showed {shown} of 20001 match lines; {} lines", 20001 - shown)), "{}", &out[..600]);
+
+    let entries = pending_outputs(&sb);
+    let captured: usize = entries.iter().filter(|(l, _)| l.contains("src/") && !l.starts_with("search:")).map(|(_, o)| o.lines().count()).sum();
+    assert_eq!(captured, 20001, "the capture must hold every match line");
+    let search = entries.iter().find(|(l, _)| l.starts_with("search:")).unwrap();
+    assert!(
+        search.0.contains(&format!("showed {shown} of 20001 match lines")) && search.0.contains("(32768-byte reply bound)"),
+        "the label must state the shortfall: {}",
+        search.0
+    );
+}
+
+/// TET-93 C10's floor: a search whose only match line is over the budget
+/// returns that line cut, never an empty reply, and keeps it whole in the
+/// capture.
+#[test]
+fn a_search_whose_only_match_is_over_the_budget_returns_it_cut() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("grep-cut-line");
+    sb.write("long.txt", &format!("{}\n", "x".repeat(50000)));
+
+    let (code, out, err) = sb.run(&["look", "--grep", "x", "long.txt"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    let cut = out.lines().find(|l| l.starts_with("long.txt:1:x")).expect("a cut line, not nothing");
+    assert!(cut.len() > budget / 2, "the cut line spent too little: {}", cut.len());
+    assert!(out.contains(&format!("showed the first {} of 50011 bytes of match line 1;", cut.len())), "{}", &out[..400]);
+    let entries = pending_outputs(&sb);
+    let file = entries.iter().find(|(l, _)| l.starts_with("long.txt (grep")).unwrap();
+    assert_eq!(file.1.len(), "1:".len() + 50000, "the capture must keep the whole line");
+}
+
+/// TET-93 C10: an exclusion note that would crowd out the matches falls
+/// back to counts in the reply, while the search's label keeps every name.
+#[test]
+fn an_exclusion_note_over_the_budget_is_counted_in_the_reply_and_named_in_the_label() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("grep-counted-note");
+    assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
+    // 1500 files and the state home the workspace lives in.
+    sb.write(".gitignore", "*.ign\nstate-home/\n");
+    for i in 0..1500 {
+        sb.write(&format!("an-ignored-file-with-a-long-name-{i:04}.ign"), "");
+    }
+    sb.write("src.txt", "NEEDLE here\n");
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(out.contains("./src.txt:1:NEEDLE here"), "the match must be shown:\n{}", &out[..out.len().min(600)]);
+    assert!(out.contains("and 1501 git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
+    assert!(!out.contains("an-ignored-file-with-a-long-name-0000.ign"), "the reply must count, not name");
+    assert!(!out.contains("[tetel: showed"), "every match fit once the note was counted; no shortfall to state");
+    let entries = pending_outputs(&sb);
+    let search = entries.iter().find(|(l, _)| l.starts_with("search:")).unwrap();
+    assert!(search.0.contains("an-ignored-file-with-a-long-name-1499.ign"), "the label must keep every name");
+
+    // With more matches than fit even beside the counted note, the note is
+    // still counted rather than left to crowd the matches out.
+    let many: String = (1..=5000).map(|i| format!("NEEDLE {i}\n")).collect();
+    sb.write("many.txt", &many);
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(out.contains("git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
+    assert!(out.lines().filter(|l| l.contains(":NEEDLE")).count() > 500, "the matches were crowded out");
+}
+
+/// TET-93 C10: a partial search's caveat quotes grep's stderr, and a tree
+/// with thousands of unreadable directories makes that quote larger than
+/// the budget. The reply cuts the quote and keeps the caveat first; the
+/// label keeps the whole quote.
+#[test]
+#[cfg(unix)]
+fn a_partial_search_caveat_leads_the_reply_with_its_stderr_quote_cut() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("grep-partial-cut");
+    sb.write("tree/ok.txt", "NEEDLE here\n");
+    let mut restore = Vec::new();
+    for i in 0..2000 {
+        let dir = sb.dir.join(format!("tree/blocked-directory-{i:04}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        restore.push(RestorePerms(dir));
+    }
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "tree"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(out.starts_with("PARTIAL SEARCH"), "the caveat must lead the reply:\n{}", &out[..out.len().min(300)]);
+    assert!(out.contains("bytes of stderr]"), "the reply must say the quote was cut");
+    assert!(out.contains("tree/ok.txt:1:NEEDLE here"), "the match must still be shown");
+    let entries = pending_outputs(&sb);
+    let search = entries.iter().find(|(l, _)| l.starts_with("search:")).unwrap();
+    assert!(search.0.len() > 2 * budget, "the label must keep the whole quote: {} bytes", search.0.len());
+}
