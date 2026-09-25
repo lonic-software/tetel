@@ -1,0 +1,12 @@
+{"event":"Declare","id":"T1","symbol":"call_tool","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T2","symbol":"list_tools","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T3","symbol":"look_path","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T4","symbol":"look_grep","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T5","symbol":"fact_result","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T6","symbol":"facts_text","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T7","symbol":"claims_text","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T8","symbol":"prose_text","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T9","symbol":"QueryParams","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T10","symbol":"QueryCommand","from":"F11","timestamp":1790342943}
+{"event":"Declare","id":"T11","symbol":"advice","from":"F13","timestamp":1790344142}
+{"event":"Declare","id":"T12","symbol":"verify_block","from":"F13","timestamp":1790344142}
