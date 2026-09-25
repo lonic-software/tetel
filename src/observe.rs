@@ -582,7 +582,7 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
             None => format!("{display_path} lines {a}-{}", page.last),
             Some((x, y)) => format!("{display_path} lines {a}-{a}, cut to its first {x} of {y} bytes"),
         };
-        (page.output, label, Some(page.caveat))
+        (page.output, label, page.caveat)
     };
 
     // The caveat goes straight under the header, not after the text: the
@@ -625,7 +625,9 @@ struct PathPage {
     /// `(shown, of)` bytes, when the first selected line alone was over the
     /// budget and had to be cut.
     cut: Option<(usize, usize)>,
-    caveat: String,
+    /// `None` when the page holds the whole selection after all: a CRLF
+    /// file is measured over budget with its `\r`s, and paged without them.
+    caveat: Option<String>,
 }
 
 /// Page `selected` — lines `first..` of a file of `total` lines — into
@@ -651,7 +653,8 @@ fn page_path(header: &str, selected: &[&str], first: usize, total: usize) -> Pat
     let n = fit.count();
     if n > 0 {
         let last = first + n - 1;
-        return PathPage { output: selected[..n].join("\n"), last, cut: None, caveat: whole(last) };
+        let caveat = (n < selected.len()).then(|| whole(last));
+        return PathPage { output: selected[..n].join("\n"), last, cut: None, caveat };
     }
 
     let line = selected[0];
@@ -668,7 +671,7 @@ fn page_path(header: &str, selected: &[&str], first: usize, total: usize) -> Pat
     };
     let room = REPLY_BUDGET.saturating_sub(header.len() + cut_caveat(line.len()).len() + 2);
     let shown = floor_char_boundary(line, room);
-    PathPage { output: shown.to_string(), last: first, cut: Some((shown.len(), line.len())), caveat: cut_caveat(shown.len()) }
+    PathPage { output: shown.to_string(), last: first, cut: Some((shown.len(), line.len())), caveat: Some(cut_caveat(shown.len())) }
 }
 
 /// A search's reply: every match line, or the first of them that fit and
@@ -682,8 +685,8 @@ enum GrepPage {
 /// `counted` are the two forms of what leads the reply — caveat and
 /// exclusion note — with the note whole or counted. Every match beside the
 /// counted note beats the whole note beside fewer matches. When the matches
-/// do not all fit either way, the whole note is kept while it leaves room
-/// for the first match line, and past that the counted form takes its place.
+/// do not all fit either way, the shorter form leads: the label names every
+/// excluded path, so a note that costs the reply matches buys it nothing.
 ///
 /// Only the reply is fitted. The capture is built from `stdout` apart from
 /// this and keeps every match line, so the shortfall says so; whether a
@@ -724,8 +727,7 @@ fn page_grep(stdout: &str, full: &str, counted: &str) -> GrepPage {
     // Reserved at its longest before the lines are counted: no count in
     // either form exceeds `total`, `first.len()` or `stdout.len()`.
     let reserved = line(whole(total, stdout.len())).len().max(line(cut(first.len(), stdout.len())).len());
-    let first_with_newline = first.len() + 1;
-    let head = if full.len() + reserved + first_with_newline <= REPLY_BUDGET { full } else { counted };
+    let head = if full.len() <= counted.len() { full } else { counted };
     let room = REPLY_BUDGET.saturating_sub(head.len() + reserved);
 
     let mut shown = String::new();
@@ -737,6 +739,12 @@ fn page_grep(stdout: &str, full: &str, counted: &str) -> GrepPage {
         shown.push_str(l);
         shown.push('\n');
         n += 1;
+    }
+    // Every line fit once measured without the `\r`s an unfiltered CRLF
+    // search keeps in `stdout`: nothing was left out, so nothing is stated.
+    // The capture splits on `lines()` too, so it holds these same bytes.
+    if n == total {
+        return GrepPage::Whole(format!("{head}{shown}"));
     }
     let shortfall = if n > 0 {
         whole(n, stdout.len() - shown.len())

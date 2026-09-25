@@ -4668,6 +4668,7 @@ fn a_search_over_the_budget_shows_what_fits_and_captures_every_match() {
     let shortfall = out.find("[tetel: showed ").expect("the reply must state its shortfall");
     let note = out.find("(skipped tetel's own output").expect("the exclusion note must be in the reply");
     assert!(note < first_match && shortfall < first_match, "the caveats must lead the reply:\n{}", &out[..600]);
+    assert!(out.contains("and no rendered memo;"), "a note shorter than its counted form stays whole:\n{}", &out[..600]);
     let shown = out.lines().filter(|l| l.starts_with("src/")).count();
     assert!(shown > 500, "the reply spent too little of the budget on matches: {shown}");
     assert!(out.contains(&format!("showed {shown} of 20001 match lines; {} lines", 20001 - shown)), "{}", &out[..600]);
@@ -4768,4 +4769,54 @@ fn a_partial_search_caveat_leads_the_reply_with_its_stderr_quote_cut() {
     let entries = pending_outputs(&sb);
     let search = entries.iter().find(|(l, _)| l.starts_with("search:")).unwrap();
     assert!(search.0.len() > 2 * budget, "the label must keep the whole quote: {} bytes", search.0.len());
+}
+
+/// TET-93 review: a note that fits beside some of the matches but not all
+/// of them is still counted, because the label names every path and a
+/// whole note in the reply only costs it matches.
+#[test]
+fn a_search_that_overflows_counts_even_a_note_that_would_fit() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("grep-counted-mid-note");
+    assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
+    sb.write(".gitignore", "*.ign\nstate-home/\n");
+    for i in 0..400 {
+        sb.write(&format!("an-ignored-file-with-a-long-name-{i:04}.ign"), "");
+    }
+    let many: String = (1..=3000).map(|i| format!("NEEDLE {i}\n")).collect();
+    sb.write("many.txt", &many);
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(out.contains("and 401 git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
+    assert!(!out.contains("an-ignored-file-with-a-long-name-0000.ign"), "the reply must count, not name");
+}
+
+/// TET-93 review: a CRLF file is measured over the budget with its `\r`s
+/// and paged without them. When every line then fits, nothing was left
+/// out, and the reply must not say otherwise; the same for a search.
+#[test]
+fn a_crlf_file_that_fits_once_paged_states_no_shortfall() {
+    let budget = tetel::reply::REPLY_BUDGET;
+    let sb = Sandbox::new("look-crlf");
+    // 1000 lines: 33000 bytes with CRLF, 32000 as the paged lines.
+    sb.write("crlf.txt", &format!("{}\r\n", "x".repeat(31)).repeat(1000));
+
+    let (code, out, err) = sb.run(&["look", "crlf.txt"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(!out.contains("[tetel: showed"), "nothing was left out:\n{}", &out[..200]);
+    assert_eq!(out.lines().count(), 1001);
+    let (label, output) = pending_outputs(&sb).pop().unwrap();
+    assert_eq!(label, "crlf.txt lines 1-1000");
+    assert_eq!(output, vec!["x".repeat(31); 1000].join("\n"));
+
+    // Lines of 21: the search's stdout is over the budget only by its `\r`s.
+    sb.write("c.txt", &format!("{}\r\n", "x".repeat(21)).repeat(1000));
+    let (code, out, err) = sb.run(&["look", "--grep", "x", "c.txt"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() <= budget, "{} bytes over the budget", out.len());
+    assert!(!out.contains("[tetel: showed"), "nothing was left out:\n{}", &out[..200]);
+    assert!(out.contains("c.txt:1000:"), "every match must be shown");
 }
