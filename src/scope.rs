@@ -294,21 +294,34 @@ fn observed_extensions(facts: &[Fact]) -> Vec<String> {
 /// `look` recorded.
 ///
 /// A search's label names some of the git-ignored paths it skipped, so a
-/// location the search never read can appear in its label. Such a
-/// location is not covered by that entry (TET-92).
+/// location the search never read can appear in its label. Those names are
+/// taken out of the label before it is searched, so the test that decides
+/// coverage never sees them, however the note spells the path (TET-92).
 fn extent_covers(fact: &Fact, mentioned: &str) -> bool {
     fact.extent.iter().any(|e| {
-        let hay = format!("{} {}", e.key, e.label);
-        (hay.contains(mentioned) && !skipped(e, mentioned)) || mentioned.contains(e.key.as_str())
+        let hay = format!("{} {}", e.key, without_ignored(e));
+        hay.contains(mentioned) || mentioned.contains(e.key.as_str())
     })
 }
 
-/// Whether `mentioned` names one of the git-ignored paths `e` skipped,
-/// spelled with or without a leading `./` or a directory's trailing `/`.
-fn skipped(e: &crate::facts::ExtentEntry, mentioned: &str) -> bool {
-    let bare = |s: &str| s.trim_start_matches("./").trim_end_matches('/').to_string();
-    let mentioned = bare(mentioned);
-    e.ignored.iter().any(|n| bare(n) == mentioned)
+/// `e`'s label with every git-ignored path it names removed, in the forms
+/// `observe::exclusion_note` writes them: whole, and cut to `ENTRY_CAP`.
+fn without_ignored(e: &crate::facts::ExtentEntry) -> std::borrow::Cow<'_, str> {
+    if e.ignored.is_empty() {
+        return std::borrow::Cow::Borrowed(&e.label);
+    }
+    let mut names: Vec<String> = Vec::new();
+    for n in &e.ignored {
+        names.push(n.clone());
+        names.push(crate::reply::capped(n, crate::reply::ENTRY_CAP).into_owned());
+    }
+    // Longest first, so a name that contains another is removed whole.
+    names.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    let mut label = e.label.clone();
+    for n in names {
+        label = label.replace(&n, "");
+    }
+    std::borrow::Cow::Owned(label)
 }
 
 /// What to tell the author, at the moment of minting.

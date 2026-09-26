@@ -4828,20 +4828,23 @@ fn two_ignored_sets_that_differ_only_past_the_named_few_label_differently() {
 fn a_note_naming_a_path_its_search_skipped_is_not_covered_by_that_search() {
     let sb = Sandbox::new("grep-skipped-not-covered");
     assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
-    sb.write(".gitignore", "skipped.rs\nstate-home/\n");
+    sb.write(".gitignore", "gen/skipped.rs\nstate-home/\n");
     sb.write("src/a.rs", "fn f() { NEEDLE(); }\n");
-    sb.write("skipped.rs", "NEEDLE\n");
+    sb.write("gen/skipped.rs", "NEEDLE\n");
 
     let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
     assert_eq!(code, 0, "{err}");
-    assert!(out.contains("./skipped.rs; sha256:"), "the skipped file must be in the label for this to test anything:\n{out}");
-    let (code, _out, err) = sb.run(&["fact", "--note", "NEEDLE is called in src/a.rs and in skipped.rs"]);
+    assert!(out.contains("./gen/skipped.rs; sha256:"), "the skipped file must be in the label for this to test anything:\n{out}");
+    // Named whole, and by its base name alone, which is only a substring
+    // of what the label spells.
+    let (code, _out, err) = sb.run(&["fact", "--note", "NEEDLE is called in src/a.rs and in gen/skipped.rs"]);
     assert_eq!(code, 0, "{err}");
-    assert!(
-        err.contains("note names skipped.rs, which this fact's extent does not cover"),
-        "a skipped path must draw attention:\n{err}"
-    );
+    assert!(err.contains("note names gen/skipped.rs, which"), "a skipped path must draw attention:\n{err}");
     assert!(!err.contains("note names src/a.rs"), "a searched file must still be covered:\n{err}");
+    sb.run(&["look", "--grep", "NEEDLE", "."]);
+    let (code, _out, err) = sb.run(&["fact", "--note", "skipped.rs also calls NEEDLE"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("note names skipped.rs, which"), "a base name of a skipped path must draw attention:\n{err}");
 }
 
 /// TET-93 C10: a partial search's caveat quotes grep's stderr, and a tree
