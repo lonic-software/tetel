@@ -55,6 +55,21 @@ pub const MAX_RESULT_SIZE_KEY: &str = "anthropic/maxResultSizeChars";
 /// the module doc for why it is not the budget.
 pub const DECLARED_MAX_RESULT_SIZE_CHARS: u64 = 100_000;
 
+/// The most one quoted entry inside a shaped reply may carry, in UTF-8
+/// bytes: a label, a note, a quoted stderr. Long enough to identify what it
+/// quotes, short enough that many fit beside each other.
+pub const ENTRY_CAP: usize = 1024;
+
+/// The longest prefix of `s` within `room` bytes that ends on a char
+/// boundary.
+pub fn floor_char_boundary(s: &str, room: usize) -> &str {
+    let mut end = room.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// A reply's size by the budget's measure: every text block's bytes, plus
 /// the serialized `structured_content`.
 pub fn size(result: &CallToolResult) -> usize {
@@ -179,13 +194,10 @@ fn cut(head: &str, rest: &str) -> String {
 /// long line (`look` on a minified file) would otherwise show only the
 /// header.
 fn prefix(s: &str, room: usize) -> &str {
-    let mut end = room.min(s.len());
-    while !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    match s[..end].rfind('\n') {
-        Some(i) if i >= end / 2 => &s[..i],
-        _ => &s[..end],
+    let head = floor_char_boundary(s, room);
+    match head.rfind('\n') {
+        Some(i) if i >= head.len() / 2 => &s[..i],
+        _ => head,
     }
 }
 

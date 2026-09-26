@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::config;
 use crate::pending::{self, Matcher, ObservationKind, PendingEntry};
+use crate::reply::{ENTRY_CAP, REPLY_BUDGET, floor_char_boundary};
 use crate::workspace::{self, AuthoringError};
 use crate::worldstate;
 
@@ -389,6 +390,25 @@ fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> String {
     }
 }
 
+/// [`exclusion_note`] with the paths counted instead of named, for a reply
+/// the whole note would not fit (TET-93 C10). Only the reply takes this
+/// form: the search's label keeps the whole note, for the reason
+/// [`exclusion_note`] gives for naming rather than counting. What the note
+/// should name at all is TET-92's to decide.
+fn exclusion_counts(exclusions: &Exclusions) -> String {
+    match exclusions {
+        Exclusions::None { why } => format!("no exclusions: {why}"),
+        Exclusions::Applied { memos, ignored } => format!(
+            "skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and {} rendered memo{}; \
+and {} git-ignored path{} — named in this search's label, counted here to keep the reply within its bound",
+            memos.len(),
+            if memos.len() == 1 { "" } else { "s" },
+            ignored.len(),
+            if ignored.len() == 1 { "" } else { "s" },
+        ),
+    }
+}
+
 /// Whether a search was filtered, decided once from the root alone.
 enum Exclusions {
     /// Withheld — and in both cases this is **forced, not chosen**. A file
@@ -547,8 +567,32 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         }
     };
 
-    let mut printed = String::new();
-    printed.push_str(&format!("==> {path} <==\n"));
+    let header = format!("==> {path} <==\n");
+    let terminated = !shown.is_empty() && !shown.ends_with('\n');
+    let (shown, label, caveat) = if header.len() + shown.len() + usize::from(terminated) <= REPLY_BUDGET {
+        (shown, label, None)
+    } else {
+        let all: Vec<&str> = contents.lines().collect();
+        let (a, end) = match lines {
+            None => (1, all.len()),
+            Some((a, b)) => (a, b.min(all.len())),
+        };
+        let page = page_path(&header, &all[a - 1..end], a, all.len());
+        let label = match page.cut {
+            None => format!("{display_path} lines {a}-{}", page.last),
+            Some((x, y)) => format!("{display_path} lines {a}-{a}, cut to its first {x} of {y} bytes"),
+        };
+        (page.output, label, page.caveat)
+    };
+
+    // The caveat goes straight under the header, not after the text: the
+    // backstop in `call_tool` keeps a reply's front, so the front is where
+    // what the author was not shown has to be said.
+    let mut printed = header;
+    if let Some(caveat) = &caveat {
+        printed.push_str(caveat);
+        printed.push('\n');
+    }
     printed.push_str(&shown);
     if !shown.is_empty() && !shown.ends_with('\n') {
         printed.push('\n');
@@ -571,6 +615,145 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
     pending::save(workspace_dir, &buf)?;
 
     Ok(LookOutcome { printed })
+}
+
+/// What an over-budget `look <path>` shows: its page of the selection, the
+/// line the page ends on, and the caveat naming what to ask for next.
+struct PathPage {
+    output: String,
+    last: usize,
+    /// `(shown, of)` bytes, when the first selected line alone was over the
+    /// budget and had to be cut.
+    cut: Option<(usize, usize)>,
+    /// `None` when the page holds the whole selection after all: a CRLF
+    /// file is measured over budget with its `\r`s, and paged without them.
+    caveat: Option<String>,
+}
+
+/// Page `selected` — lines `first..` of a file of `total` lines — into
+/// whatever of [`REPLY_BUDGET`] `header` and the caveat leave: whole lines
+/// from the start, or, when not even the first fits, that line cut at a
+/// char boundary, so a page is never empty (TET-93 C9). The caveat's room
+/// is reserved at its longest before the lines are counted, the way the
+/// backstop reserves its marker.
+fn page_path(header: &str, selected: &[&str], first: usize, total: usize) -> PathPage {
+    let end = first + selected.len() - 1;
+    let whole = |last: usize| {
+        format!(
+            "[tetel: showed lines {first}-{last} of {total}; continue with lines {}-{end} — a reply is held to {REPLY_BUDGET} bytes]",
+            last + 1
+        )
+    };
+    let room = REPLY_BUDGET.saturating_sub(header.len() + whole(end).len() + 1);
+    let mut used = 0;
+    let fit = selected.iter().take_while(|l| {
+        used += l.len() + 1;
+        used <= room
+    });
+    let n = fit.count();
+    if n > 0 {
+        let last = first + n - 1;
+        let caveat = (n < selected.len()).then(|| whole(last));
+        return PathPage { output: selected[..n].join("\n"), last, cut: None, caveat };
+    }
+
+    let line = selected[0];
+    let cut_caveat = |x: usize| {
+        let next = if first < end {
+            format!("continue with lines {}-{end}", first + 1)
+        } else {
+            "it is the last line selected".to_string()
+        };
+        format!(
+            "[tetel: showed line {first} cut to its first {x} of {} bytes; {next} — a reply is held to {REPLY_BUDGET} bytes]",
+            line.len()
+        )
+    };
+    let room = REPLY_BUDGET.saturating_sub(header.len() + cut_caveat(line.len()).len() + 2);
+    let shown = floor_char_boundary(line, room);
+    PathPage { output: shown.to_string(), last: first, cut: Some((shown.len(), line.len())), caveat: Some(cut_caveat(shown.len())) }
+}
+
+/// A search's reply: every match line, or the first of them that fit and
+/// the shortfall to state in both the reply and the search's label.
+enum GrepPage {
+    Whole(String),
+    Part { text: String, shortfall: String },
+}
+
+/// Fit a search's reply into [`REPLY_BUDGET`] (TET-93 C10). `full` and
+/// `counted` are the two forms of what leads the reply — caveat and
+/// exclusion note — with the note whole or counted. Every match beside the
+/// counted note beats the whole note beside fewer matches. When the matches
+/// do not all fit either way, the shorter form leads: the label names every
+/// excluded path, so a note that costs the reply matches buys it nothing.
+///
+/// Only the reply is fitted. The capture is built from `stdout` apart from
+/// this and keeps every match line, so the shortfall says so; whether a
+/// capture may be bounded too is TET-86's. A search cannot page the way a
+/// file does, so the remedy offered is a narrower root or pattern.
+///
+/// The shortfall line goes above the matches, beside the caveat and the
+/// note, for the reason they lead: whatever cuts a reply keeps its front.
+fn page_grep(stdout: &str, full: &str, counted: &str) -> GrepPage {
+    if full.len() + stdout.len() <= REPLY_BUDGET {
+        return GrepPage::Whole(format!("{full}{stdout}"));
+    }
+    if counted.len() + stdout.len() <= REPLY_BUDGET {
+        return GrepPage::Whole(format!("{counted}{stdout}"));
+    }
+    let lines: Vec<&str> = stdout.lines().collect();
+    let total = lines.len();
+    let first = lines[0];
+    let whole = |n: usize, left: usize| {
+        format!(
+            "showed {n} of {total} match lines; {} lines ({left} bytes) left out of this reply, every match line captured",
+            total - n
+        )
+    };
+    let cut = |x: usize, left: usize| {
+        let others = match total - 1 {
+            0 => String::new(),
+            n => format!(" and none of the other {n}"),
+        };
+        format!(
+            "showed the first {x} of {} bytes of match line 1{others}; {left} bytes left out of this reply, every match line captured",
+            first.len(),
+        )
+    };
+    let line = |s: String| {
+        format!("[tetel: {s} — a reply is held to {REPLY_BUDGET} bytes; search a narrower root or pattern to see the rest]\n")
+    };
+    // Reserved at its longest before the lines are counted: no count in
+    // either form exceeds `total`, `first.len()` or `stdout.len()`.
+    let reserved = line(whole(total, stdout.len())).len().max(line(cut(first.len(), stdout.len())).len());
+    let head = if full.len() <= counted.len() { full } else { counted };
+    let room = REPLY_BUDGET.saturating_sub(head.len() + reserved);
+
+    let mut shown = String::new();
+    let mut n = 0;
+    for l in &lines {
+        if shown.len() + l.len() + 1 > room {
+            break;
+        }
+        shown.push_str(l);
+        shown.push('\n');
+        n += 1;
+    }
+    // Every line fit once measured without the `\r`s an unfiltered CRLF
+    // search keeps in `stdout`: nothing was left out, so nothing is stated.
+    // The capture splits on `lines()` too, so it holds these same bytes.
+    if n == total {
+        return GrepPage::Whole(format!("{head}{shown}"));
+    }
+    let shortfall = if n > 0 {
+        whole(n, stdout.len() - shown.len())
+    } else {
+        let x = floor_char_boundary(first, room.saturating_sub(1));
+        shown = format!("{x}\n");
+        cut(x.len(), stdout.len() - x.len())
+    };
+    GrepPage::Part { text: format!("{head}{}{shown}", line(shortfall.clone())), shortfall }
 }
 
 /// Whether a grep invocation's exit status is one of the two codes that
@@ -917,14 +1100,27 @@ not occur anywhere in {root}, when the search never finished reading it. grep sa
     // channel of its own — so it survives everywhere `note` already goes:
     // the printed return *and* the whole-search extent's own label, not
     // only stdout a caller happened to be watching.
-    let partial = (!clean).then(|| {
+    let partial_caveat = |says: &str| {
         format!(
             "PARTIAL SEARCH — {} while searching {root} for '{pattern}': the matches recorded \
 here are real, but grep did not finish reading the tree, so an unread file or subtree may hold \
-matches this search never saw. grep says: {}",
+matches this search never saw. grep says: {says}",
             describe_grep_status(&output.status),
-            grep_stderr_or_placeholder(&output)
         )
+    };
+    let says = grep_stderr_or_placeholder(&output);
+    let partial = (!clean).then(|| partial_caveat(&says));
+    // The reply's copy quotes at most ENTRY_CAP bytes of grep's stderr: a
+    // tree with thousands of unreadable files would otherwise fill the
+    // reply with the complaint and leave no room for the matches. The
+    // label keeps the whole quote.
+    let partial_reply = (!clean).then(|| {
+        let quote = floor_char_boundary(&says, ENTRY_CAP);
+        if quote.len() == says.len() {
+            partial_caveat(&says)
+        } else {
+            partial_caveat(&format!("{quote} … [{} of {} bytes of stderr]", quote.len(), says.len()))
+        }
     });
 
     // A bounded negative and a whole-search record are both about the tree
@@ -934,10 +1130,18 @@ matches this search never saw. grep says: {}",
     // paths it enumerates.
     let m = world.for_path(root_path);
     let key = search_key(root_path, &m.root);
-    let note = exclusion_note(&exclusions, &m.root);
+    let excluded = exclusion_note(&exclusions, &m.root);
     let note = match &partial {
-        Some(caveat) => format!("{caveat}; {note}"),
-        None => note,
+        Some(caveat) => format!("{caveat}; {excluded}"),
+        None => excluded.clone(),
+    };
+    // What leads the reply, before any match line: the partial caveat, then
+    // the exclusion note, whole or (when it would crowd out even the first
+    // match) counted. They lead because the backstop in `call_tool` keeps a
+    // reply's front; a caveat at the end is the first thing any cut loses.
+    let head = |excluded: &str| match &partial_reply {
+        Some(caveat) => format!("{caveat}\n({excluded})\n"),
+        None => format!("({excluded})\n"),
     };
     // TET-42: `.` when the search was rooted at the top of `m.root` itself
     // (the reconciled `key == m.root` case `search_key` exists to produce),
@@ -949,7 +1153,12 @@ matches this search never saw. grep says: {}",
 
     if stdout.trim().is_empty() {
         printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
-        printed.push_str(&format!("({note})\n"));
+        let whole = head(&excluded);
+        if printed.len() + whole.len() <= REPLY_BUDGET {
+            printed.push_str(&whole);
+        } else {
+            printed.push_str(&head(&exclusion_counts(&exclusions)));
+        }
         buf.push(PendingEntry {
             captured_at: workspace::now_unix(),
             kind: ObservationKind::NoMatch,
@@ -968,8 +1177,16 @@ matches this search never saw. grep says: {}",
             root_relative,
         });
     } else {
-        printed.push_str(&stdout);
-        printed.push_str(&format!("({note})\n"));
+        let shortfall = match page_grep(&stdout, &head(&excluded), &head(&exclusion_counts(&exclusions))) {
+            GrepPage::Whole(text) => {
+                printed = text;
+                String::new()
+            }
+            GrepPage::Part { text, shortfall } => {
+                printed = text;
+                format!("{shortfall} ({REPLY_BUDGET}-byte reply bound) — ")
+            }
+        };
         let mut by_file: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
         for line in stdout.lines() {
             if let Some((file, rest)) = line.split_once(':') {
@@ -989,7 +1206,7 @@ matches this search never saw. grep says: {}",
             // Same forge-proof positioning as the no-match label above:
             // the matcher declaration precedes `{pattern}`.
             label: format!(
-                "search: {root_display} (grep (ERE): {pattern}) — {files} file{} matched — {note}",
+                "search: {root_display} (grep (ERE): {pattern}) — {files} file{} matched — {shortfall}{note}",
                 if files == 1 { "" } else { "s" }
             ),
             output: String::new(),

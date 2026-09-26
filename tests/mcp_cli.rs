@@ -2036,3 +2036,49 @@ async fn call_tool_holds_every_reply_to_the_budget() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// TET-93 C9, C10 and C14 (vii) through a real client: `look` shapes its
+/// own reply, so an over-budget file read and an over-budget search both
+/// come back within the budget without the backstop firing, and the file
+/// read's capture is exactly the lines the reply carried.
+#[tokio::test]
+async fn look_shapes_its_own_reply_and_the_backstop_never_fires() {
+    let sb = Sandbox::new("look-shapes");
+    let budget = tetel::reply::REPLY_BUDGET;
+    let body: String = (1..=20000).map(|i| format!("line number {i}\n")).collect();
+    sb.write("src/big.txt", &body);
+    let client = sb.connect().await;
+    let look = |a: serde_json::Value| client.call_tool(CallToolRequestParams::new("look").with_arguments(args(a)));
+    let text = |r: &rmcp::model::CallToolResult| {
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        assert!(r.structured_content.is_none());
+        r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.clone()).collect::<String>()
+    };
+    let pending = || -> Vec<serde_json::Value> {
+        let raw = std::fs::read_to_string(sb.state_home().join("workspaces/ws-look/pending.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    };
+
+    let page = text(&look(serde_json::json!({"workspace": "ws-look", "path": "src/big.txt"})).await.expect("look"));
+    assert!(page.len() <= budget, "{} bytes over the budget", page.len());
+    assert!(!page.contains("[tetel: this reply was cut"), "the backstop fired for a file read");
+    let shown: Vec<&str> = page.lines().skip(2).collect();
+    let k = shown.len();
+    assert!(page.lines().nth(1).unwrap().starts_with(&format!("[tetel: showed lines 1-{k} of 20000;")), "{}", &page[..200]);
+    let entry = pending().pop().unwrap();
+    assert_eq!(entry["label"], format!("src/big.txt lines 1-{k}"));
+    assert_eq!(entry["output"], shown.join("\n"), "the capture must be exactly the lines returned");
+
+    let search = text(&look(serde_json::json!({"workspace": "ws-look", "path": "src", "grep": "number"})).await.expect("look"));
+    assert!(search.len() <= budget, "{} bytes over the budget", search.len());
+    assert!(!search.contains("[tetel: this reply was cut"), "the backstop fired for a search");
+    assert!(search.find("[tetel: showed ").unwrap() < search.find("src/big.txt:").unwrap(), "the shortfall must lead");
+    let captured: usize = pending()
+        .iter()
+        .filter(|e| e["label"].as_str().unwrap().starts_with("src/big.txt (grep"))
+        .map(|e| e["output"].as_str().unwrap().lines().count())
+        .sum();
+    assert_eq!(captured, 20000, "the capture must hold every match line");
+
+    client.cancel().await.expect("clean shutdown");
+}
