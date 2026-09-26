@@ -576,9 +576,19 @@ struct QueryParams {
     /// Which read-only view to return.
     what: QueryWhat,
     /// Required when `what` is `"deps"`: the fact or claim id to look up
-    /// (must start with `F` or `C`).
+    /// (must start with `F` or `C`). With `"facts"` or `"claims"`: return
+    /// that one record uncut instead of the listing.
     #[serde(default)]
     id: Option<String>,
+    /// The id to start at: the record a `facts`, `claims` or `prose`
+    /// listing starts at, or the dependent `deps` starts at. A reply that
+    /// leaves records out leads with the `from` to continue with.
+    #[serde(default)]
+    from: Option<String>,
+    /// With `id` on a fact only: the 1-based extent to start that fact's
+    /// extents at. A reply that leaves extents out names the next one.
+    #[serde(default)]
+    extent_from: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -878,7 +888,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts`. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts` with that fact's `id`, which returns it uncut. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -1188,21 +1198,28 @@ they are in the snapshot but nothing in the document rests on them"
         ))
     }
 
-    #[tool(description = "Plain, greppable, read-only inspection of facts, claims, prose, or an id's dependencies. Never refuses. `workspace` is required (never defaulted); ids are workspace-relative only.")]
+    #[tool(description = "Plain, greppable, read-only inspection of facts, claims, prose, or an id's dependencies. Never refuses. `workspace` is required (never defaulted); ids are workspace-relative only. A listing pages: it shows whole records up to the reply bound, each label and text cut to 1024 bytes, and when it leaves records out it leads with the `from` id to continue with. `id` with `facts` or `claims` returns that one record uncut, a fact's extents paged by `extent_from`; only a note, label or claim longer than a page by itself is cut, and the cut is stated.")]
     async fn query(&self, Parameters(p): Parameters<QueryParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
-        let out = match p.what {
-            QueryWhat::Facts => query::facts_text(&dir),
-            QueryWhat::Claims => query::claims_text(&dir),
-            QueryWhat::Prose => query::prose_text(&dir),
-            QueryWhat::Deps => {
-                let Some(id) = p.id else {
-                    return Err(ErrorData::invalid_params("query `deps` requires `id`", None));
-                };
-                query::deps_text(&dir, &id)
+        let (id, from) = (p.id.as_deref(), p.from.as_deref());
+        let refuse = |msg: &str| Err(ErrorData::invalid_params(msg.to_string(), None));
+        if p.extent_from.is_some() && !(matches!(p.what, QueryWhat::Facts) && id.is_some()) {
+            return refuse("query `extent_from` applies only with `id` on `facts`");
+        }
+        let q = match (p.what, id) {
+            (QueryWhat::Facts | QueryWhat::Claims, Some(_)) if from.is_some() => {
+                return refuse("query `from` pages a listing; it cannot be combined with `id`");
             }
+            (QueryWhat::Facts, Some(id)) => query::Query::Fact { id, extent_from: p.extent_from },
+            (QueryWhat::Facts, None) => query::Query::Facts { from },
+            (QueryWhat::Claims, Some(id)) => query::Query::Claim { id },
+            (QueryWhat::Claims, None) => query::Query::Claims { from },
+            (QueryWhat::Prose, Some(_)) => return refuse("query `id` applies to `facts`, `claims` and `deps`"),
+            (QueryWhat::Prose, None) => query::Query::Prose { from },
+            (QueryWhat::Deps, Some(id)) => query::Query::Deps { id, from },
+            (QueryWhat::Deps, None) => return refuse("query `deps` requires `id`"),
         };
-        match out {
+        match query::text(&dir, q) {
             Ok(s) => text_result(s),
             Err(e) => Err(ErrorData::internal_error(format!("error querying: {e}"), None)),
         }
