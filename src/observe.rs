@@ -1468,6 +1468,10 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     // general, and it genuinely executed here.
     let world = worldstate::Session::new().for_cwd();
     let cmdline = argv.join(" ");
+    // Both failures below echo the command line; cut to ENTRY_CAP so a long
+    // one never reaches the backstop (TET-95, as TET-104 did for `look`).
+    // The label keeps it whole: it is the record of what ran.
+    let shown = capped(&cmdline, ENTRY_CAP);
 
     let budget = Duration::from_millis(config::run_timeout_ms(Some(workspace_dir)));
     let started = Instant::now();
@@ -1522,7 +1526,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     }
     let mut child = cmd
         .spawn()
-        .map_err(|e| AuthoringError::Io(format!("could not run `{cmdline}`: {e}")))?;
+        .map_err(|e| AuthoringError::Io(format!("could not run `{shown}`: {e}")))?;
 
     let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
     let stdout_pipe = child.stdout.take().expect("stdout was piped");
@@ -1639,7 +1643,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
             workspace_dir,
             "run",
             format!(
-                "`{cmdline}` did not finish within {} and was killed, along with anything it \
+                "`{shown}` did not finish within {} and was killed, along with anything it \
                  started; nothing was captured. A command that never returns does not fail alone \
                  here — `run` waits for its child, so on the MCP surface every later call queues \
                  behind it. Raise the bound with `tetel config --workspace-scope {} <milliseconds>` \
