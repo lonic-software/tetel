@@ -101,6 +101,12 @@ pub struct ExtentEntry {
     /// this field. `true` is the only claim this field ever makes.
     #[serde(default)]
     pub root_relative: bool,
+    /// The git-ignored paths a search skipped, carried through the fold in
+    /// [`mint`] verbatim from [`crate::pending::PendingEntry::ignored`].
+    /// Not hashed into the pin on its own: the label carries a hash of the
+    /// same set, and the label is hashed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
 }
 
 impl ExtentEntry {
@@ -557,6 +563,7 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
             out_len: Some(e.output.len()),
             matcher: e.matcher,
             root_relative: e.root_relative,
+            ignored: e.ignored.clone(),
         })
         .collect();
     let output = buf.iter().filter(|e| !e.output.is_empty()).map(|e| e.output.as_str()).collect::<Vec<_>>().join("\n");

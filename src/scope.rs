@@ -292,11 +292,23 @@ fn observed_extensions(facts: &[Fact]) -> Vec<String> {
 /// containing the other keeps both spellings resolving to the same file
 /// without inventing a path-resolution step that could differ from what
 /// `look` recorded.
+///
+/// A search's label names some of the git-ignored paths it skipped, so a
+/// location the search never read can appear in its label. Such a
+/// location is not covered by that entry (TET-92).
 fn extent_covers(fact: &Fact, mentioned: &str) -> bool {
     fact.extent.iter().any(|e| {
         let hay = format!("{} {}", e.key, e.label);
-        hay.contains(mentioned) || mentioned.contains(e.key.as_str())
+        (hay.contains(mentioned) && !skipped(e, mentioned)) || mentioned.contains(e.key.as_str())
     })
+}
+
+/// Whether `mentioned` names one of the git-ignored paths `e` skipped,
+/// spelled with or without a leading `./` or a directory's trailing `/`.
+fn skipped(e: &crate::facts::ExtentEntry, mentioned: &str) -> bool {
+    let bare = |s: &str| s.trim_start_matches("./").trim_end_matches('/').to_string();
+    let mentioned = bare(mentioned);
+    e.ignored.iter().any(|n| bare(n) == mentioned)
 }
 
 /// What to tell the author, at the moment of minting.
@@ -432,6 +444,7 @@ pub(crate) mod tests_support {
                     out_len: None,
                     matcher: None,
                     root_relative: false,
+                    ignored: Vec::new(),
                 })
                 .collect(),
             output: String::new(),

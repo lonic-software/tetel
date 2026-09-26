@@ -333,7 +333,20 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
     found
 }
 
-/// What exclusions a search was given, and — when it was given none — why.
+/// How many git-ignored paths a search's label names before it counts
+/// the rest (TET-92).
+///
+/// The label is repeated by every reply and report that shows an extent —
+/// `fact`'s `folded` and `attention`, `query`, a rendered memo's Facts
+/// table, the verifier's prompt — so its size is paid many times over.
+/// Naming every path cost one attacker run a quarter of its tool output,
+/// and one `fact` reply reached 130k characters. A few names are kept
+/// because a reader judging a negative claim acts on them: `vendor/` or
+/// `node_modules/` among the skipped paths is a reason to object.
+const IGNORED_SHOWN: usize = 8;
+
+/// What exclusions a search was given, and — when it was given none — why,
+/// with every git-ignored path it skipped.
 ///
 /// Both are recorded, because silence about an exclusion is ambiguous
 /// between "nothing was hidden" and "nobody said". This text goes into the
@@ -343,21 +356,27 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
 /// and the pin hashes them, so two searches with different exclusion sets
 /// fingerprint differently even when the bytes they matched are identical.
 ///
-/// The memo paths are listed rather than counted, deliberately. A count
-/// would let two searches over different memo sets of the same size pin
-/// identically, which is the property this text exists to provide.
+/// That property is why the memo paths are listed rather than counted: a
+/// count would let two searches over different memo sets of the same size
+/// pin identically. The git-ignored paths keep it through a hash instead,
+/// because they are not bounded the way rendered memos are: the label names
+/// the first [`IGNORED_SHOWN`], directories first, counts the rest, and
+/// ends with a sha256 over the whole list (one name per line, a directory
+/// with a trailing `/`, so a file and a directory of one name differ). The
+/// names themselves are returned beside the note for the record's
+/// `ignored` field.
 ///
 /// Each enumerated path is put through [`relativize_label`], the same rule
 /// as any other label, independently — this note names in-repo paths, not
 /// the search root itself, so it takes no part in [`relativize_search_root`]'s
 /// unconditional `.` arm. TET-42's whole-search decision.
-fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> String {
+fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> (String, Vec<String>) {
     let relativize_note_path = |path: &str| -> String {
         let key = resolve_key(Path::new(path));
         relativize_label(path, &key, world_root).0
     };
     match exclusions {
-        Exclusions::None { why } => format!("no exclusions: {why}"),
+        Exclusions::None { why } => (format!("no exclusions: {why}"), Vec::new()),
         Exclusions::Applied { memos, ignored } => {
             let memos: Vec<String> = memos.iter().map(|m| relativize_note_path(m)).collect();
             let mut s = String::from("skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl");
@@ -371,21 +390,34 @@ fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> String {
                     memos.join(", ")
                 ));
             }
+            // Directories lead: one of them usually accounts for most of
+            // what was skipped, and it is what a reader would object to.
+            let mut sorted: Vec<&(bool, String)> = ignored.iter().collect();
+            sorted.sort_by_key(|(is_dir, _)| !*is_dir);
+            let names: Vec<String> = sorted
+                .iter()
+                .map(|(is_dir, p)| format!("{}{}", relativize_note_path(p), if *is_dir { "/" } else { "" }))
+                .collect();
             // Reported even when empty, and distinctly from "none found",
             // because "git ignores nothing here" and "this is not a
             // repository" are different facts about what was searched.
-            if ignored.is_empty() {
+            if names.is_empty() {
                 s.push_str("; git-ignored paths: none, or the root is outside a repository");
             } else {
-                let names: Vec<String> = ignored.iter().map(|(_, p)| relativize_note_path(p)).collect();
+                let shown: Vec<String> =
+                    names.iter().take(IGNORED_SHOWN).map(|n| capped(n, ENTRY_CAP).into_owned()).collect();
+                let more = names.len().saturating_sub(IGNORED_SHOWN);
+                let hash = crate::evidence::sha256_hex(&names.iter().map(|n| format!("{n}\n")).collect::<String>());
                 s.push_str(&format!(
-                    "; and {} git-ignored path{} ({})",
+                    "; and {} git-ignored path{} ({}{}; sha256:{})",
                     names.len(),
                     if names.len() == 1 { "" } else { "s" },
-                    names.join(", ")
+                    shown.join(", "),
+                    if more > 0 { format!(", and {more} more") } else { String::new() },
+                    &hash[..16]
                 ));
             }
-            s
+            (s, names)
         }
     }
 }
@@ -393,14 +425,13 @@ fn exclusion_note(exclusions: &Exclusions, world_root: &str) -> String {
 /// [`exclusion_note`] with the paths counted instead of named, for a reply
 /// the whole note would not fit (TET-93 C10). Only the reply takes this
 /// form: the search's label keeps the whole note, for the reason
-/// [`exclusion_note`] gives for naming rather than counting. What the note
-/// should name at all is TET-92's to decide.
+/// [`exclusion_note`] gives for naming rather than counting.
 fn exclusion_counts(exclusions: &Exclusions) -> String {
     match exclusions {
         Exclusions::None { why } => format!("no exclusions: {why}"),
         Exclusions::Applied { memos, ignored } => format!(
             "skipped tetel's own output: *.tetel/ directories, *.evidence.jsonl, and {} rendered memo{}; \
-and {} git-ignored path{} — named in this search's label, counted here to keep the reply within its bound",
+and {} git-ignored path{} — counted here to keep the reply within its bound; the search's record names them",
             memos.len(),
             if memos.len() == 1 { "" } else { "s" },
             ignored.len(),
@@ -609,6 +640,7 @@ pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>
         pattern: String::new(),
         matcher: None,
         root_relative,
+        ignored: Vec::new(),
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);
@@ -685,8 +717,9 @@ enum GrepPage {
 /// `counted` are the two forms of what leads the reply — caveat and
 /// exclusion note — with the note whole or counted. Every match beside the
 /// counted note beats the whole note beside fewer matches. When the matches
-/// do not all fit either way, the shorter form leads: the label names every
-/// excluded path, so a note that costs the reply matches buys it nothing.
+/// do not all fit either way, the shorter form leads: the label keeps the
+/// whole note and the record every ignored path, so a note that costs the
+/// reply matches buys it nothing.
 ///
 /// Only the reply is fitted. The capture is built from `stdout` apart from
 /// this and keeps every match line, so the shortfall says so; whether a
@@ -1139,7 +1172,7 @@ matches this search never saw. grep says: {says}",
     // paths it enumerates.
     let m = world.for_path(root_path);
     let key = search_key(root_path, &m.root);
-    let excluded = exclusion_note(&exclusions, &m.root);
+    let (excluded, ignored) = exclusion_note(&exclusions, &m.root);
     let note = match &partial {
         Some(caveat) => format!("{caveat}; {excluded}"),
         None => excluded.clone(),
@@ -1184,6 +1217,7 @@ matches this search never saw. grep says: {says}",
             pattern: pattern.to_string(),
             matcher: Some(Matcher::Ere),
             root_relative,
+            ignored,
         });
     } else {
         let shortfall = match page_grep(&stdout, &head(&excluded), &head(&exclusion_counts(&exclusions))) {
@@ -1224,6 +1258,7 @@ matches this search never saw. grep says: {says}",
             pattern: pattern.to_string(),
             matcher: Some(Matcher::Ere),
             root_relative,
+            ignored,
         });
         for (file, matches) in by_file {
             let m = world.for_path(Path::new(&file));
@@ -1246,6 +1281,7 @@ matches this search never saw. grep says: {says}",
                 pattern: pattern.to_string(),
                 matcher: Some(Matcher::Ere),
                 root_relative: file_root_relative,
+                ignored: Vec::new(),
             });
         }
     }
@@ -1634,6 +1670,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
         // TET-42 leaves it untouched: rewriting any part of it would make
         // the record assert that a different command was run.
         root_relative: false,
+        ignored: Vec::new(),
     };
     let mut buf = pending::load(workspace_dir)?;
     buf.push(entry);

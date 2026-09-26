@@ -4611,6 +4611,12 @@ fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels()
 // --- TET-93: `look` shapes its own reply to the reply budget -------------
 
 /// Every entry in a workspace's pending buffer, as `(label, output)`.
+fn pending_entries(sb: &Sandbox) -> Vec<serde_json::Value> {
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json"))
+        .expect("pending buffer must exist");
+    serde_json::from_str::<serde_json::Value>(&raw).unwrap().as_array().unwrap().clone()
+}
+
 fn pending_outputs(sb: &Sandbox) -> Vec<(String, String)> {
     let raw = std::fs::read_to_string(sb.state_home().join("workspaces/default/pending.json"))
         .expect("pending buffer must exist");
@@ -4734,10 +4740,12 @@ fn a_search_whose_only_match_is_over_the_budget_returns_it_cut() {
     assert_eq!(file.1.len(), "1:".len() + 50000, "the capture must keep the whole line");
 }
 
-/// TET-93 C10: an exclusion note that would crowd out the matches falls
-/// back to counts in the reply, while the search's label keeps every name.
+/// TET-92: a search that skips many git-ignored paths names the first
+/// few in its label, directories first, counts the rest and hashes the
+/// whole set; its record keeps every name. The label is what every reply
+/// and report repeats, so its size no longer grows with the set.
 #[test]
-fn an_exclusion_note_over_the_budget_is_counted_in_the_reply_and_named_in_the_label() {
+fn a_search_label_names_a_few_ignored_paths_and_its_record_keeps_them_all() {
     let budget = tetel::reply::REPLY_BUDGET;
     let sb = Sandbox::new("grep-counted-note");
     assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
@@ -4752,12 +4760,28 @@ fn an_exclusion_note_over_the_budget_is_counted_in_the_reply_and_named_in_the_la
     assert_eq!(code, 0, "{err}");
     assert!(out.len() <= budget, "{} bytes over the budget", out.len());
     assert!(out.contains("./src.txt:1:NEEDLE here"), "the match must be shown:\n{}", &out[..out.len().min(600)]);
-    assert!(out.contains("and 1501 git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
-    assert!(!out.contains("an-ignored-file-with-a-long-name-0000.ign"), "the reply must count, not name");
-    assert!(!out.contains("[tetel: showed"), "every match fit once the note was counted; no shortfall to state");
-    let entries = pending_outputs(&sb);
-    let search = entries.iter().find(|(l, _)| l.starts_with("search:")).unwrap();
-    assert!(search.0.contains("an-ignored-file-with-a-long-name-1499.ign"), "the label must keep every name");
+    // The directory leads although every file sorts before it.
+    assert!(
+        out.contains("and 1501 git-ignored paths (./state-home/, ./an-ignored-file-with-a-long-name-0000.ign, "),
+        "{}",
+        &out[..out.len().min(600)]
+    );
+    assert!(out.contains("-0006.ign, and 1493 more; sha256:"), "{}", &out[..out.len().min(600)]);
+    assert!(!out.contains("an-ignored-file-with-a-long-name-0007.ign"), "only eight names are shown");
+    let search = pending_entries(&sb).into_iter().find(|e| e["label"].as_str().unwrap().starts_with("search:")).unwrap();
+    let label = search["label"].as_str().unwrap();
+    assert!(label.len() < 2048, "the label must not grow with the set: {} bytes", label.len());
+    assert!(!label.contains("an-ignored-file-with-a-long-name-1499.ign"), "the label must count the rest");
+    let kept: Vec<&str> = search["ignored"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+    assert_eq!(kept.len(), 1501, "the record must keep every name");
+    assert!(kept.contains(&"./an-ignored-file-with-a-long-name-1499.ign"), "{:?}", &kept[..3]);
+    assert!(kept.contains(&"./state-home/"), "a directory keeps its trailing slash");
+
+    // …and the fact folds them, with a reply that stays small.
+    let (code, out, err) = sb.run(&["fact", "--note", "NEEDLE is in src.txt"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.len() < 2048, "the fact's reply grew with the set: {} bytes", out.len());
+    assert!(sb.facts_jsonl().contains("an-ignored-file-with-a-long-name-1499.ign"), "the fact must keep every name");
 
     // With more matches than fit even beside the counted note, the note is
     // still counted rather than left to crowd the matches out.
@@ -4766,8 +4790,58 @@ fn an_exclusion_note_over_the_budget_is_counted_in_the_reply_and_named_in_the_la
     let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
     assert_eq!(code, 0, "{err}");
     assert!(out.len() <= budget, "{} bytes over the budget", out.len());
-    assert!(out.contains("git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
+    assert!(out.contains("git-ignored paths — counted here"), "{}", &out[..out.len().min(600)]);
     assert!(out.lines().filter(|l| l.contains(":NEEDLE")).count() > 500, "the matches were crowded out");
+}
+
+/// TET-92: the label counts past the eighth ignored path, so what tells
+/// two sets of one size apart there is the hash. The two sets below share
+/// their count and their first eight names and differ only past them.
+#[test]
+fn two_ignored_sets_that_differ_only_past_the_named_few_label_differently() {
+    let sb = Sandbox::new("grep-ignored-hash");
+    assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
+    sb.write(".gitignore", "*.ign\nstate-home/\n");
+    for i in 0..10 {
+        sb.write(&format!("f{i}.ign"), "");
+    }
+    sb.write("src.txt", "NEEDLE here\n");
+    let label = |sb: &Sandbox| {
+        let (code, _, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+        assert_eq!(code, 0, "{err}");
+        let entries = pending_entries(sb);
+        entries.iter().rev().find_map(|e| e["label"].as_str().filter(|l| l.starts_with("search:")).map(String::from)).unwrap()
+    };
+    let before = label(&sb);
+    std::fs::rename(sb.dir.join("f9.ign"), sb.dir.join("f9-renamed.ign")).unwrap();
+    let after = label(&sb);
+    let shown = "and 11 git-ignored paths (./state-home/, ./f0.ign, ./f1.ign, ./f2.ign, ./f3.ign, ./f4.ign, ./f5.ign, ./f6.ign, and 3 more; sha256:";
+    assert!(before.contains(shown), "{before}");
+    assert!(after.contains(shown), "{after}");
+    assert_ne!(before, after, "two different ignored sets must not label, and so pin, identically");
+}
+
+/// TET-92: a path a search skipped can appear in its label, and must not
+/// thereby count as read. Before, `attention` matched a note's locations
+/// against label text, so naming a skipped file passed as covered.
+#[test]
+fn a_note_naming_a_path_its_search_skipped_is_not_covered_by_that_search() {
+    let sb = Sandbox::new("grep-skipped-not-covered");
+    assert!(Command::new("git").args(["init", "-q"]).current_dir(&sb.dir).status().unwrap().success());
+    sb.write(".gitignore", "skipped.rs\nstate-home/\n");
+    sb.write("src/a.rs", "fn f() { NEEDLE(); }\n");
+    sb.write("skipped.rs", "NEEDLE\n");
+
+    let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("./skipped.rs; sha256:"), "the skipped file must be in the label for this to test anything:\n{out}");
+    let (code, _out, err) = sb.run(&["fact", "--note", "NEEDLE is called in src/a.rs and in skipped.rs"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("note names skipped.rs, which this fact's extent does not cover"),
+        "a skipped path must draw attention:\n{err}"
+    );
+    assert!(!err.contains("note names src/a.rs"), "a searched file must still be covered:\n{err}");
 }
 
 /// TET-93 C10: a partial search's caveat quotes grep's stderr, and a tree
@@ -4802,7 +4876,7 @@ fn a_partial_search_caveat_leads_the_reply_with_its_stderr_quote_cut() {
 }
 
 /// TET-93 review: a note that fits beside some of the matches but not all
-/// of them is still counted, because the label names every path and a
+/// of them is still counted, because the label keeps the whole note and a
 /// whole note in the reply only costs it matches.
 #[test]
 fn a_search_that_overflows_counts_even_a_note_that_would_fit() {
@@ -4819,7 +4893,7 @@ fn a_search_that_overflows_counts_even_a_note_that_would_fit() {
     let (code, out, err) = sb.run(&["look", "--grep", "NEEDLE", "."]);
     assert_eq!(code, 0, "{err}");
     assert!(out.len() <= budget, "{} bytes over the budget", out.len());
-    assert!(out.contains("and 401 git-ignored paths — named in this search's label"), "{}", &out[..out.len().min(600)]);
+    assert!(out.contains("and 401 git-ignored paths — counted here"), "{}", &out[..out.len().min(600)]);
     assert!(!out.contains("an-ignored-file-with-a-long-name-0000.ign"), "the reply must count, not name");
 }
 
