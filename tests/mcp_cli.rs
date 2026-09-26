@@ -2225,7 +2225,7 @@ async fn fact_reply(
 /// Reverts: return before `fit_lists` (the backstop cuts); show every extent label in `extent_shown` (the first
 /// attention entry's `extent` is eighteen labels).
 #[tokio::test]
-async fn fact_shapes_its_own_reply_and_the_backstop_never_fires() {
+async fn fact_shapes_its_own_reply_and_the_backstop_never_cuts() {
     let sb = Sandbox::new("fact-shapes");
     sb.write("src/a.rs", "needle\n");
     sb.write("src/b.rs", "needle\n");
