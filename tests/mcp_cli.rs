@@ -1989,11 +1989,10 @@ async fn every_listed_tool_declares_its_spill_threshold() {
     client.cancel().await.expect("clean shutdown");
 }
 
-/// `run` has no shaping of its own yet (A5), so its reply is held under the
-/// budget by the backstop in `call_tool` alone — which makes it the verb
-/// that shows the backstop is wired, through a real client. Three sizes:
-/// under the budget untouched, content fitting with the structured copy
-/// dropped, and content alone over it cut and marked.
+/// The backstop in `call_tool`, through a real client. Three sizes: under the
+/// budget untouched, content fitting with the structured copy dropped (both
+/// `run`), and content alone over it cut and marked — `render` without `out`,
+/// which shapes nothing of its own, since `run` now does (TET-95).
 #[tokio::test]
 async fn call_tool_holds_every_reply_to_the_budget() {
     let sb = Sandbox::new("reply-budget");
@@ -2024,15 +2023,108 @@ async fn call_tool_holds_every_reply_to_the_budget() {
     assert_eq!(parsed["output"], seq(4000), "nothing may be lost when only the copy is dropped");
     assert_eq!(text, &parsed.to_string(), "the content must be what `structured()` sent, untouched");
 
-    // ~110k of content: cut, marked, within the budget.
-    let big = run(20000).await.expect("run");
+    // ~110k of rendered memo: cut, marked, within the budget.
+    let body: String = (1..=20000).map(|i| format!("{i} ")).collect();
+    let prose = client
+        .call_tool(CallToolRequestParams::new("prose").with_arguments(args(serde_json::json!({
+            "workspace": "ws-budget",
+            "text": body,
+        }))))
+        .await
+        .expect("prose");
+    assert_ne!(prose.is_error, Some(true), "{prose:?}");
+    let big = client
+        .call_tool(CallToolRequestParams::new("render").with_arguments(args(serde_json::json!({"workspace": "ws-budget"}))))
+        .await
+        .expect("render");
     assert!(size(&big) <= budget, "size {} over {budget}", size(&big));
-    assert!(big.structured_content.is_none());
     let text = &big.content[0].as_text().expect("text").text;
     assert!(text.contains("[tetel: this reply was cut"), "an over-budget reply must say it was cut");
-    // Line 5000 sits about 24k bytes into the output: the cut must spend the
-    // budget on the output, not stop before it.
-    assert!(text.contains("\\n5000\\n"), "the cut shows too little of the output:\n{}", &text[..text.len().min(300)]);
+    // " 5000 " sits about 24k bytes into the memo: the cut must spend the
+    // budget on the reply, not stop before it.
+    assert!(text.contains(" 5000 "), "the cut shows too little of the reply:\n{}", &text[..text.len().min(300)]);
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-95 through a real client: `run` shapes its own over-budget reply.
+/// Whole lines from the start, an `omitted` line ahead of the output saying
+/// how much was shown, and a capture that keeps every line. One line over
+/// the budget is cut inside itself, measured JSON-escaped: every byte of it
+/// is a `"`, which costs two once escaped, so fitting raw bytes would send
+/// twice the budget. A refusal's echo of the command line is cut too.
+#[tokio::test]
+async fn run_shapes_its_own_reply_and_the_backstop_never_fires() {
+    let sb = Sandbox::new("run-shapes");
+    let client = sb.connect().await;
+    let budget = tetel::reply::REPLY_BUDGET;
+    let run = |command: Vec<String>| {
+        client.call_tool(CallToolRequestParams::new("run").with_arguments(args(serde_json::json!({
+            "workspace": "ws-run",
+            "command": command,
+        }))))
+    };
+    let text = |r: &rmcp::model::CallToolResult| -> String {
+        let t: String = r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.clone()).collect();
+        assert!(t.len() + r.structured_content.as_ref().map_or(0, |v| v.to_string().len()) <= budget, "over the budget");
+        assert!(!t.contains("[tetel: this reply was cut"), "the backstop fired: {}", &t[..t.len().min(300)]);
+        t
+    };
+    let pending = || -> Vec<serde_json::Value> {
+        let raw = std::fs::read_to_string(sb.state_home().join("workspaces/ws-run/pending.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    };
+    let owned = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    // Many short lines: a prefix of whole lines.
+    let reply = text(&run(owned(&["seq", "1", "20000"])).await.expect("run"));
+    let v: serde_json::Value = serde_json::from_str(&reply).expect("the reply is JSON");
+    assert!(reply.find("\"omitted\"").unwrap() < reply.find("\"output\"").unwrap(), "`omitted` must lead the output");
+    let output = v["output"].as_str().unwrap();
+    let k = output.lines().count();
+    assert!(k > 4000, "the reply spends too little of the budget on output: {k} lines");
+    assert_eq!(output, (1..=k).map(|i| format!("{i}\n")).collect::<String>(), "whole lines from the start");
+    let omitted = v["omitted"].as_str().unwrap();
+    assert!(omitted.starts_with(&format!("[tetel: showed lines 1-{k} of 20000; ")), "{omitted}");
+    assert!(omitted.contains("the capture keeps all 20000 lines"), "{omitted}");
+    assert_eq!(v["exit_code"], 0);
+    let entry = pending().pop().unwrap();
+    assert_eq!(entry["output"].as_str().unwrap().lines().count(), 20000, "the capture must keep every line");
+
+    // One line of 40000 `"`: cut inside the line, by escaped cost.
+    let reply = text(&run(owned(&["sh", "-c", "printf '%40000s' '' | tr ' ' '\"'"])).await.expect("run"));
+    let v: serde_json::Value = serde_json::from_str(&reply).expect("the reply is JSON");
+    let x = v["output"].as_str().unwrap().len();
+    assert!(x > 12000, "too little of the line shown: {x}");
+    assert!(v["output"].as_str().unwrap().chars().all(|c| c == '"'));
+    assert!(v["omitted"].as_str().unwrap().starts_with(&format!("[tetel: showed the first {x} of 40000 bytes of line 1 and none of the other 0; ")), "{v}");
+    assert_eq!(pending().pop().unwrap()["output"].as_str().unwrap().len(), 40000);
+
+    // Within the budget: whole, with no `omitted`.
+    let reply = text(&run(owned(&["seq", "1", "3"])).await.expect("run"));
+    let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(v, serde_json::json!({"exit_code": 0, "output": "1\n2\n3\n"}));
+
+    // A refusal echoes the command line cut to ENTRY_CAP.
+    let long = "x".repeat(50_000);
+    let r = run(vec![format!("/nonexistent/{long}")]).await.expect("run");
+    assert_eq!(r.is_error, Some(true), "premise: the spawn must fail");
+    let t = text(&r);
+    assert!(t.contains("could not run `/nonexistent/xxx"), "{}", &t[..t.len().min(300)]);
+    assert!(t.len() < 2 * tetel::reply::ENTRY_CAP, "the echo was not cut: {} bytes", t.len());
+
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_tetel"))
+        .args(["config", "run.timeout_ms", "1000"])
+        .env("TETEL_STATE_HOME", sb.state_home())
+        .env("TETEL_CONFIG_HOME", sb.config_home())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let r = run(vec!["sh".into(), "-c".into(), "sleep 5".into(), long]).await.expect("run");
+    assert_eq!(r.is_error, Some(true), "premise: the command must time out");
+    let t = text(&r);
+    assert!(t.contains("did not finish within"), "{}", &t[..t.len().min(300)]);
+    assert!(t.len() < 2 * tetel::reply::ENTRY_CAP, "the echo was not cut: {} bytes", t.len());
 
     client.cancel().await.expect("clean shutdown");
 }

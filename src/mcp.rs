@@ -273,6 +273,84 @@ fn fact_result(
     fit_lists(out, id, lists, budget)
 }
 
+/// `run`'s reply: the exit code and the whole output, or, when the two do not
+/// fit the reply budget as JSON, the output's first whole lines that do and an
+/// `omitted` line saying what was left out (TET-95).
+///
+/// Only the reply is cut. The capture keeps every byte, as `run_command`
+/// already stored it, so `omitted` says so. No default reduction below the
+/// budget: measured over 5,716 `run` replies in agent transcripts, test and
+/// build commands were 0.1% of the bytes, and the large replies were reads —
+/// grep, sed, awk — whose later `fact` notes quoted lines from anywhere in
+/// them. Past the budget there is no way to page a capture without running
+/// the command again, so the remedy offered is a narrower command.
+///
+/// Fitted to the whole budget, not half, the way `fact_result` fits a reply
+/// that cannot go out structured: the backstop drops the structured copy,
+/// which loses nothing. Keys serialize sorted, so `omitted` precedes `output`
+/// and leads whatever part of the reply a reader sees first.
+fn run_result(exit_code: i32, output: &str) -> serde_json::Value {
+    let budget = crate::reply::REPLY_BUDGET;
+    let whole = json!({ "exit_code": exit_code, "output": output });
+    if whole.to_string().len() <= budget {
+        return whole;
+    }
+    let lines: Vec<&str> = output.split_inclusive('\n').collect();
+    let total = lines.len();
+    let omitted = |what: String, left: usize| {
+        format!(
+            "[tetel: showed {what}; {left} bytes left out of this reply, the capture keeps all {total} lines — a \
+reply is held to {budget} bytes; run a narrower command to see the rest]"
+        )
+    };
+    let whole_lines = |n: usize, left: usize| omitted(format!("lines 1-{n} of {total}"), left);
+    let cut_line = |x: usize, left: usize| {
+        omitted(format!("the first {x} of {} bytes of line 1 and none of the other {}", lines[0].len(), total - 1), left)
+    };
+    // Reserved at its longest before the lines are counted: no count in
+    // either form exceeds `total`, `lines[0].len()` or `output.len()`.
+    let reserved = json!({
+        "exit_code": exit_code,
+        "omitted": whole_lines(total, output.len()).max(cut_line(lines[0].len(), output.len())),
+        "output": "",
+    })
+    .to_string()
+    .len();
+    let room = budget.saturating_sub(reserved);
+    // A line's cost is its JSON-escaped length: a quote, a backslash or a
+    // control character takes more than its own bytes.
+    let escaped = |s: &str| serde_json::Value::from(s).to_string().len() - 2;
+    let (mut used, mut n) = (0, 0);
+    for l in &lines {
+        let cost = escaped(l);
+        if used + cost > room {
+            break;
+        }
+        used += cost;
+        n += 1;
+    }
+    let (shown, note) = if n > 0 {
+        let shown: String = lines[..n].concat();
+        let left = output.len() - shown.len();
+        (shown, whole_lines(n, left))
+    } else {
+        // Not even the first line fits: show its first chars that do, so a
+        // reply is never empty.
+        let mut end = 0;
+        let mut cost = 0;
+        for (i, c) in lines[0].char_indices() {
+            cost += escaped(c.encode_utf8(&mut [0; 4]));
+            if cost > room {
+                break;
+            }
+            end = i + c.len_utf8();
+        }
+        let shown = lines[0][..end].to_string();
+        (shown, cut_line(end, output.len() - end))
+    };
+    json!({ "exit_code": exit_code, "omitted": note, "output": shown })
+}
+
 /// Keep `fact`'s lists within `room` bytes of JSON, in priority order
 /// (TET-93 C11): `verify` is already in `out` and is never touched here,
 /// then whole `attention` entries, then `folded`, then refusals, each list
@@ -980,10 +1058,7 @@ impl TetelServer {
     async fn run(&self, Parameters(p): Parameters<RunParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         match observe::run_command(&dir, &p.command) {
-            Ok(outcome) => Ok(CallToolResult::structured(json!({
-                "exit_code": outcome.exit_code,
-                "output": outcome.printed,
-            }))),
+            Ok(outcome) => Ok(CallToolResult::structured(run_result(outcome.exit_code, &outcome.printed))),
             Err(e) => Ok(refusal("run", &p.workspace, e)),
         }
     }
