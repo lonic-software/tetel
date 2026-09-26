@@ -1,0 +1,5 @@
+{"event":"Declare","id":"T1","symbol":"snapshot::write","from":"F13","timestamp":1790444645}
+{"event":"Declare","id":"T2","symbol":"Provenance","from":"F14","timestamp":1790444645}
+{"event":"Declare","id":"T3","symbol":"block_offsets","from":"F15","timestamp":1790444645}
+{"event":"Declare","id":"T4","symbol":"census_findings","from":"F22","timestamp":1790445245}
+{"event":"Declare","id":"T5","symbol":"premise_findings","from":"F23","timestamp":1790445256}
