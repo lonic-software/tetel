@@ -325,13 +325,16 @@ impl Blocks {
 }
 
 /// A prose block's line in the document, or why it is unknown. `lib.rs`
-/// fills the line only under [`Provenance::Matches`], since the offsets
+/// fills the line only when [`Provenance::renders_exactly`], since the offsets
 /// are the snapshot's current render and are the document's lines only
 /// when the two are equal.
 fn block_line(line: Option<usize>, provenance: &Provenance) -> String {
     match (line, provenance) {
         (Some(n), _) => format!("line {n}"),
-        (None, Provenance::Matches) => "line unknown (offset lookup failed)".to_string(),
+        (None, p) if p.renders_exactly() => "line unknown (offset lookup failed)".to_string(),
+        (None, Provenance::Unreadable(_)) => "line unknown (its snapshot could not be read, so \
+nothing says the snapshot's line numbers are its lines)"
+            .to_string(),
         (None, _) => "line unknown (this document is not its snapshot's current render, so the \
 snapshot's line numbers are not its lines)"
             .to_string(),
@@ -588,7 +591,7 @@ skipped for that reason. `tetel rerender <this file>` migrates it from the snaps
                 ),
             );
         }
-        Provenance::StaleRecord { recorded_build } => {
+        Provenance::StaleRecord { recorded_build, document_differs: true, .. } => {
             machine.row(
                 "stale-render-record",
                 format!(
@@ -597,6 +600,21 @@ renders, but the render record beside it (written by {recorded_build}) describes
 document: the pair was re-rendered by a build that writes no render record and leaves an old one \
 in place. Nothing is wrong with the text. `tetel rerender <this file>` replaces the record; left \
 alone, the next renderer change would read as an edit.\n"
+                ),
+            );
+        }
+        Provenance::StaleRecord { recorded_build, document_differs: false, files } => {
+            machine.row(
+                "stale-render-record",
+                format!(
+                    "  - [stale-render-record] this document is exactly what its snapshot \
+renders, but these snapshot files differ from the render record beside it (written by \
+{recorded_build}): {}. Render does not read them, so either a build that writes no render record \
+re-rendered the pair and changed them, or they were edited by hand. Restore them, or re-render \
+from the workspace that wrote them; if you know a record-less build changed them, `tetel \
+rerender --unattributed <this file>` reseals the record on your word. Left alone, the next \
+renderer change would read as an edit.\n",
+                    files.join(", ")
                 ),
             );
         }

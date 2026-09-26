@@ -384,12 +384,19 @@ pub enum Provenance {
     /// is a record of this document.
     Matches,
     /// The snapshot re-renders the memo exactly, but the record beside it
-    /// describes a different document. The pair was rewritten by a build
-    /// that writes no record (every build before TET-43): it neither
-    /// writes one nor removes an old one. Reported now, while the renderer
-    /// has not moved, rather than surfacing at the next renderer change as
-    /// an edit `rerender` refuses.
-    StaleRecord { recorded_build: String },
+    /// does not describe the pair. Reported now, while the renderer has
+    /// not moved, rather than surfacing at the next renderer change as an
+    /// edit `rerender` refuses.
+    ///
+    /// When `document_differs`, the record is of a different document, so
+    /// the pair was rewritten by a build that writes no record (every
+    /// build before TET-43): it neither writes one nor removes an old one.
+    /// Otherwise the document agrees and only `files` (named, sorted,
+    /// never empty) disagree — which such a build also does whenever the
+    /// rewrite changes only files render does not read (`refusals.log`,
+    /// `acks.jsonl`), and which a hand edit render does not reflect does
+    /// too. Digests cannot tell those two apart.
+    StaleRecord { recorded_build: String, document_differs: bool, files: Vec<String> },
     /// The re-render differs and there is no record to say why: a hand
     /// edit, a workspace that moved on without a re-render, or a renderer
     /// change are all possible.
@@ -413,6 +420,12 @@ impl Provenance {
     /// comment.
     pub fn failed(&self) -> bool {
         !matches!(self, Provenance::Missing | Provenance::Matches)
+    }
+
+    /// Whether the document is known to be exactly its snapshot's render,
+    /// so that the snapshot's line numbers are the document's lines.
+    pub fn renders_exactly(&self) -> bool {
+        matches!(self, Provenance::Matches | Provenance::StaleRecord { .. })
     }
 }
 
@@ -447,12 +460,13 @@ fn classify(
     let document_recorded =
         |r: &RenderRecord| r.document == sha256_bytes(memo_source.as_bytes());
     if rendered == memo_source {
-        return match record {
-            Some(r) if !document_recorded(r) => {
-                Provenance::StaleRecord { recorded_build: r.build.clone() }
-            }
-            _ => Provenance::Matches,
-        };
+        let Some(r) = record else { return Provenance::Matches };
+        let document_differs = !document_recorded(r);
+        let files = snapshot_edits(dir, r);
+        if !document_differs && files.is_empty() {
+            return Provenance::Matches;
+        }
+        return Provenance::StaleRecord { recorded_build: r.build.clone(), document_differs, files };
     }
     let diff = Diff::between(rendered, memo_source);
     let Some(record) = record else {
@@ -476,8 +490,12 @@ pub enum Rerendered {
     /// The document already matched and had no record: a record was
     /// written, the document untouched.
     Sealed,
-    /// A stale record (see [`Provenance::StaleRecord`]) was replaced.
+    /// A record of a different document (see [`Provenance::StaleRecord`])
+    /// was replaced.
     StaleRecordReplaced { recorded_build: String },
+    /// A record that agreed on the document but not on `files` was
+    /// replaced on the operator's word (`--unattributed`).
+    Resealed { recorded_build: String, files: Vec<String> },
     /// The document was rewritten as its snapshot's current render, and
     /// sealed. `vouched` is true when the operator vouched for an
     /// unattributed memo.
@@ -512,33 +530,35 @@ pub fn rerender(memo: &Path, unattributed: bool) -> Result<Rerendered, String> {
     let io_err = |e: io::Error| format!("could not write ({e})");
 
     match classify(&dir, &source, &rendered, record.as_ref()) {
-        Provenance::Matches => match record {
-            None => {
+        Provenance::Matches => {
+            if record.is_some() {
+                Ok(Rerendered::Unchanged)
+            } else {
                 write_record(&dir, &source).map_err(io_err)?;
                 Ok(Rerendered::Sealed)
             }
-            Some(r) => {
-                // `check` compares only the document digest under a match.
-                // Here every file is compared: an edit render does not
-                // reflect (identity.json, acks.jsonl, a fact field render
-                // never prints) still matches, and resealing would erase
-                // the only trace of it.
-                let files = snapshot_edits(&dir, &r);
-                if files.is_empty() {
-                    Ok(Rerendered::Unchanged)
-                } else {
-                    Err(format!(
-                        "it re-renders exactly, but these snapshot files differ from its render \
-record: {}. An edit that render does not reflect is still an edit, and resealing would erase \
-the only trace of it — restore the files, or re-render from the workspace that wrote them",
-                        files.join(", ")
-                    ))
-                }
-            }
-        },
-        Provenance::StaleRecord { recorded_build } => {
+        }
+        Provenance::StaleRecord { recorded_build, document_differs: true, .. } => {
             write_record(&dir, &source).map_err(io_err)?;
             Ok(Rerendered::StaleRecordReplaced { recorded_build })
+        }
+        Provenance::StaleRecord { recorded_build, document_differs: false, files } => {
+            // The document agrees with the record and only files render
+            // does not reflect differ. A record-less rewrite and a hand edit
+            // look identical here, and resealing would erase the only trace
+            // of the edit — so only the operator can say which it was.
+            if !unattributed {
+                return Err(format!(
+                    "it re-renders exactly, but these snapshot files differ from its render \
+record: {}. An edit that render does not reflect is still an edit, and resealing would erase \
+the only trace of it — restore the files, or re-render from the workspace that wrote them. If \
+you know a build that writes no render record changed them, re-run with --unattributed to vouch \
+for it",
+                    files.join(", ")
+                ));
+            }
+            write_record(&dir, &source).map_err(io_err)?;
+            Ok(Rerendered::Resealed { recorded_build, files })
         }
         Provenance::RendererChanged { recorded_build, .. } => {
             migrate(memo, &dir, &source, &rendered)?;
@@ -573,7 +593,7 @@ or the renderer moved ({}). If you know the renderer is the only thing that chan
 /// Rewrite `memo` as `rendered` and seal it — unless the rewrite would
 /// change the ledger's claim set or any claim's proposition.
 fn migrate(memo: &Path, dir: &Path, source: &str, rendered: &str) -> Result<(), String> {
-    let changed = ledger_changes(source, rendered);
+    let changed = ledger_changes(source, rendered)?;
     if !changed.is_empty() {
         return Err(format!(
             "re-rendering would change the ledger for {} — their grading records are keyed to \
@@ -590,18 +610,42 @@ the propositions as the document states them now, so the rewrite would put them 
 /// Claim ids whose presence or proposition differs between two documents'
 /// ledgers, as `ledger::import` reads them — the reading every
 /// `proposition_digest` on record was computed over.
-fn ledger_changes(before: &str, after: &str) -> Vec<String> {
-    let read = |s: &str| -> BTreeMap<String, String> {
-        crate::ledger::import(&crate::parse::parse_document(s).body)
-            .claims
-            .into_iter()
-            .map(|c| (c.id, c.proposition))
-            .collect()
+///
+/// That reading is this build's, and the old document may be in a layout
+/// it no longer reads. Such a document is refused as unreadable, never
+/// reported as every claim having changed: `ledger::import` is expected to
+/// keep reading the layouts it has written, and when it does not, the
+/// comparison has nothing to compare.
+fn ledger_changes(before: &str, after: &str) -> Result<Vec<String>, String> {
+    let import = |s: &str| crate::ledger::import(&crate::parse::parse_document(s).body);
+    let (old, new) = (import(before), import(after));
+    let unreadable = |what: &str, errors: &[crate::ledger::LedgerImportError]| {
+        let first = &errors[0];
+        format!(
+            "this build cannot read the ledger of {what} (line {}: {}), so it cannot confirm that \
+re-rendering leaves every claim's proposition unchanged",
+            first.line, first.message
+        )
     };
-    let (a, b) = (read(before), read(after));
+    if !old.errors.is_empty() {
+        return Err(unreadable("the document as it stands", &old.errors));
+    }
+    if !new.errors.is_empty() {
+        return Err(unreadable("the re-render", &new.errors));
+    }
+    if old.claims.is_empty() && !new.claims.is_empty() {
+        return Err("this build reads no ledger in the document as it stands, though its \
+re-render has one, so it cannot confirm that re-rendering leaves every claim's proposition \
+unchanged — teach `ledger::import` the older layout before migrating"
+            .to_string());
+    }
+    let read = |i: crate::ledger::LedgerImport| -> BTreeMap<String, String> {
+        i.claims.into_iter().map(|c| (c.id, c.proposition)).collect()
+    };
+    let (a, b) = (read(old), read(new));
     let ids: std::collections::BTreeSet<&String> =
         a.keys().chain(b.keys()).filter(|id| a.get(*id) != b.get(*id)).collect();
-    ids.into_iter().cloned().collect()
+    Ok(ids.into_iter().cloned().collect())
 }
 
 #[cfg(test)]

@@ -150,8 +150,8 @@ Two labelled partitions, each stating its own scope, and **never a single docume
 
 Provenance drift names which input moved: `document-edited`, `snapshot-edited`, or
 `renderer-changed` when neither did, from the render record `render --out` writes. A memo with no
-record reports plain `provenance-drift`, and a record left describing another document is a
-`stale-render-record`. All of them fail, a renderer change included, because `check` reads the
+record reports plain `provenance-drift`, and a record that no longer describes a matching pair —
+another document, or snapshot files `render` does not read — is a `stale-render-record`. All of them fail, a renderer change included, because `check` reads the
 document in the layout the current build renders. After a change to what `render` emits,
 `tetel rerender <memo>...` migrates committed memos from their snapshots alone. It refuses an edit,
 and it refuses a rewrite that would change what any ledger claim says.

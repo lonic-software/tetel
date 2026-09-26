@@ -294,9 +294,10 @@ pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
             // when the document is exactly that render; under any other
             // provenance outcome the line is left unknown, and the report
             // says why.
-            let offsets = match findings.provenance {
-                snapshot::Provenance::Matches => compose::block_offsets(&snapshot_dir).ok(),
-                _ => None,
+            let offsets = if findings.provenance.renders_exactly() {
+                compose::block_offsets(&snapshot_dir).ok()
+            } else {
+                None
             };
             if let Some(offsets) = offsets {
                 for item in &mut listed {

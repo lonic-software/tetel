@@ -41,9 +41,11 @@ enum Command {
         /// The memos to re-render.
         #[arg(required = true)]
         memos: Vec<PathBuf>,
-        /// Vouch that a memo with no render record changed only because
-        /// the renderer did. It is still rewritten as its snapshot's
-        /// render, never sealed as it stands.
+        /// Vouch for what no render record attributes: that a memo with no
+        /// record changed only because the renderer did (it is still
+        /// rewritten as its snapshot's render, never sealed as it stands),
+        /// or that snapshot files render does not read were changed by a
+        /// build that writes no record (the record is resealed over them).
         #[arg(long)]
         unattributed: bool,
     },
@@ -490,6 +492,11 @@ written and the document left untouched"
                             Rerendered::StaleRecordReplaced { recorded_build } => format!(
                                 "stale render record replaced (it was written by {recorded_build} \
 for an earlier document); nothing was edited"
+                            ),
+                            Rerendered::Resealed { recorded_build, files } => format!(
+                                "resealed on your word (--unattributed): {} differed from the \
+record {recorded_build} wrote, and the record now matches them; the document was left untouched",
+                                files.join(", ")
                             ),
                             Rerendered::Migrated { recorded_build: Some(b), .. } => format!(
                                 "migrated: re-rendered from its snapshot (last rendered by {b}) \

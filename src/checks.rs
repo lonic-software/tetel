@@ -324,7 +324,7 @@ pub struct ProseRevisedSinceProof {
     /// takes no dependency on `compose`, since its own two inputs are
     /// exactly the snapshot's prose log and the claims/evidence
     /// `check_file` already holds (see that function's doc comment).
-    /// `None` when provenance is anything but `Matches` — the offsets are
+    /// `None` unless provenance says the document renders exactly — the offsets are
     /// lines of the snapshot's current render, which are the document's
     /// lines only when the two are equal — or if the block's id is absent
     /// from the offset map. This is display metadata, never fabricated: a
