@@ -60,6 +60,20 @@ pub const DECLARED_MAX_RESULT_SIZE_CHARS: u64 = 100_000;
 /// quotes, short enough that many fit beside each other.
 pub const ENTRY_CAP: usize = 1024;
 
+/// The most a `verify` object may carry, serialized, in any verb's reply.
+///
+/// The backstop carries `verify` whole ahead of everything else (see
+/// [`bound`]), so what it leaves beside `verify` is the rest of the budget.
+/// That rest has to hold the backstop's own wrapper and marker, and still
+/// show the verb's identifying fields (`fact`'s `id` and `action`, which the
+/// backstop's smallest-first order puts first): [`ENTRY_CAP`] is reserved for
+/// both. One allowance for every verb, so a `verify` shaped for `claim` or
+/// `prose` fits the same room as one shaped for `fact`.
+pub const VERIFY_ALLOWANCE: usize = REPLY_BUDGET - ENTRY_CAP;
+
+/// The trailer on a cut entry.
+pub const ELLIPSIS: &str = " …";
+
 /// The longest prefix of `s` within `room` bytes that ends on a char
 /// boundary.
 pub fn floor_char_boundary(s: &str, room: usize) -> &str {
@@ -68,6 +82,18 @@ pub fn floor_char_boundary(s: &str, room: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+/// `s` if it is within `cap` bytes, else its longest prefix that fits
+/// beside a trailing " …". Below four bytes of `cap` nothing of `s` fits
+/// beside the trailer, and the result is the trailer alone, so a cut is
+/// always stated.
+pub fn capped(s: &str, cap: usize) -> std::borrow::Cow<'_, str> {
+    if s.len() <= cap {
+        std::borrow::Cow::Borrowed(s)
+    } else {
+        std::borrow::Cow::Owned(format!("{}{ELLIPSIS}", floor_char_boundary(s, cap.saturating_sub(ELLIPSIS.len()))))
+    }
 }
 
 /// A reply's size by the budget's measure: every text block's bytes, plus
@@ -100,10 +126,11 @@ fn content_text_len(result: &CallToolResult) -> usize {
 /// `verify` is exempt from cutting because a finding is marked delivered
 /// while the reply is built (`verify_block` in `mcp.rs`), and no surface
 /// prints a delivered finding afterwards, so a cut finding would be lost
-/// for good. Keeping `verify` itself within the budget is the job of the
-/// verbs that carry it; here it is carried whole even if that breaks the
-/// bound, because a spilled reply is still readable by someone and a
-/// dropped finding is not.
+/// for good. Keeping `verify` within [`VERIFY_ALLOWANCE`] is the job of
+/// `verify_block` in `mcp.rs`, which every verb carrying one builds it
+/// through; here it is carried whole even if that breaks the bound, because
+/// a spilled reply is still readable by someone and a dropped finding is
+/// not.
 ///
 /// The marker speaks only about the reply. Whether the verb's capture is
 /// whole is the verb's to say, in its own label and reply.
@@ -293,6 +320,24 @@ mod tests {
         let carried: Value = serde_json::from_str(first).expect("the first line is the verify object");
         assert_eq!(carried, json!({ "verify": verify }), "verify must come back whole");
         assert!(text.contains(CUT), "the rest was cut, so it must be marked");
+    }
+
+    /// A `verify` object at [`VERIFY_ALLOWANCE`] is carried whole and
+    /// still leaves the room the backstop needs to show the verb's id.
+    /// Revert: set the allowance to the whole budget (the id is cut away,
+    /// and the reply is over).
+    #[test]
+    fn a_verify_at_the_allowance_leaves_room_for_the_id() {
+        let wrap = json!({ "status": "ok", "findings": [], "pad": "" }).to_string().len();
+        let verify = json!({ "status": "ok", "findings": [], "pad": "p".repeat(VERIFY_ALLOWANCE - wrap) });
+        assert_eq!(verify.to_string().len(), VERIFY_ALLOWANCE, "premise");
+        let value = json!({ "id": "C4", "action": "created", "overlap": lines(1000), "verify": verify });
+        let out = unwrap_complete(bound(complete(CallToolResult::structured(value))));
+        let text = text_of(&out);
+        assert!(text.len() <= REPLY_BUDGET, "{} bytes", text.len());
+        let carried: Value = serde_json::from_str(text.lines().next().unwrap()).expect("verify first");
+        assert_eq!(carried, json!({ "verify": verify }));
+        assert!(text.contains(r#""id":"C4""#), "the id was cut away");
     }
 
     #[test]

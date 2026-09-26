@@ -315,15 +315,34 @@ fn extent_covers(fact: &Fact, mentioned: &str) -> bool {
 /// refusal: naming a location as context is legitimate, and refusing
 /// would make the honest note unwritable in order to catch the dishonest
 /// one.
+///
+/// The extent is named through [`extent_shown`], not in full: the text is
+/// repeated once per location the note names outside the extent, and a
+/// search's label can run to tens of kilobytes, so every label in full
+/// once overflowed a `fact` reply by itself (TET-93).
 pub fn advice(o: &OutsideExtent) -> String {
+    let (shown, rest) = extent_shown(o);
+    let more = if rest > 0 { format!("; and {rest} more") } else { String::new() };
     format!(
-        "note names {}, which this fact's extent does not cover (extent: {}). \
+        "note names {}, which this fact's extent does not cover (extent: {}{more}). \
 Fine if that's context. If it's a conclusion about {}, you have not read it here — \
 `look` at it and mint a fact for it, or revise this note to drop the claim about it.",
         o.mentioned,
-        o.extent_labels.join("; "),
+        shown.join("; "),
         o.mentioned,
     )
+}
+
+/// How many extent labels [`advice`] names before it counts the rest.
+pub const ADVICE_LABELS: usize = 4;
+
+/// The extent labels a finding names: the first [`ADVICE_LABELS`], each
+/// cut to [`ENTRY_CAP`](crate::reply::ENTRY_CAP), and how many it left
+/// out. One definition, so `advice` and the MCP reply's `extent` field
+/// name the same labels.
+pub fn extent_shown(o: &OutsideExtent) -> (Vec<std::borrow::Cow<'_, str>>, usize) {
+    let shown = o.extent_labels.iter().take(ADVICE_LABELS).map(|l| crate::reply::capped(l, crate::reply::ENTRY_CAP)).collect();
+    (shown, o.extent_labels.len().saturating_sub(ADVICE_LABELS))
 }
 
 /// The findings for one fact id in a workspace, for the authoring paths.
@@ -432,6 +451,22 @@ mod tests {
     fn finds_source_paths_and_ignores_prose_dots() {
         let found = mentioned_paths("see audit_utils.rs and graph_utils.rs, e.g. v1.2 or i.e. this", &[]);
         assert_eq!(found, vec!["audit_utils.rs", "graph_utils.rs"]);
+    }
+
+    /// TET-93 C11: the text is shared with the CLI's stderr and repeated
+    /// per location, so it names at most four labels, each cut, and counts
+    /// the rest. Reverts: join every label (six named, ~30 KB); drop the
+    /// cut (four whole 5 KB labels).
+    #[test]
+    fn advice_names_four_labels_cut_and_counts_the_rest() {
+        let labels: Vec<String> = (0..6).map(|i| format!("L{i} {}", "x".repeat(5000))).collect();
+        let o = OutsideExtent { fact_id: "F1".into(), mentioned: "gone.rs".into(), extent_labels: labels };
+        let a = advice(&o);
+        assert!(a.contains("L3 ") && !a.contains("L4 "), "four labels, not more");
+        assert!(a.contains("; and 2 more)"), "{}", &a[a.len() - 300..]);
+        let bound = 4 * crate::reply::ENTRY_CAP + 400;
+        assert!(a.len() <= bound, "advice of {} bytes", a.len());
+        assert!(a.ends_with("drop the claim about it."), "the advice itself must survive");
     }
 
     #[test]

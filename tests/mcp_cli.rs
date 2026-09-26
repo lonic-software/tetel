@@ -2167,3 +2167,270 @@ async fn query_pages_its_own_reply_and_the_backstop_never_fires() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// One `ok` verification record for `mint`, carrying `findings` findings
+/// whose quoted text is `len` bytes per field, each field led by its
+/// finding's index so a cut one can still be matched to it.
+fn verify_record(mint: &str, findings: usize, len: usize) -> String {
+    let text = |i: usize, what: &str| {
+        let head = format!("finding {i} {what}: ");
+        format!("{head}{}", "t".repeat(len.saturating_sub(head.len())))
+    };
+    let findings: Vec<_> = (0..findings)
+        .map(|i| {
+            serde_json::json!({
+                "kind": "contradicts", "clause": text(i, "clause"), "clause_quoted": true,
+                "facts": ["F1"], "evidence": text(i, "evidence"), "why": text(i, "why"), "quoted": true,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "seq": 1, "mint": mint, "verb": "fact", "status": "ok", "model": "m/x",
+        "approach": "split", "at": 1, "findings": findings,
+    })
+    .to_string()
+}
+
+/// A `fact` reply's JSON and its size by the budget's measure, asserting
+/// the backstop did not cut it: an untouched structured reply, or (when
+/// `verify` alone takes more than half the budget) the same JSON as text
+/// with only the structured copy dropped.
+async fn fact_reply(
+    client: &RunningService<RoleClient, DummyClientHandler>,
+    ws: &str,
+    note: &str,
+) -> (serde_json::Value, bool) {
+    let r = client
+        .call_tool(CallToolRequestParams::new("fact").with_arguments(args(serde_json::json!({
+            "workspace": ws, "note": note,
+        }))))
+        .await
+        .expect("fact call failed at protocol level");
+    assert_ne!(r.is_error, Some(true), "fact was refused: {r:?}");
+    let text: String = r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.clone()).collect();
+    let size = text.len() + r.structured_content.as_ref().map_or(0, |v| v.to_string().len());
+    assert!(size <= tetel::reply::REPLY_BUDGET, "a fact reply of {size} bytes is over the budget");
+    assert!(!text.contains("[tetel: this reply was cut"), "the backstop cut a fact reply:\n{}", &text[..300]);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("a fact reply's text is its whole JSON");
+    (v, r.structured_content.is_some())
+}
+
+/// TET-93 C11 and C14 (v), (vii): the attacker's case. A fact folding six
+/// searches whose labels total well over the budget, with a note naming six
+/// paths outside its extent and a delivered finding, comes back within the
+/// budget with nothing cut by the backstop, which drops only the structured
+/// copy, the finding whole, and counts for what `folded` and `attention` left
+/// out.
+///
+/// Reverts: return before `fit_lists` (the backstop cuts); show every extent label in `extent_shown` (the first
+/// attention entry's `extent` is eighteen labels).
+#[tokio::test]
+async fn fact_shapes_its_own_reply_and_the_backstop_never_cuts() {
+    let sb = Sandbox::new("fact-shapes");
+    sb.write("src/a.rs", "needle\n");
+    sb.write("src/b.rs", "needle\n");
+    let client = sb.connect().await;
+    let ws = "ws-fact";
+    for n in 0..6 {
+        let pattern = format!("needle|{}", (0..400).map(|i| format!("q{n}x{i}")).collect::<Vec<_>>().join("|"));
+        let r = client
+            .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+                "workspace": ws, "path": sb.dir.join("src").to_str().unwrap(), "grep": pattern,
+            }))))
+            .await
+            .expect("look");
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+    }
+    let raw = std::fs::read_to_string(sb.state_home().join("workspaces").join(ws).join("pending.json")).unwrap();
+    let pending: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+    let labels: usize = pending.iter().map(|e| e["label"].as_str().unwrap().len()).sum();
+    assert!(pending.len() == 18 && labels > tetel::reply::REPLY_BUDGET, "premise: {} entries, {labels} bytes of labels", pending.len());
+
+    let state = sb.state_home().join("workspaces").join(ws);
+    std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", 1, 40))).expect("plant verify.log");
+
+    let note = "needle is in src/a.rs; see gone1.rs, gone2.rs, gone3.rs, gone4.rs, gone5.rs, gone6.rs";
+    let (v, structured) = fact_reply(&client, ws, note).await;
+    assert!(!structured, "a fact reply over half the budget is fitted to the whole of it, its structured copy dropped");
+    assert_eq!(v["id"], "F1");
+    assert_eq!(v["verify"]["for_mint"], "F0", "{}", v["verify"]);
+    let why = format!("finding 0 why: {}", "t".repeat(40 - "finding 0 why: ".len()));
+    assert_eq!(v["verify"]["findings"][0]["why"], why, "the finding must come whole");
+    let omitted = &v["omitted"];
+    assert!(omitted["folded"].as_u64().unwrap() > 0, "{omitted}");
+    assert!(omitted["attention"].as_u64().unwrap() > 0, "{omitted}");
+    let shown = v["attention"].as_array().unwrap().len() as u64;
+    assert!(shown >= 1, "no attention entry fit beside the others: {omitted}");
+    assert_eq!(shown + omitted["attention"].as_u64().unwrap(), 6, "every attention entry is shown or counted");
+    let first = &v["attention"][0];
+    assert_eq!(first["extent"].as_array().unwrap().len(), 4, "{first}");
+    assert!(first["extent"].as_array().unwrap().iter().all(|l| l.as_str().unwrap().len() <= tetel::reply::ENTRY_CAP));
+    assert_eq!(first["extent_more"], 14);
+    assert!(first["guidance"].as_str().unwrap().contains("; and 14 more)"), "{first}");
+    assert!(omitted["see"].as_str().unwrap().contains("id: F1"), "{omitted}");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-93 C11 and C14 (v): a verification with more findings than fit at
+/// full length shows every one of them, shorter, and the reply is not cut.
+///
+/// Reverts: drop `fit_findings` from `verify_block` (the verify object is
+/// ~360 KB and the reply is over the budget); cap by dropping findings
+/// instead of shortening them (fewer than 40 come back).
+#[tokio::test]
+async fn many_findings_are_all_shown_with_shorter_text() {
+    let sb = Sandbox::new("fact-findings");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
+    std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", 40, 3000))).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a()").await;
+    let findings = v["verify"]["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 40, "every finding must be shown");
+    assert!(v["verify"].get("findings_withheld").is_none());
+    for (i, f) in findings.iter().enumerate() {
+        for k in ["clause", "evidence", "why"] {
+            let s = f[k].as_str().unwrap();
+            assert!(s.starts_with(&format!("finding {i} {k}: ")) && s.ends_with(" …"), "{k} of {i}: {s}");
+            assert!(s.len() <= tetel::reply::ENTRY_CAP / 2, "{k} of {i} is {} bytes", s.len());
+        }
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-93 C11 and C14 (v): at the floor, where not even the findings'
+/// uncuttable fields fit, the reply shows what fits and says how many it
+/// withheld — and the delivery is still committed, so the next
+/// verification in the workspace is delivered on the next call.
+///
+/// Reverts: leave out `findings_withheld`; drop the floor's prefix (all
+/// 600 at the smallest cap are over the budget).
+#[tokio::test]
+async fn at_the_floor_findings_are_withheld_and_counted_and_the_next_is_delivered() {
+    let sb = Sandbox::new("fact-floor");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    let path = sb.dir.join("read_me.rs").to_str().unwrap().to_string();
+    look(&client, ws, &path).await;
+    let log = format!("{}\n{}\n", verify_record("F0", 600, 100), verify_record("F9", 1, 40));
+    std::fs::write(state.join("verify.log"), log).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a()").await;
+    let shown = v["verify"]["findings"].as_array().unwrap().len() as u64;
+    let withheld = v["verify"]["findings_withheld"].as_u64().expect("the withheld count must be stated");
+    assert!(shown > 0 && shown + withheld == 600, "shown {shown}, withheld {withheld}");
+
+    look(&client, ws, &path).await;
+    let (v, _) = fact_reply(&client, ws, "read_me.rs still defines a()").await;
+    assert_eq!(v["verify"]["for_mint"], "F9", "the next verification must still be delivered: {}", v["verify"]);
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-93 C11: a finding's quoted text is held to half an entry even when
+/// the allowance has room for all of it, so a few long findings cannot take
+/// the room the reply's lists need. Revert: raise `FINDING_TEXT_CAP` past
+/// 3000 (both findings come back whole).
+#[tokio::test]
+async fn a_long_finding_is_cut_to_half_an_entry_even_with_room() {
+    let sb = Sandbox::new("fact-finding-cap");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
+    std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", 2, 3000))).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a()").await;
+    let findings = v["verify"]["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 2);
+    for f in findings {
+        let s = f["why"].as_str().unwrap();
+        assert!(s.ends_with(" …") && (400..=tetel::reply::ENTRY_CAP / 2).contains(&s.len()), "{} bytes", s.len());
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-93 C11: a fact reply that cannot go out structured has its lists
+/// fitted to the whole budget, and the backstop drops only the duplicate, so
+/// every `attention` entry is shown whether `verify` takes a third of the
+/// budget or over half. Revert: fit to half the budget unless `verify` and
+/// the rest without the lists already take that half (the smaller `verify`
+/// loses attention entries the larger one keeps).
+#[tokio::test]
+async fn attention_keeps_the_whole_budget_beside_any_verify() {
+    for findings in [5, 10] {
+        let sb = Sandbox::new(&format!("fact-attention-room-{findings}"));
+        sb.write("src/a.rs", "needle\n");
+        let client = sb.connect().await;
+        let ws = "ws";
+        let pattern = format!("needle|{}", (0..400).map(|i| format!("q{i}")).collect::<Vec<_>>().join("|"));
+        let r = client
+            .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+                "workspace": ws, "path": sb.dir.join("src").to_str().unwrap(), "grep": pattern,
+            }))))
+            .await
+            .expect("look");
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        let state = sb.state_home().join("workspaces").join(ws);
+        std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", findings, 3000))).expect("plant verify.log");
+
+        let (v, structured) = fact_reply(&client, ws, "needle is in src/a.rs; see gone1.rs, gone2.rs, gone3.rs").await;
+        assert_eq!(v["verify"]["findings"].as_array().unwrap().len(), findings);
+        assert_eq!(
+            v["attention"].as_array().unwrap().len(),
+            3,
+            "attention must be shown beside {} bytes of verify: {}",
+            v["verify"].to_string().len(),
+            v.get("omitted").unwrap_or(&serde_json::Value::Null)
+        );
+        assert!(v.get("omitted").is_none(), "{}", v["omitted"]);
+        let text = v.to_string().len();
+        assert!(!structured && text > tetel::reply::REPLY_BUDGET / 2, "premise ({findings}): {text} bytes, structured {structured}");
+
+        client.cancel().await.expect("clean shutdown");
+    }
+}
+
+/// TET-93 C11: at the floor, a field shorter than the " …" trailer is not
+/// replaced by the longer trailer, which would withhold findings that fit
+/// whole. Revert: start `best_cap`'s search at 0 (fewer findings are shown than
+/// fit, since each prefix is sized with its one-byte fields lengthened).
+#[tokio::test]
+async fn at_the_floor_a_short_field_is_not_lengthened() {
+    let sb = Sandbox::new("fact-floor-short");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
+    let findings: Vec<_> = (0..600)
+        .map(|_| serde_json::json!({"kind": "contradicts", "clause": "c", "clause_quoted": true, "facts": ["F1"], "evidence": "e", "why": "w", "quoted": true}))
+        .collect();
+    let record = serde_json::json!({"seq": 1, "mint": "F0", "verb": "fact", "status": "ok", "model": "m/x", "approach": "split", "at": 1, "findings": findings});
+    std::fs::write(state.join("verify.log"), format!("{record}\n")).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a()").await;
+    assert!(v["verify"]["findings_withheld"].as_u64().unwrap() > 0, "premise: this is the floor");
+    let shown = v["verify"]["findings"].as_array().unwrap();
+    for f in shown {
+        assert_eq!((f["clause"].as_str(), f["evidence"].as_str(), f["why"].as_str()), (Some("c"), Some("e"), Some("w")), "{f}");
+    }
+    let one_more = shown[0].to_string().len() + 1;
+    assert!(
+        v["verify"].to_string().len() + one_more > tetel::reply::VERIFY_ALLOWANCE,
+        "the shown prefix must be the longest that fits: {} shown, {} bytes",
+        shown.len(),
+        v["verify"].to_string().len()
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}
