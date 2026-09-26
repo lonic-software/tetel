@@ -2218,11 +2218,11 @@ async fn fact_reply(
 /// TET-93 C11 and C14 (v), (vii): the attacker's case. A fact folding six
 /// searches whose labels total well over the budget, with a note naming six
 /// paths outside its extent and a delivered finding, comes back within the
-/// budget untouched by the backstop, the finding whole, and counts for what
-/// `folded` and `attention` left out.
+/// budget with nothing cut by the backstop, which drops only the structured
+/// copy, the finding whole, and counts for what `folded` and `attention` left
+/// out.
 ///
-/// Reverts: return before `fit_lists` (the backstop drops the structured
-/// copy, or cuts); show every extent label in `extent_shown` (the first
+/// Reverts: return before `fit_lists` (the backstop cuts); show every extent label in `extent_shown` (the first
 /// attention entry's `extent` is eighteen labels).
 #[tokio::test]
 async fn fact_shapes_its_own_reply_and_the_backstop_never_fires() {
@@ -2251,7 +2251,7 @@ async fn fact_shapes_its_own_reply_and_the_backstop_never_fires() {
 
     let note = "needle is in src/a.rs; see gone1.rs, gone2.rs, gone3.rs, gone4.rs, gone5.rs, gone6.rs";
     let (v, structured) = fact_reply(&client, ws, note).await;
-    assert!(structured, "a fact reply whose verify is small must not reach the backstop at all");
+    assert!(!structured, "a fact reply over half the budget is fitted to the whole of it, its structured copy dropped");
     assert_eq!(v["id"], "F1");
     assert_eq!(v["verify"]["for_mint"], "F0", "{}", v["verify"]);
     let why = format!("finding 0 why: {}", "t".repeat(40 - "finding 0 why: ".len()));
@@ -2359,26 +2359,45 @@ async fn a_long_finding_is_cut_to_half_an_entry_even_with_room() {
     client.cancel().await.expect("clean shutdown");
 }
 
-/// TET-93 C11: once `verify` alone takes more than half the budget, the
-/// structured copy goes anyway, so `attention` is fitted against the whole
-/// budget rather than losing every entry to half of it. Revert: keep `room`
-/// at half the budget (every attention entry is counted, none shown).
+/// TET-93 C11: a fact reply that cannot go out structured has its lists
+/// fitted to the whole budget, and the backstop drops only the duplicate, so
+/// every `attention` entry is shown whether `verify` takes a third of the
+/// budget or over half. Revert: fit to half the budget unless `verify` and
+/// the rest without the lists already take that half (the smaller `verify`
+/// loses attention entries the larger one keeps).
 #[tokio::test]
-async fn attention_keeps_its_room_beside_a_large_verify() {
-    let sb = Sandbox::new("fact-attention-room");
-    sb.write("read_me.rs", "fn a() {}\n");
-    let client = sb.connect().await;
-    let ws = "ws";
-    let state = sb.state_home().join("workspaces").join(ws);
-    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
-    std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", 12, 3000))).expect("plant verify.log");
+async fn attention_keeps_the_whole_budget_beside_any_verify() {
+    for findings in [5, 10] {
+        let sb = Sandbox::new(&format!("fact-attention-room-{findings}"));
+        sb.write("src/a.rs", "needle\n");
+        let client = sb.connect().await;
+        let ws = "ws";
+        let pattern = format!("needle|{}", (0..400).map(|i| format!("q{i}")).collect::<Vec<_>>().join("|"));
+        let r = client
+            .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
+                "workspace": ws, "path": sb.dir.join("src").to_str().unwrap(), "grep": pattern,
+            }))))
+            .await
+            .expect("look");
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        let state = sb.state_home().join("workspaces").join(ws);
+        std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", findings, 3000))).expect("plant verify.log");
 
-    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a(), as gone1.rs and gone2.rs do").await;
-    assert!(v["verify"].to_string().len() > tetel::reply::REPLY_BUDGET / 2, "premise: verify takes over half");
-    assert_eq!(v["attention"].as_array().unwrap().len(), 2, "attention must be shown: {}", v.get("omitted").unwrap_or(&serde_json::Value::Null));
-    assert!(v.get("omitted").is_none());
+        let (v, structured) = fact_reply(&client, ws, "needle is in src/a.rs; see gone1.rs, gone2.rs, gone3.rs").await;
+        assert_eq!(v["verify"]["findings"].as_array().unwrap().len(), findings);
+        assert_eq!(
+            v["attention"].as_array().unwrap().len(),
+            3,
+            "attention must be shown beside {} bytes of verify: {}",
+            v["verify"].to_string().len(),
+            v.get("omitted").unwrap_or(&serde_json::Value::Null)
+        );
+        assert!(v.get("omitted").is_none(), "{}", v["omitted"]);
+        let text = v.to_string().len();
+        assert!(!structured && text > tetel::reply::REPLY_BUDGET / 2, "premise ({findings}): {text} bytes, structured {structured}");
 
-    client.cancel().await.expect("clean shutdown");
+        client.cancel().await.expect("clean shutdown");
+    }
 }
 
 /// TET-93 C11: at the floor, a field shorter than the " …" trailer is not

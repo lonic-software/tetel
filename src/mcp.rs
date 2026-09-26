@@ -258,23 +258,19 @@ fn fact_result(
         // design ships enabled is one of the two it never touches.
         "verify": verify,
     });
-    for (k, _) in &lists {
-        out[*k] = json!([]);
-    }
-    // `structured()` sends the JSON twice, once as text, so a reply within
-    // the budget carries at most half of it — unless `verify` and the rest
-    // of the reply without its lists already take that half. The backstop
-    // then drops the structured copy, which loses nothing, and the text
-    // alone is held to the whole budget.
-    let budget = crate::reply::REPLY_BUDGET;
-    let room = if out.to_string().len() > budget / 2 { budget } else { budget / 2 };
     for (k, v) in &lists {
         out[*k] = json!(v);
     }
-    if out.to_string().len() <= room {
+    // `structured()` sends the JSON twice, once as text, so a reply that
+    // fits in half the budget goes out whole with its structured copy. One
+    // that does not is fitted to the whole budget instead: the backstop
+    // then drops the structured copy, which loses nothing, and entries are
+    // worth more than a duplicate of the text.
+    let budget = crate::reply::REPLY_BUDGET;
+    if out.to_string().len() <= budget / 2 {
         return out;
     }
-    fit_lists(out, id, lists, room)
+    fit_lists(out, id, lists, budget)
 }
 
 /// Keep `fact`'s lists within `room` bytes of JSON, in priority order
@@ -283,9 +279,9 @@ fn fact_result(
 /// kept from its start while the whole stays within `room`. What a list
 /// leaves out is counted under `omitted`, with where to read it.
 ///
-/// `room` is half the budget while the reply can go out structured, and the
-/// whole budget once `verify` alone rules that out; `verify`'s allowance
-/// leaves the rest of the reply `ENTRY_CAP` beside it either way.
+/// `room` is the whole budget: `fact_result` calls this only when the reply
+/// cannot go out structured, and `verify`'s allowance leaves the rest of the
+/// reply `ENTRY_CAP` beside it.
 fn fit_lists<const N: usize>(
     mut out: serde_json::Value,
     id: &str,
