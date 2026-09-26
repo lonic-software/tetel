@@ -1348,8 +1348,9 @@ fn render_out_writes_a_snapshot_that_checks_clean() {
 
     let (_code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
     let combined = format!("{report}{err}");
-    assert!(!combined.contains("provenance-drift"), "should not drift:\n{combined}");
+    assert!(no_provenance_row(&combined), "should not drift:\n{combined}");
     assert!(!combined.contains("no workspace snapshot"), "snapshot exists:\n{combined}");
+    assert!(memo_record(&memo).is_object(), "render --out must seal what it writes");
 }
 
 /// Hand-editing a rendered memo makes it stop matching its own record.
@@ -1376,7 +1377,8 @@ fn hand_editing_a_rendered_memo_is_caught_as_drift() {
     let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
     let combined = format!("{report}{err}");
     assert_eq!(code, 1, "drift must fail the check; report was:\n{combined}");
-    assert!(combined.contains("provenance-drift"), "got:\n{combined}");
+    // The render record says which input moved (TET-43).
+    assert!(combined.contains("[document-edited]"), "got:\n{combined}");
     assert!(combined.contains("first difference at line"), "got:\n{combined}");
 }
 
@@ -1892,7 +1894,7 @@ fn revising_a_graded_proposition_makes_its_evidence_stale() {
         "got:\n{combined}"
     );
     // The memo matches its snapshot, so drift is not what caught this.
-    assert!(!combined.contains("[provenance-drift]"), "drift must not be the catcher:\n{combined}");
+    assert!(no_provenance_row(&combined), "drift must not be the catcher:\n{combined}");
 }
 
 /// Re-grounding must actually clear the failure, because that is the
@@ -2806,6 +2808,9 @@ fn an_unreadable_acks_jsonl_reddens_the_machine_partition_on_its_own() {
 
     let acks_log = sb.dir.join("memo.md.tetel").join("acks.jsonl");
     assert!(acks_log.is_file(), "the snapshot must ship the ack log once rendered");
+    // Without a render record, so that nothing but the ack log can redden
+    // this: with one, the hand edit is also a stale record (TET-43).
+    std::fs::remove_file(record_path(&memo)).unwrap();
     let mut existing = std::fs::read_to_string(&acks_log).unwrap();
     existing.push_str("THIS IS NOT VALID JSON\n");
     std::fs::write(&acks_log, existing).unwrap();
@@ -2815,7 +2820,7 @@ fn an_unreadable_acks_jsonl_reddens_the_machine_partition_on_its_own() {
     assert_eq!(code, 1, "a corrupt acks.jsonl must redden the machine partition on its own:\n{combined}");
     assert!(combined.contains("[ack-log-unreadable]"), "got:\n{combined}");
     assert!(
-        !combined.contains("[provenance-drift]"),
+        no_provenance_row(&combined),
         "acks.jsonl is never read by render, so this must not surface as drift:\n{combined}"
     );
 }
@@ -4606,7 +4611,7 @@ fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels()
     let out = c.output().unwrap();
     let report = String::from_utf8_lossy(&out.stdout);
     assert!(report.contains("2 different roots"), "{report}");
-    assert!(!report.contains("provenance-drift"), "TET-42 must not reach render: {report}");
+    assert!(no_provenance_row(&report), "TET-42 must not reach render: {report}");
 }
 
 // --- TET-93: `look` shapes its own reply to the reply budget -------------
@@ -4956,4 +4961,471 @@ fn a_cli_revision_prints_what_it_overwrote() {
     let (code, out, err) = sb.run(&["claim", "--withdraw", "C1", "--why", "w"]);
     assert_eq!(code, 0, "stderr:\n{err}");
     assert_eq!(out, "C1 withdrawn.\n  it was \"alpha.rs defines alpha()\", citing F1\n");
+}
+
+// --- TET-43: a renderer change is not a hand edit ----------------------
+
+/// Whether `report` carries no provenance row of any kind.
+fn no_provenance_row(report: &str) -> bool {
+    tetel::report::PROVENANCE_ROW_KINDS.iter().all(|k| !report.contains(&format!("[{k}]")))
+}
+
+fn record_path(memo: &std::path::Path) -> PathBuf {
+    let mut s = memo.as_os_str().to_os_string();
+    s.push(".tetel/render.json");
+    PathBuf::from(s)
+}
+
+fn memo_record(memo: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(record_path(memo)).unwrap()).unwrap()
+}
+
+fn write_record(memo: &std::path::Path, record: &serde_json::Value) {
+    std::fs::write(record_path(memo), serde_json::to_string_pretty(record).unwrap()).unwrap();
+}
+
+/// A one-claim memo, rendered and sealed by `render --out`.
+fn sealed_memo(sb: &Sandbox) -> PathBuf {
+    sb.write("a.txt", "alpha\n");
+    sb.run(&["look", "a.txt"]);
+    sb.run(&["fact", "--note", "a.txt begins with alpha"]);
+    sb.run(&["claim", "--proposition", "the file begins with alpha", "--cites", "F1"]);
+    sb.run_stdin(&["prose", "--cites", "C1"], "The file begins with alpha.");
+    let memo = sb.dir.join("memo.md");
+    let (code, _out, err) = sb.run(&["render", "--out", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{err}");
+    memo
+}
+
+/// The state a renderer change leaves behind, built without changing the
+/// renderer: the document as an older renderer wrote it (`older`, here the
+/// current render plus a line this build does not emit), and a record
+/// agreeing with that document and with every snapshot file.
+fn as_rendered_by_an_older_build(memo: &std::path::Path, older: &str) {
+    std::fs::write(memo, older).unwrap();
+    let mut record = memo_record(memo);
+    record["document"] = serde_json::Value::String(tetel::evidence::sha256_hex(older));
+    record["build"] = serde_json::Value::String("tetel 0.0.0 build older".to_string());
+    write_record(memo, &record);
+}
+
+fn older_layout(memo: &std::path::Path) -> String {
+    format!("{}<!-- a line an older renderer wrote -->\n", std::fs::read_to_string(memo).unwrap())
+}
+
+fn check_memo(sb: &Sandbox, memo: &std::path::Path) -> (i32, String) {
+    let (code, report, err) = sb.run(&["check", memo.to_str().unwrap()]);
+    (code, format!("{report}{err}"))
+}
+
+/// C15 (i), (ii), (iii), (xv): one fixture, the three attributed drift
+/// outcomes. (i) mutation — classify without reading the record — reads
+/// the first as `provenance-drift`; (ii) and (iii) mutations — skip the
+/// document or file comparison — read an edit as `renderer-changed`; and
+/// (xv) mutation — RendererChanged reported as a warning — exits 0.
+#[test]
+fn a_renderer_change_is_named_and_distinguished_from_either_edit() {
+    let sb = Sandbox::new("tet43-classify");
+    let memo = sealed_memo(&sb);
+    as_rendered_by_an_older_build(&memo, &older_layout(&memo));
+
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1, "a renderer change still fails:\n{report}");
+    assert!(report.contains("[renderer-changed]"), "got:\n{report}");
+    assert!(report.contains("tetel 0.0.0 build older"), "must name the build that rendered it:\n{report}");
+    assert!(!report.contains("[provenance-drift]") && !report.contains("edited]"), "got:\n{report}");
+
+    // (ii) One byte of the document changed on top.
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    std::fs::write(&memo, doc.replacen("alpha.", "alpha!", 1)).unwrap();
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1);
+    assert!(report.contains("[document-edited]"), "got:\n{report}");
+    std::fs::write(&memo, &doc).unwrap();
+
+    // (iii) One byte of a recorded snapshot file changed instead.
+    let counters = sb.dir.join("memo.md.tetel/counters.json");
+    let original = std::fs::read_to_string(&counters).unwrap();
+    std::fs::write(&counters, format!("{original} ")).unwrap();
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1);
+    assert!(report.contains("[snapshot-edited]") && report.contains("counters.json"), "got:\n{report}");
+    std::fs::write(&counters, &original).unwrap();
+
+    // Back to exactly the renderer-change state.
+    assert!(check_memo(&sb, &memo).1.contains("[renderer-changed]"));
+}
+
+/// C15 (ix): a recorded file deleted from the snapshot. Rendering without
+/// `claims.jsonl` succeeds (a missing jsonl reads as empty), so a
+/// classifier walking only the files present would call this a renderer
+/// change.
+#[test]
+fn a_recorded_file_gone_missing_is_a_snapshot_edit() {
+    let sb = Sandbox::new("tet43-missing-file");
+    let memo = sealed_memo(&sb);
+    as_rendered_by_an_older_build(&memo, &older_layout(&memo));
+    std::fs::remove_file(sb.dir.join("memo.md.tetel/claims.jsonl")).unwrap();
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1);
+    assert!(report.contains("[snapshot-edited]") && report.contains("claims.jsonl"), "got:\n{report}");
+}
+
+/// C15 (iv): the file list grows. A record that lacks a name the snapshot
+/// does not have either is still a renderer change; one lacking a name
+/// the snapshot has is an edit. Mutation: one digest over the current
+/// list, which reads the first as an edit.
+#[test]
+fn a_record_from_a_shorter_file_list_still_attributes() {
+    let sb = Sandbox::new("tet43-file-list");
+    let memo = sealed_memo(&sb);
+    as_rendered_by_an_older_build(&memo, &older_layout(&memo));
+    let record = memo_record(&memo);
+    assert!(record["files"].get("targets.jsonl").is_none(), "fixture: no targets in this memo");
+    assert!(!sb.dir.join("memo.md.tetel/targets.jsonl").exists());
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[renderer-changed]"), "an absent, unrecorded name is no edit:\n{report}");
+
+    let mut shorter = record.clone();
+    shorter["files"].as_object_mut().unwrap().remove("counters.json");
+    write_record(&memo, &shorter);
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[snapshot-edited]") && report.contains("counters.json"), "got:\n{report}");
+}
+
+/// C15 (xii), (xv): a matching pair beside a record of another document —
+/// what a build writing no record leaves behind. Mutation: skip the
+/// record on a match, which reads it as clean.
+#[test]
+fn a_matching_pair_beside_a_record_of_another_document_is_a_stale_record() {
+    let sb = Sandbox::new("tet43-stale");
+    let memo = sealed_memo(&sb);
+    let mut record = memo_record(&memo);
+    record["document"] = serde_json::Value::String(tetel::evidence::sha256_hex("an earlier document\n"));
+    write_record(&memo, &record);
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1, "{report}");
+    assert!(report.contains("[stale-render-record]"), "got:\n{report}");
+}
+
+/// C15 (xv), the unattributed case: no record, and a re-render that
+/// differs. Still today's row, now naming the renderer among the causes.
+#[test]
+fn drift_with_no_record_names_the_renderer_among_its_causes() {
+    let sb = Sandbox::new("tet43-unattributed");
+    let memo = sealed_memo(&sb);
+    std::fs::remove_file(record_path(&memo)).unwrap();
+    std::fs::write(&memo, older_layout(&memo)).unwrap();
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 1);
+    assert!(report.contains("[provenance-drift]"), "got:\n{report}");
+    assert!(report.contains("the renderer itself changed"), "got:\n{report}");
+    assert!(report.contains("rerender --unattributed"), "got:\n{report}");
+}
+
+fn rerender(sb: &Sandbox, args: &[&str]) -> (i32, String) {
+    let mut all = vec!["rerender"];
+    all.extend_from_slice(args);
+    let (code, out, err) = sb.run(&all);
+    (code, format!("{out}{err}"))
+}
+
+/// C15 (xviii), the migration: on a renderer change `rerender` writes the
+/// snapshot's current render and a record for it, and `check` is clean
+/// again — with no workspace involved.
+#[test]
+fn rerender_migrates_a_renderer_change_from_the_snapshot_alone() {
+    let sb = Sandbox::new("tet43-migrate");
+    let memo = sealed_memo(&sb);
+    let current = std::fs::read_to_string(&memo).unwrap();
+    as_rendered_by_an_older_build(&memo, &older_layout(&memo));
+    // The workspace is gone, as on a fresh clone.
+    std::fs::remove_dir_all(sb.state_home()).unwrap();
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("migrated"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), current);
+    assert_eq!(memo_record(&memo)["document"], tetel::evidence::sha256_hex(&current));
+    let (code, report) = check_memo(&sb, &memo);
+    assert_eq!(code, 0, "{report}");
+    assert!(no_provenance_row(&report), "{report}");
+}
+
+/// C15 (vi), (xviii): `rerender` never overwrites an edit. On a document
+/// edit and on a snapshot edit it refuses and changes no byte. Mutation:
+/// either branch falling through to the rewrite.
+#[test]
+fn rerender_refuses_an_edited_document_or_snapshot() {
+    let sb = Sandbox::new("tet43-refuse-edits");
+    let memo = sealed_memo(&sb);
+    let edited = std::fs::read_to_string(&memo).unwrap().replace("begins with alpha.", "always begins with alpha.");
+    std::fs::write(&memo, &edited).unwrap();
+    let record_before = std::fs::read(record_path(&memo)).unwrap();
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("refusing to overwrite an edit"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), edited);
+    assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before);
+
+    // A snapshot edit, on a renderer-change state.
+    let sb = Sandbox::new("tet43-refuse-snapshot-edit");
+    let memo = sealed_memo(&sb);
+    let older = older_layout(&memo);
+    as_rendered_by_an_older_build(&memo, &older);
+    let counters = sb.dir.join("memo.md.tetel/counters.json");
+    std::fs::write(&counters, format!("{} ", std::fs::read_to_string(&counters).unwrap())).unwrap();
+    let record_before = std::fs::read(record_path(&memo)).unwrap();
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("counters.json"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), older);
+    assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before);
+}
+
+/// C15 (vii): a migration that would change what a ledger claim says is
+/// refused, naming the claim — its grading records are keyed to the
+/// proposition as the document states it. Mutation: drop the ledger
+/// comparison, and the memo is rewritten.
+#[test]
+fn rerender_refuses_a_migration_that_changes_a_ledger_proposition() {
+    let sb = Sandbox::new("tet43-ledger");
+    let memo = sealed_memo(&sb);
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    let row = doc.lines().find(|l| l.starts_with("| C1 |")).expect("ledger row for C1").to_string();
+    let older = doc.replace(&row, &row.replace("the file begins with alpha", "the file begins  with alpha"));
+    assert_ne!(older, doc, "fixture must change the ledger row");
+    as_rendered_by_an_older_build(&memo, &older);
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("C1") && out.contains("out of proof"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), older);
+}
+
+/// C15 (x): a memo whose render still matches, whose record agrees on the document
+/// but not on a snapshot file render never reads — `acks.jsonl`, or a
+/// fact field render does not print. A record-less rewrite leaves this
+/// state too (TET-43 review), so `check` reports it as a stale record
+/// naming the file, and `rerender` reseals it only on the operator's word,
+/// given as `--reseal` and not `--unattributed`. Mutations: compare only
+/// files render never reads (misses the `facts.jsonl` edit); skip the
+/// files under a match (`check` passes it); reseal without the flag, or
+/// under `--unattributed`; refuse even with it.
+#[test]
+fn rerender_will_not_reseal_over_an_edit_render_does_not_reflect() {
+    for (tag, file, edit) in [
+        ("acks", "acks.jsonl", None),
+        ("facts", "facts.jsonl", Some(("\"timestamp\":", "\"timestamp\": "))),
+    ] {
+        let sb = Sandbox::new(&format!("tet43-reseal-{tag}"));
+        let memo = sealed_memo(&sb);
+        let doc = std::fs::read_to_string(&memo).unwrap();
+        let path = sb.dir.join("memo.md.tetel").join(file);
+        match edit {
+            None => std::fs::write(&path, "{\"hand\": \"written\"}\n").unwrap(),
+            Some((from, to)) => {
+                let text = std::fs::read_to_string(&path).unwrap();
+                assert!(text.contains(from), "fixture: {file} has no {from}: {text}");
+                std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
+            }
+        }
+        let (code, report) = check_memo(&sb, &memo);
+        assert_eq!(code, 1, "{tag}: a record that disagrees with the pair fails:\n{report}");
+        assert!(report.contains("[stale-render-record]"), "{tag}:\n{report}");
+        assert!(report.contains(file) && report.contains("--reseal"), "{tag}:\n{report}");
+
+        let record_before = std::fs::read(record_path(&memo)).unwrap();
+        let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+        assert_ne!(code, 0, "{tag}: {out}");
+        assert!(out.contains(file), "{tag}: must name the file: {out}");
+        assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before, "{tag}");
+
+        // The other vouch does not consent to this one.
+        let (code, out) = rerender(&sb, &["--unattributed", memo.to_str().unwrap()]);
+        assert_ne!(code, 0, "{tag}: --unattributed must not reseal: {out}");
+        assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before, "{tag}");
+
+        let (code, out) = rerender(&sb, &["--reseal", memo.to_str().unwrap()]);
+        assert_eq!(code, 0, "{tag}: {out}");
+        assert!(out.contains("resealed"), "{tag}: {out}");
+        assert_eq!(std::fs::read_to_string(&memo).unwrap(), doc, "{tag}: the document is untouched");
+        // Provenance only: the hand-written acks.jsonl is still its own
+        // (ack-log-unreadable) finding.
+        let (_code, report) = check_memo(&sb, &memo);
+        assert!(no_provenance_row(&report), "{tag}:\n{report}");
+    }
+}
+
+/// TET-43 review: a document in a ledger layout this build no longer reads
+/// is refused as unreadable, not as every claim's proposition having
+/// changed. Mutation: drop the readability check, and the refusal claims
+/// C1 would go out of proof.
+#[test]
+fn rerender_refuses_a_ledger_it_cannot_read_as_unreadable_not_as_changed() {
+    let sb = Sandbox::new("tet43-ledger-layout");
+    let memo = sealed_memo(&sb);
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    let header = doc.lines().find(|l| l.starts_with("| ID |")).expect("a ledger header").to_string();
+    let older = doc.replace(&header, &header.replace("| ID |", "| Claim |"));
+    as_rendered_by_an_older_build(&memo, &older);
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("reads no ledger in the document as it stands"), "{out}");
+    assert!(!out.contains("out of proof"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), older);
+}
+
+/// C15 (xiii): a stale record is replaced, exit 0, with a record of the
+/// unchanged document. Mutation: treating it as the reseal refusal.
+#[test]
+fn rerender_replaces_a_stale_record() {
+    let sb = Sandbox::new("tet43-rerender-stale");
+    let memo = sealed_memo(&sb);
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    let mut record = memo_record(&memo);
+    record["document"] = serde_json::Value::String(tetel::evidence::sha256_hex("an earlier document\n"));
+    write_record(&memo, &record);
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("stale render record replaced"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), doc);
+    assert_eq!(memo_record(&memo)["document"], tetel::evidence::sha256_hex(&doc));
+}
+
+/// C15 (xiv), (xviii): an unrecorded memo is refused without the flag and
+/// changes no byte; with it, the document becomes the snapshot's render —
+/// never the bytes as they stood. Mutation: seal the existing bytes.
+#[test]
+fn rerender_migrates_an_unattributed_memo_only_on_the_operators_word() {
+    let sb = Sandbox::new("tet43-unattributed-flag");
+    let memo = sealed_memo(&sb);
+    let current = std::fs::read_to_string(&memo).unwrap();
+    std::fs::remove_file(record_path(&memo)).unwrap();
+    let older = older_layout(&memo);
+    std::fs::write(&memo, &older).unwrap();
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("--unattributed"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), older);
+    assert!(!record_path(&memo).exists());
+
+    let (code, out) = rerender(&sb, &["--unattributed", memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), current);
+    assert_eq!(memo_record(&memo)["document"], tetel::evidence::sha256_hex(&current));
+}
+
+/// C15 (xviii): a clean, sealed memo is left byte-for-byte alone, its
+/// record's build label included, even when a different build runs
+/// `rerender`. An unrecorded match gains a record and keeps its bytes.
+/// Mutation: the clean branch falling through to a rewrite.
+#[test]
+fn rerender_leaves_a_clean_sealed_memo_alone_and_seals_an_unrecorded_match() {
+    let sb = Sandbox::new("tet43-idempotent");
+    let memo = sealed_memo(&sb);
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    let mut record = memo_record(&memo);
+    record["build"] = serde_json::Value::String("tetel 0.0.0 build another".to_string());
+    write_record(&memo, &record);
+    let record_before = std::fs::read(record_path(&memo)).unwrap();
+
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("unchanged"), "{out}");
+    assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before);
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), doc);
+
+    std::fs::remove_file(record_path(&memo)).unwrap();
+    let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("sealed"), "{out}");
+    assert_eq!(std::fs::read_to_string(&memo).unwrap(), doc);
+    assert_eq!(memo_record(&memo)["document"], tetel::evidence::sha256_hex(&doc));
+}
+
+/// C15 (viii): a prose-revised-since-proof entry prints a document line
+/// only when the document is its snapshot's current render. Mutation:
+/// always fill the line, which prints `P1 (line 1)` here.
+#[test]
+fn prose_after_proof_prints_no_line_when_the_document_is_not_its_render() {
+    let sb = Sandbox::new("tet43-line");
+    let memo = a_listed_paragraph_memo(&sb);
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("P1 (line 1)"), "fixture must list P1 under a match:\n{report}");
+
+    as_rendered_by_an_older_build(&memo, &format!("<!-- an older header -->\n{}", std::fs::read_to_string(&memo).unwrap()));
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[renderer-changed]"), "{report}");
+    assert!(
+        !report.split("P1 (line ").skip(1).any(|rest| rest.starts_with(|c: char| c.is_ascii_digit())),
+        "no document line under a renderer change:\n{report}"
+    );
+    assert!(report.contains("P1 (line unknown (this document is not its snapshot's current render"), "{report}");
+}
+
+/// TET-43 review: under a stale record the document is still exactly its
+/// snapshot's render, so its line is printed. Mutation: fill the line only
+/// under `Matches`.
+#[test]
+fn prose_after_proof_keeps_its_line_under_a_stale_record() {
+    let sb = Sandbox::new("tet43-line-stale");
+    let memo = a_listed_paragraph_memo(&sb);
+    let mut record = memo_record(&memo);
+    record["document"] = serde_json::Value::String(tetel::evidence::sha256_hex("an earlier document\n"));
+    write_record(&memo, &record);
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[stale-render-record]"), "{report}");
+    assert!(report.contains("P1 (line 1)"), "{report}");
+}
+
+/// C15 (xi): under a renderer change, a target row the current parser
+/// reads out of the older layout is not blamed on a hand edit; the same
+/// row under a document edit still is. Mutation: run direction 2
+/// unconditionally reddens the first half; skipping it on every
+/// non-matching outcome reddens the second.
+#[test]
+fn document_side_target_rows_are_skipped_only_under_a_renderer_change() {
+    let sb = Sandbox::new("tet43-census");
+    let repo = repo_with_two_users(&sb);
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+        c.args(args).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
+        let o = c.output().unwrap();
+        (o.status.success(), format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
+    };
+    assert!(run(&["look", "--grep", "gate", "."]).0);
+    assert!(run(&["fact", "--note", "callers of gate, worktree-wide"]).0);
+    let (ok, err) = run(&["target", "gate", "--cites", "F1"]);
+    assert!(ok, "{err}");
+    assert!(run(&["claim", "--proposition", "gate has two callers", "--cites", "F1"]).0);
+    let mut c = Command::new(env!("CARGO_BIN_EXE_tetel"));
+    c.args(["prose", "--cites", "C1", "--text", "Modify gate."]).current_dir(&repo).env("TETEL_STATE_HOME", sb.state_home()).env("TETEL_CONFIG_HOME", sb.config_home());
+    assert!(c.output().unwrap().status.success());
+    let memo = sb.dir.join("memo.md");
+    let (ok, err) = run(&["render", "--out", memo.to_str().unwrap()]);
+    assert!(ok, "{err}");
+
+    let doc = std::fs::read_to_string(&memo).unwrap();
+    let row = doc.lines().find(|l| l.starts_with("| `gate`")).expect("a rendered target row").to_string();
+    let misread = doc.replace(&row, &format!("{row}\n{}", row.replace("`gate`", "`phantom`")));
+    assert_ne!(misread, doc);
+    const BLAME: &str = "was not written by `tetel target`";
+
+    as_rendered_by_an_older_build(&memo, &misread);
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[renderer-changed]"), "{report}");
+    assert!(!report.contains(BLAME), "the tool's own rows must not be blamed on a hand edit:\n{report}");
+
+    // The same document, but now the record describes the original: an edit.
+    let mut record = memo_record(&memo);
+    record["document"] = serde_json::Value::String(tetel::evidence::sha256_hex(&doc));
+    write_record(&memo, &record);
+    let (_code, report) = check_memo(&sb, &memo);
+    assert!(report.contains("[document-edited]"), "{report}");
+    assert!(report.contains(BLAME) && report.contains("phantom"), "an edited row must still be caught:\n{report}");
 }

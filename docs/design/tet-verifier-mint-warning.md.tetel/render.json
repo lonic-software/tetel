@@ -1,0 +1,15 @@
+{
+  "document": "038306e42498ab33b2bae0a72181e4bd881c903463f3d795feaf48667d0c7d99",
+  "files": {
+    "claims.jsonl": "021b8408e3d03c900f49ff674523069055f9922955bfe27b384291add4fab8ed",
+    "counters.json": "29062790c108e3bcfda172e9f1602fb42f0f84243c2e259f2e31ce0c220da912",
+    "facts.jsonl": "9d7c88a7d2328e023025e9cc7ac646436b929cae6b92b522f104dfd70c223f66",
+    "identity.json": "b6b739bfe3cbb083c05b5ec1aab60e8da94ee4bcca14da0cdb054cf5eaa53cc8",
+    "pending.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "prose.jsonl": "c37b028b8db871abe6f7c9e90df5812c3b5462686109911e97632f34b8fe2374",
+    "refusals.log": "68ea852e218c218184165a1f2056d6c8d0c5abc45c53e6d3c0d4704c9279268a",
+    "targets.jsonl": "3f0a9c3c5b04ca745b66ec55a4817ff803d88758b372d99aff0306c32cd38bcd",
+    "transplants.jsonl": "afdcaa4e491de8a409ed8764795581dbfcf8e7fdf096ecfc67019d24085f8ff1"
+  },
+  "build": "tetel 0.1.0 build 5e83a51d8678"
+}

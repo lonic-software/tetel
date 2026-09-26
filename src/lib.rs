@@ -174,6 +174,13 @@ pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
     // note-vs-extent check is only possible when a snapshot was shipped
     // beside the memo. One more thing `render --out` buys a reviewer.
     let snapshot_dir = snapshot::snapshot_path(path);
+    // Under a renderer change the render record vouches that every
+    // generated row in the document was written by the tool, in a layout
+    // this build may not parse; the document-side halves of the census and
+    // premise checks are skipped there, and the `renderer-changed` row says
+    // so. See `checks::census_findings`'s doc comment.
+    let document_rows =
+        !matches!(findings.provenance, snapshot::Provenance::RendererChanged { .. });
     if snapshot_dir.is_dir() {
         if let Ok(facts) = facts::load_all(&snapshot_dir) {
             findings.notes_outside_extent = scope::outside_extent(&facts);
@@ -201,7 +208,7 @@ pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
         if let (Ok(targets), Ok(facts)) =
             (targets::load_all(&snapshot_dir), facts::load_all(&snapshot_dir))
         {
-            findings.uncensused_targets = checks::census_findings(&doc.body, &targets, &facts);
+            findings.uncensused_targets = checks::census_findings(&doc.body, &targets, &facts, document_rows);
         }
         // The premise inventory, re-verified the same way and for the
         // same reason: the verb refuses a premise that is not the donor's
@@ -213,7 +220,7 @@ pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
             claims::load_all(&snapshot_dir),
         ) {
             findings.unquoted_premises =
-                checks::premise_findings(&doc.body, &transplants, &facts, &claim_list);
+                checks::premise_findings(&doc.body, &transplants, &facts, &claim_list, document_rows);
         }
         // The refusals recorded in each fact's mint window, recovered
         // from the two files the snapshot already ships: `facts.jsonl`'s
@@ -282,9 +289,17 @@ pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
             );
             // The line each block's text begins on in the rendered
             // document — from the one function that describes the
-            // block-to-line correspondence, so this can't drift from
-            // what `render` actually wrote.
-            if let Ok(offsets) = compose::block_offsets(&snapshot_dir) {
+            // block-to-line correspondence. Those are lines of what the
+            // snapshot renders *now*, which are the document's lines only
+            // when the document is exactly that render; under any other
+            // provenance outcome the line is left unknown, and the report
+            // says why.
+            let offsets = if findings.provenance.renders_exactly() {
+                compose::block_offsets(&snapshot_dir).ok()
+            } else {
+                None
+            };
+            if let Some(offsets) = offsets {
                 for item in &mut listed {
                     item.line = offsets.get(&item.block_id).copied();
                 }

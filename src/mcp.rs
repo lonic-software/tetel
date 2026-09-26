@@ -1430,19 +1430,12 @@ impl TetelServer {
             return text_result(e.to_string());
         }
 
-        // Same ordering as the CLI: document first, then snapshot, so a
-        // failed snapshot leaves a recoverable state rather than a record
-        // describing a document that was never written.
+        // Document, snapshot and render record in one call, in the order
+        // `snapshot::write`'s doc comment gives — the same call the CLI makes.
         let path = Path::new(&out);
-        if let Err(e) = std::fs::write(path, &rendered) {
+        if let Err(e) = crate::snapshot::write(path, &dir, &rendered) {
             return Err(ErrorData::internal_error(
-                format!("could not write {out}: {e}"),
-                None,
-            ));
-        }
-        if let Err(e) = crate::snapshot::write(path, &dir) {
-            return Err(ErrorData::internal_error(
-                format!("wrote {out} but could not write its snapshot: {e}"),
+                format!("could not publish {out}: {e}"),
                 None,
             ));
         }
