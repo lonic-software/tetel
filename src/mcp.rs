@@ -1524,9 +1524,12 @@ they are in the snapshot but nothing in the document rests on them"
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
         match crate::check_report(&resolved(&p.file)) {
             Ok(report) => {
-                let text = crate::report::page(&report, p.from).unwrap_or_else(|refusal| refusal);
-                let block = vec![ContentBlock::text(text)];
-                Ok(if report.code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
+                // A refused `from` is an error whatever the memo's verdict:
+                // a clean memo must not make a rejected argument read as success.
+                Ok(match crate::report::page(&report, p.from) {
+                    Ok(text) if report.code == crate::EXIT_CLEAN => CallToolResult::success(vec![ContentBlock::text(text)]),
+                    Ok(text) | Err(text) => CallToolResult::error(vec![ContentBlock::text(text)]),
+                })
             }
             Err(e) => {
                 let msg = format!("error reading {}: {e}", resolved(&p.file).display());

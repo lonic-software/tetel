@@ -1181,6 +1181,34 @@ async fn an_over_budget_check_pages_every_row_through_a_real_client() {
     client.cancel().await.expect("clean shutdown");
 }
 
+/// A `from` that names no row is refused as an error even on a memo that
+/// checks clean: the verdict belongs to the memo, the refusal to the call.
+#[tokio::test]
+async fn a_refused_check_from_is_an_error_on_a_clean_memo() {
+    let sb = Sandbox::new("check-from-refused");
+    let client = sb.connect().await;
+    let memo = sb.write(
+        "clean.md",
+        "# A clean memo\n\n```tetel\nid: R-1\nclaim: Row 1.\ndomain: a.rs#f\nextent: a.rs#f\npin: p1\nkind: READING\nstatus: VERIFIED\n```\n",
+    );
+    assert_eq!(tetel::check_file(&memo).expect("check runs").0, tetel::EXIT_CLEAN, "the control: this memo checks clean");
+    let call = |from: Option<usize>| {
+        let mut arguments = serde_json::json!({ "file": memo.display().to_string() });
+        if let Some(f) = from {
+            arguments["from"] = f.into();
+        }
+        client.call_tool(CallToolRequestParams::new("check").with_arguments(args(arguments)))
+    };
+    let whole = call(None).await.expect("protocol level");
+    assert_ne!(whole.is_error, Some(true), "the control: a clean memo is not an error: {whole:?}");
+    let refused = call(Some(999)).await.expect("protocol level");
+    let text: String = refused.content.iter().filter_map(|c| c.as_text().map(|t| t.text.clone())).collect();
+    assert!(text.starts_with("tetel check: no row 999 to start from"), "{text}");
+    assert_eq!(refused.is_error, Some(true), "a refused `from` must not read as a clean check");
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 /// The completeness refusal must reach the MCP surface too.
 ///
 /// Not paranoia about a shared function: this exact render path has

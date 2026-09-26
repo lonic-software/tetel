@@ -248,18 +248,17 @@ fn format_interval(secs: u64) -> String {
     if parts.is_empty() { "0s".to_string() } else { parts.join(" ") }
 }
 
-/// `build` names the binary that produced this report (see `buildid.rs`).
-/// It is passed in rather than read here so this function stays a pure
-/// function of the document it grades — and it is *always* printed,
-/// including on the no-rows path, because the whole point is that two
-/// outputs which disagree can be told apart by their checker. A report
-/// that does not name its build cannot be disbelieved.
 /// One piece of a `check` report, in the order it prints.
 pub enum Block {
     /// A line that frames the report rather than reporting a finding: a
     /// partition's header, the blank line between partitions, the build
     /// line. A reply that pages the report prints every one on every page.
     Head(String),
+    /// The preamble a group of rows shares, printed over the rows that
+    /// follow it with its `kind`. Not a row and not counted: a page prints
+    /// it when it shows any row it heads, so no entry appears without it
+    /// and it never appears over none of them.
+    Lead { kind: &'static str, text: String },
     /// One finding: its bullet and every line that belongs to it. `kind`
     /// names the category it counts under — for a machine-checked
     /// failure, the tag its bullet carries.
@@ -282,7 +281,7 @@ impl Report {
         self.blocks
             .iter()
             .map(|b| match b {
-                Block::Head(s) | Block::Row { text: s, .. } => s.as_str(),
+                Block::Head(s) | Block::Lead { text: s, .. } | Block::Row { text: s, .. } => s.as_str(),
             })
             .collect()
     }
@@ -294,6 +293,10 @@ struct Blocks(Vec<Block>);
 impl Blocks {
     fn head(&mut self, s: impl Into<String>) {
         self.0.push(Block::Head(s.into()));
+    }
+
+    fn lead(&mut self, kind: &'static str, s: impl Into<String>) {
+        self.0.push(Block::Lead { kind, text: s.into() });
     }
 
     fn row(&mut self, kind: &'static str, s: impl Into<String>) {
@@ -349,10 +352,12 @@ total differs the memo changed between pages: start again without `from`"
 /// [`Block::Head`] in place, so both partition headers and the failing
 /// breakdown are on every page, and whole rows from row `from` (1-based,
 /// in the order the CLI prints them) until the budget. It leads with the
-/// paging line, since the backstop keeps a reply's front. A row too large
-/// for a page by itself is shown alone, cut, and says so. Nothing is
-/// dropped: every row is on some page. `Err` is the refusal for a `from`
-/// that names no row.
+/// paging line, since the backstop keeps a reply's front. A
+/// [`Block::Lead`] is printed on a page that shows any row it heads. Every
+/// row is on some page; a row too large for a page by itself is shown
+/// alone and cut, and its marker says the CLI prints it whole — the one
+/// case where a reply cannot reach all of a row. `Err` is the refusal for
+/// a `from` that names no row.
 pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
     let rows: Vec<&Block> = report.blocks.iter().filter(|b| matches!(b, Block::Row { .. })).collect();
     let n = rows.len();
@@ -367,13 +372,14 @@ pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
         return Err(format!("tetel check: no row {start} to start from; this report has {n} rows\n"));
     }
     let len = |b: &Block| match b {
-        Block::Head(s) | Block::Row { text: s, .. } => s.len(),
+        Block::Head(s) | Block::Lead { text: s, .. } | Block::Row { text: s, .. } => s.len(),
     };
-    let heads: usize = report.blocks.iter().filter(|b| matches!(b, Block::Head(_))).map(len).sum();
+    // Every head and every lead, as if a page printed them all.
+    let fixed: usize = report.blocks.iter().filter(|b| !matches!(b, Block::Row { .. })).map(len).sum();
     // Reserved at its longest before filling: every kind at its full
     // count, every number at the width of `n`.
     let reserve = paging_line(n, n, n, &count_by_kind(rows.iter().copied()), Some(n)).len();
-    let room = REPLY_BUDGET.saturating_sub(heads + reserve);
+    let room = REPLY_BUDGET.saturating_sub(fixed + reserve);
 
     let first = start - 1;
     let mut end = first;
@@ -389,9 +395,19 @@ pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
 
     let mut body = String::new();
     let mut i = 0;
-    for b in &report.blocks {
+    for (bi, b) in report.blocks.iter().enumerate() {
         match b {
             Block::Head(s) => body.push_str(s),
+            Block::Lead { kind, text } => {
+                // The rows it heads: the run of its kind straight after it.
+                let heads = report.blocks[bi + 1..]
+                    .iter()
+                    .take_while(|b| matches!(b, Block::Row { kind: k, .. } if k == kind))
+                    .count();
+                if i < end && first < i + heads {
+                    body.push_str(text);
+                }
+            }
             Block::Row { text, .. } => {
                 if i == first && alone {
                     body.push_str(&cut_row(text, room));
@@ -402,7 +418,7 @@ pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
             }
         }
     }
-    if first == 0 && end == n {
+    if first == 0 && end == n && !alone {
         return Ok(body);
     }
     let left_out = count_by_kind(rows[..first].iter().chain(&rows[end..]).copied());
@@ -413,11 +429,19 @@ pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
 /// A row that does not fit a page by itself, cut to `room` and marked.
 fn cut_row(text: &str, room: usize) -> String {
     let total = text.len();
-    let stated = |shown: usize| format!(" [tetel: this row cut to its first {shown} of {total} bytes]\n");
+    let stated = |shown: usize| {
+        format!(" [tetel: this row cut to its first {shown} of {total} bytes; `tetel check` on the command line prints it whole]\n")
+    };
     let shown = floor_char_boundary(text, room.saturating_sub(stated(total).len()));
     format!("{shown}{}", stated(shown.len()))
 }
 
+/// `build` names the binary that produced this report (see `buildid.rs`).
+/// It is passed in rather than read here so this function stays a pure
+/// function of the document it grades — and it is *always* printed,
+/// including on the no-rows path, because the whole point is that two
+/// outputs which disagree can be told apart by their checker. A report
+/// that does not name its build cannot be disbelieved.
 pub fn render(display_path: &str, doc: &Document, findings: &Findings, build: &str) -> (i32, String) {
     let report = render_report(display_path, doc, findings, build);
     (report.code, report.text())
@@ -523,14 +547,12 @@ a matching one.\n"
         out.head(format!("machine-checked: clean — {scope}\n"));
     }
     if !findings.abutting_candidates.is_empty() {
-        // One row with its candidates, so a page never shows the heading
-        // over none of them.
-        out.row(
+        out.lead(
             "informational",
             "  informational, not checked (never a failure, at any distance looser than abutting):\n",
         );
         for c in &findings.abutting_candidates {
-            out.more(&format!("    - {c}\n"));
+            out.row("informational", format!("    - {c}\n"));
         }
     }
 
@@ -584,7 +606,7 @@ guessed at)\n",
         // document. What is constant across every entry below is the
         // cross-process clock bound this whole check rests on, so it is
         // stated here rather than in each block's own bullet.
-        out.row("prose revised after proof",
+        out.lead("prose revised after proof",
             "  - prose revised after the claims it cites settled (entries below): the ordering \
 rests on two clocks nothing here can prove are the same — the authoring workspace's and the \
 grounding pass's. A reported ordering can be wrong only if the two differed by more than the \
@@ -646,7 +668,7 @@ after every claim below had already entered proof:\n",
         // the demanding group above rather than sitting inside it with an
         // annotation stapled on — the human act the group asks for has
         // already been performed, so the standing demand should not stand.
-        out.row("prose acknowledged",
+        out.lead("prose acknowledged",
             "  - prose acknowledged after the claims it cites settled (entries below): a human \
 said, in their own words, that they re-read each block's current text and citations against \
 every claim's current wording and found nothing to change. Nothing here verifies that reading or \
@@ -724,7 +746,7 @@ author-typed pin claim is what a reader depends on for that\n"
         ));
     }
     if !findings.unmarked_relative_labels.is_empty() {
-        out.row("unmarked relative labels",
+        out.lead("unmarked relative labels",
             "  - relative labels carrying no root-relative marker (spelled relative by the caller, \
 not by this tool, or minted before the marker existed — shape-identical to a root-relative label \
 once rendered, and not resolvable against any root this document declares):\n",
@@ -735,7 +757,7 @@ once rendered, and not resolvable against any root this document declares):\n",
         // flagged label into one fact's extent, and an unaggregated list
         // would turn that one finding into as many lines as it matched.
         for (id, labels) in &findings.unmarked_relative_labels {
-            out.more(&format!(
+            out.row("unmarked relative labels", format!(
                 "      {id} ({} label{}): {}\n",
                 labels.len(),
                 if labels.len() == 1 { "" } else { "s" },
@@ -813,7 +835,7 @@ distinct from no evidence at all, but never enough on its own to move past vouch
     // nobody; repeating it per row buried the findings that are about
     // *this* document under a constant.
     if findings.ledger_has_no_scope_columns {
-        out.row("no scope declared",
+        out.row("no scope columns",
             "  - no claim in this document declares a scope: `tetel claim` has no such field, \
 so no coverage claim of any strength is made by any row. What each claim rests on is in the \
 Facts table; whether it rests on enough is yours to judge\n",
@@ -990,7 +1012,41 @@ mod tests {
         let pages = every_page(&r);
         assert_eq!(pages.iter().map(|p| shown(p)).collect::<Vec<_>>(), vec![vec![1], vec![2], vec![3]]);
         assert!(pages[1].len() <= REPLY_BUDGET);
-        assert!(pages[1].contains(&format!(" of {} bytes]\n", 3 * REPLY_BUDGET)), "the cut is stated");
+        assert!(
+            pages[1].contains(&format!(" of {} bytes; `tetel check` on the command line prints it whole]\n", 3 * REPLY_BUDGET)),
+            "the cut is stated, and where the rest is"
+        );
+    }
+
+    #[test]
+    fn a_report_that_is_one_cut_row_still_leads_with_the_paging_line() {
+        let r = report(1, 0, |_| 3 * REPLY_BUDGET);
+        let p = page(&r, None).unwrap();
+        assert!(p.len() <= REPLY_BUDGET);
+        assert!(p.starts_with("[tetel: showed check rows 1-1 of 1; not shown: ]\n"), "{}", &p[..80]);
+    }
+
+    #[test]
+    fn a_lead_is_printed_on_every_page_that_shows_a_row_it_heads_and_on_no_other() {
+        let mut r = report(100, 200, |i| 150 + (i * 37) % 900);
+        // Longer than any row, so a page that printed it without having
+        // reserved it would overrun the budget.
+        let lead = &format!("  - the preamble the owed rows share (entries below): {}\n", "p".repeat(4000));
+        let at = r.blocks.iter().position(|b| matches!(b, Block::Head(h) if h.contains("human-owed"))).unwrap() + 1;
+        r.blocks.insert(at, Block::Lead { kind: "superseded evidence", text: lead.into() });
+        let pages = every_page(&r);
+        assert!(pages.len() > 3);
+        let mut seen = Vec::new();
+        for p in &pages {
+            assert!(p.len() <= REPLY_BUDGET, "a page of {} bytes", p.len());
+            let rows = shown(p);
+            assert_eq!(p.contains(lead), rows.iter().any(|&i| i > 100), "rows {rows:?}");
+            seen.extend(rows);
+        }
+        assert_eq!(seen, (1..=300).collect::<Vec<_>>(), "a lead is not a row");
+        assert!(pages[0].lines().next().unwrap().contains(" of 300;"));
+        assert!(shown(&pages[0]).iter().all(|&i| i <= 100));
+        assert!(!pages[0].contains(lead), "a page of failing rows only does not carry the owed rows' lead");
     }
 
     #[test]
