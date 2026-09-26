@@ -72,7 +72,7 @@ pub const ENTRY_CAP: usize = 1024;
 pub const VERIFY_ALLOWANCE: usize = REPLY_BUDGET - ENTRY_CAP;
 
 /// The trailer on a cut entry.
-const ELLIPSIS: &str = " …";
+pub const ELLIPSIS: &str = " …";
 
 /// The longest prefix of `s` within `room` bytes that ends on a char
 /// boundary.

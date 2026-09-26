@@ -2358,3 +2358,60 @@ async fn a_long_finding_is_cut_to_half_an_entry_even_with_room() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// TET-93 C11: once `verify` alone takes more than half the budget, the
+/// structured copy goes anyway, so `attention` is fitted against the whole
+/// budget rather than losing every entry to half of it. Revert: keep `room`
+/// at half the budget (every attention entry is counted, none shown).
+#[tokio::test]
+async fn attention_keeps_its_room_beside_a_large_verify() {
+    let sb = Sandbox::new("fact-attention-room");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
+    std::fs::write(state.join("verify.log"), format!("{}\n", verify_record("F0", 12, 3000))).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a(), as gone1.rs and gone2.rs do").await;
+    assert!(v["verify"].to_string().len() > tetel::reply::REPLY_BUDGET / 2, "premise: verify takes over half");
+    assert_eq!(v["attention"].as_array().unwrap().len(), 2, "attention must be shown: {}", v.get("omitted").unwrap_or(&serde_json::Value::Null));
+    assert!(v.get("omitted").is_none());
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-93 C11: at the floor, a field shorter than the " …" trailer is not
+/// replaced by the longer trailer, which would withhold findings that fit
+/// whole. Revert: start `best_cap`'s search at 0 (fewer findings are shown than
+/// fit, since each prefix is sized with its one-byte fields lengthened).
+#[tokio::test]
+async fn at_the_floor_a_short_field_is_not_lengthened() {
+    let sb = Sandbox::new("fact-floor-short");
+    sb.write("read_me.rs", "fn a() {}\n");
+    let client = sb.connect().await;
+    let ws = "ws";
+    let state = sb.state_home().join("workspaces").join(ws);
+    look(&client, ws, sb.dir.join("read_me.rs").to_str().unwrap()).await;
+    let findings: Vec<_> = (0..600)
+        .map(|_| serde_json::json!({"kind": "contradicts", "clause": "c", "clause_quoted": true, "facts": ["F1"], "evidence": "e", "why": "w", "quoted": true}))
+        .collect();
+    let record = serde_json::json!({"seq": 1, "mint": "F0", "verb": "fact", "status": "ok", "model": "m/x", "approach": "split", "at": 1, "findings": findings});
+    std::fs::write(state.join("verify.log"), format!("{record}\n")).expect("plant verify.log");
+
+    let (v, _) = fact_reply(&client, ws, "read_me.rs defines a()").await;
+    assert!(v["verify"]["findings_withheld"].as_u64().unwrap() > 0, "premise: this is the floor");
+    let shown = v["verify"]["findings"].as_array().unwrap();
+    for f in shown {
+        assert_eq!((f["clause"].as_str(), f["evidence"].as_str(), f["why"].as_str()), (Some("c"), Some("e"), Some("w")), "{f}");
+    }
+    let one_more = shown[0].to_string().len() + 1;
+    assert!(
+        v["verify"].to_string().len() + one_more > tetel::reply::VERIFY_ALLOWANCE,
+        "the shown prefix must be the longest that fits: {} shown, {} bytes",
+        shown.len(),
+        v["verify"].to_string().len()
+    );
+
+    client.cancel().await.expect("clean shutdown");
+}

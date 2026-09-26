@@ -258,12 +258,19 @@ fn fact_result(
         // design ships enabled is one of the two it never touches.
         "verify": verify,
     });
+    for (k, _) in &lists {
+        out[*k] = json!([]);
+    }
+    // `structured()` sends the JSON twice, once as text, so a reply within
+    // the budget carries at most half of it — unless `verify` and the rest
+    // of the reply without its lists already take that half. The backstop
+    // then drops the structured copy, which loses nothing, and the text
+    // alone is held to the whole budget.
+    let budget = crate::reply::REPLY_BUDGET;
+    let room = if out.to_string().len() > budget / 2 { budget } else { budget / 2 };
     for (k, v) in &lists {
         out[*k] = json!(v);
     }
-    // `structured()` sends the JSON twice, once as text, so a reply within
-    // the budget carries at most half of it.
-    let room = crate::reply::REPLY_BUDGET / 2;
     if out.to_string().len() <= room {
         return out;
     }
@@ -276,10 +283,9 @@ fn fact_result(
 /// kept from its start while the whole stays within `room`. What a list
 /// leaves out is counted under `omitted`, with where to read it.
 ///
-/// `verify` alone may take more than `room` (its allowance is most of the
-/// budget, so a `claim` or `prose` reply can carry the same object). The
-/// lists then keep nothing, and the backstop drops the structured copy of a
-/// reply whose text still fits, which loses nothing.
+/// `room` is half the budget while the reply can go out structured, and the
+/// whole budget once `verify` alone rules that out; `verify`'s allowance
+/// leaves the rest of the reply `ENTRY_CAP` beside it either way.
 fn fit_lists<const N: usize>(
     mut out: serde_json::Value,
     id: &str,
@@ -413,14 +419,14 @@ fn verify_block(
     )
 }
 
-/// The most of one finding's `clause`, `evidence`, `why` or `literal` a
-/// reply quotes, when the allowance has room for more.
+/// The most of one finding's `clause`, `evidence` or `why` a reply quotes,
+/// when the allowance has room for more.
 const FINDING_TEXT_CAP: usize = crate::reply::ENTRY_CAP / 2;
 
 /// A finding's fields that quote text, and so are cut; the rest (`kind`,
-/// `facts` and the fidelity marks) are what makes a finding one, and are
-/// shown whole.
-const FINDING_TEXT: [&str; 4] = ["clause", "evidence", "why", "literal"];
+/// `facts`, the fidelity marks, and an `unevidenced` finding's `literal`,
+/// which is that finding's whole content) are shown whole.
+const FINDING_TEXT: [&str; 3] = ["clause", "evidence", "why"];
 
 /// Hold a `verify` object's findings to `allowance` bytes, serialized
 /// (TET-93 C11).
@@ -462,13 +468,18 @@ fn fit_findings(verify: serde_json::Value, allowance: usize) -> serde_json::Valu
         v
     };
     let fits = |v: &serde_json::Value| v.to_string().len() <= allowance;
-    // The largest `cap` in 0..=FINDING_TEXT_CAP at which `shown` fits,
-    // if any does: a cut value's size never shrinks as its cap grows.
+    // The largest `cap` in MIN_CAP..=FINDING_TEXT_CAP at which `shown`
+    // fits, if any does. From the trailer's length up, a cut value's size
+    // never shrinks as its cap grows; below it, `capped` turns a field
+    // shorter than the trailer into the longer trailer, so the smallest cap
+    // would not be the smallest reply, and findings that fit whole would be
+    // withheld.
+    const MIN_CAP: usize = crate::reply::ELLIPSIS.len();
     let best_cap = |shown: &[serde_json::Value], withheld: usize| {
-        if !fits(&with(shown, 0, withheld)) {
+        if !fits(&with(shown, MIN_CAP, withheld)) {
             return None;
         }
-        let (mut lo, mut hi) = (0, FINDING_TEXT_CAP);
+        let (mut lo, mut hi) = (MIN_CAP, FINDING_TEXT_CAP);
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
             if fits(&with(shown, mid, withheld)) { lo = mid } else { hi = mid - 1 }
@@ -484,7 +495,7 @@ fn fit_findings(verify: serde_json::Value, allowance: usize) -> serde_json::Valu
         let mid = (lo + hi).div_ceil(2);
         if best_cap(&findings[..mid], findings.len() - mid).is_some() { lo = mid } else { hi = mid - 1 }
     }
-    let cap = best_cap(&findings[..lo], findings.len() - lo).unwrap_or(0);
+    let cap = best_cap(&findings[..lo], findings.len() - lo).unwrap_or(MIN_CAP);
     with(&findings[..lo], cap, findings.len() - lo)
 }
 
@@ -981,7 +992,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Mint a fact from the pending buffer (rejected when the buffer is empty — call `look`/`run` first), or `revise` an existing fact's note (extent, output and pin are set once at mint time and never revised). The result's `attention` array lists every location the note names that the fact's captured extent does not cover; each entry needs either a `look` at that location and a fact for it, or a narrower note. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (every rejection logged in this workspace since the previous mint, whatever the tool — each `error: refused`, plus `render --out` and CLI rejections — as the first log line of each) — a refused `look` leaves the buffer untouched, so a file missing from `folded` for that reason shows up there instead; a read that failed with `error: io` does not. A reply is held to a size budget: each entry is cut to 1024 bytes, whole entries are kept in the order `attention`, `folded`, refusals, and whatever is left out is counted under `omitted`, which says where to read it; an `attention` entry's `extent` names at most four labels and counts the rest in `extent_more`. The result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an earlier call, which `for_mint` names; `findings` is meaningful only under `ok`; the `claim` tool's description says what each status and finding carries. On `fact` it is on by default: 88% of what it reports about a note is correct, and it reports something about roughly one note in fourteen. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
+    #[tool(description = "Mint a fact from the pending buffer (rejected when the buffer is empty — call `look`/`run` first), or `revise` an existing fact's note (extent, output and pin are set once at mint time and never revised). The result's `attention` array lists every location the note names that the fact's captured extent does not cover; each entry needs either a `look` at that location and a fact for it, or a narrower note. The result also carries `folded` (what this mint took from the pending buffer, with ages) and `refused_since_previous_fact` (every rejection logged in this workspace since the previous mint, whatever the tool — each `error: refused`, plus `render --out` and CLI rejections — as the first log line of each) — a refused `look` leaves the buffer untouched, so a file missing from `folded` for that reason shows up there instead; a read that failed with `error: io` does not. A reply is held to a size budget: whole entries are kept in the order `attention`, `folded`, refusals, and whatever is left out is counted under `omitted`, which says where to read it. Each `folded` and refusal entry is cut to 1024 bytes; an `attention` entry's `extent` and `guidance` name at most four labels, each cut to 1024 bytes, and `extent_more` counts the rest. The result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an earlier call, which `for_mint` names; `findings` is meaningful only under `ok`; the `claim` tool's description says what each status and finding carries. On `fact` it is on by default: 88% of what it reports about a note is correct, and it reports something about roughly one note in fourteen. `workspace` is required (never defaulted); minted ids (F#) are workspace-relative only.")]
     async fn fact(&self, Parameters(p): Parameters<FactParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
@@ -1048,7 +1059,7 @@ impl TetelServer {
         }
     }
 
-    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts` with that fact's `id`, which returns it uncut. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. A finding's quoted text (`clause`, `evidence`, `why`, `literal`) is cut to at most 512 bytes, ending ` …`, and shorter when there are many findings; every finding is shown, unless a verification has so many that not even their other fields fit, when `findings_withheld` counts the rest. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
+    #[tool(description = "Assert a claim resting on one or more fact ids, or `revise`/`withdraw` an existing one. Expect to `revise` a claim when writing its prose exposes it as imprecise or needing a qualification — that's the normal rhythm, not a mistake. Creating a claim returns an OVERLAP REPORT: the id and shared designator(s) (extent key, e.g. a resolved file path) of every other fact whose extent touches the same file or command as the facts you cited, and which you did NOT cite — not that fact's note. It is not an error — read it and decide whether one of them belongs in this claim, or whether citing only some of what you looked at is deliberate. Want the note of an overlapping fact? Get it from `query facts` with that fact's `id`, which returns it uncut. Every result also carries `verify`, an object with a mandatory `status`: `off`/`unauthorized`/`queued`/`skipped` mean no finding is being reported to you, and `ok`/`gated`/`unavailable`/`timeout`/`unparsable` report a verification started by an EARLIER call — `for_mint` says which one, because it is no longer the id beside it. `gated` means a TypeSafe gate (`verify.typed_model`) judged the text to have nothing to find and nothing was compared. A delivered `timeout`/`unavailable`/`unparsable` carries `detail` saying why that mint went unchecked, and `unverified` names every mint whose latest verification failed so. `findings` is meaningful only under `ok`, and a finding is not an error: a model thought your wording and the captured evidence disagree, it is wrong a meaningful fraction of the time, and `deterministic: false` is there because two identical mints can answer differently. Each finding's `kind` is `contradicts` or `overreaches` — or, when `literals` is on, `unevidenced`, meaning your text states a number, path or name as current fact that appears in no capture you cited; that one names a `literal` rather than quoting evidence, because the finding IS the absence. Two fidelity marks travel with every finding and are worth reading before you act on it: `facts` lists every cited fact whose captured output contains the quoted span (empty means none did, which is what `quoted: false` says), and `clause_quoted: false` means the clause shown is the model's paraphrase rather than your words. A finding's quoted text (`clause`, `evidence`, `why`) is cut to at most 512 bytes, ending ` …`, and shorter when there are many findings; every finding is shown, unless a verification has so many that not even their other fields fit, when `findings_withheld` counts the rest. Read the quoted evidence and decide. `workspace` is required (never defaulted); ids (C#) are workspace-relative only.")]
     async fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         // Captured before the request consumes `p.revise`.
