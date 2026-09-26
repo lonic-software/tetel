@@ -119,9 +119,12 @@ pub fn load_all(workspace_dir: &Path) -> io::Result<Vec<AckEvent>> {
 /// beside the rendered memo — so there is no anchor to compute here, and
 /// none is needed: an ack on an unlisted block simply suppresses
 /// nothing.
-pub fn create(workspace_dir: &Path, block_id: &str, why: &str) -> Result<AckEvent, AuthoringError> {
+///
+/// Returns the block as it stood when acknowledged, which the reply
+/// describes (TET-66).
+pub fn create(workspace_dir: &Path, block_id: &str, why: &str) -> Result<prose::Block, AuthoringError> {
     let blocks = prose::load_all(workspace_dir)?;
-    let Some(block) = blocks.iter().find(|b| b.id == block_id) else {
+    let Some(block) = blocks.into_iter().find(|b| b.id == block_id) else {
         return Err(workspace::refuse(workspace_dir, "prose", format!("no such prose block: {block_id}")));
     };
     if why.trim().is_empty() {
@@ -168,5 +171,5 @@ pub fn create(workspace_dir: &Path, block_id: &str, why: &str) -> Result<AckEven
         timestamp: workspace::now_unix(),
     };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(event)
+    Ok(block)
 }

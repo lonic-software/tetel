@@ -2755,7 +2755,8 @@ fn ack_with_no_text_never_reads_stdin() {
     let _memo = one_claim_memo(&sb);
     let (code, out, err) = sb.run(&["prose", "--ack", "P1", "--why", "re-read, fine"]);
     assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(out.trim(), "P1 acknowledged.", "got: {out}");
+    // The first line; the second describes the block acknowledged (TET-66).
+    assert_eq!(out.lines().next(), Some("P1 acknowledged."), "got: {out}");
     assert_eq!(sb.prose_jsonl().lines().count(), 1, "no stray paragraph must have been created");
 }
 
@@ -4926,4 +4927,33 @@ fn a_crlf_file_that_fits_once_paged_states_no_shortfall() {
     assert!(out.len() <= budget, "{} bytes over the budget", out.len());
     assert!(!out.contains("[tetel: showed"), "nothing was left out:\n{}", &out[..200]);
     assert!(out.contains("c.txt:1000:"), "every match must be shown");
+}
+
+/// TET-66, CLI side: the line under `<id> revised.` describes what the
+/// revision overwrote, from the same `was::Was` the MCP reply carries. The
+/// heading's text, its citations (none) and its one paragraph all differ
+/// from what replaces them, so describing the block after the write reddens
+/// this.
+#[test]
+fn a_cli_revision_prints_what_it_overwrote() {
+    let sb = Sandbox::new("cli-was");
+    let _memo = one_claim_memo(&sb);
+    let (code, _out, err) = sb.run(&["prose", "--heading", "The degradation contract", "--level", "2"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+
+    let (code, out, err) =
+        sb.run(&["prose", "--revise", "P2", "--why", "w", "--cites", "C1", "--text", "One.\n\nTwo."]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert_eq!(
+        out,
+        "P2 revised.\n  it was a heading (level 2) \"The degradation contract\", citing nothing; 1 paragraph, now 2\n"
+    );
+
+    let (code, out, err) = sb.run(&["fact", "--revise", "F1", "--note", "a new note", "--why", "w"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert_eq!(out, "F1 revised.\n  it was \"alpha.rs defines alpha()\"\n");
+
+    let (code, out, err) = sb.run(&["claim", "--withdraw", "C1", "--why", "w"]);
+    assert_eq!(code, 0, "stderr:\n{err}");
+    assert_eq!(out, "C1 withdrawn.\n  it was \"alpha.rs defines alpha()\", citing F1\n");
 }

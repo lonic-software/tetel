@@ -91,6 +91,7 @@ pub mod snapshot;
 pub mod targets;
 pub mod transplants;
 pub mod verify;
+pub mod was;
 pub mod workspace;
 pub mod worldstate;
 

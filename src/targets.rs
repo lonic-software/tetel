@@ -265,7 +265,9 @@ pub enum TargetRequest {
 
 pub enum TargetOutcome {
     Declared(Target),
-    Withdrawn { id: String },
+    /// `was` describes the target as it stood before the withdrawal (see
+    /// [`crate::was`]).
+    Withdrawn { id: String, was: crate::was::Was },
 }
 
 pub fn dispatch(workspace_dir: &Path, req: TargetRequest) -> Result<TargetOutcome, AuthoringError> {
@@ -277,7 +279,7 @@ pub fn dispatch(workspace_dir: &Path, req: TargetRequest) -> Result<TargetOutcom
         }
         TargetRequest::Withdraw { id, why } => {
             let why = why.unwrap_or_default();
-            withdraw(workspace_dir, &id, &why).map(|t| TargetOutcome::Withdrawn { id: t.id })
+            withdraw(workspace_dir, &id, &why).map(|t| TargetOutcome::Withdrawn { was: crate::was::Was::target(&t), id: t.id })
         }
     }
 }
