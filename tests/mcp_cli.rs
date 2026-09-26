@@ -2083,6 +2083,90 @@ async fn look_shapes_its_own_reply_and_the_backstop_never_fires() {
     client.cancel().await.expect("clean shutdown");
 }
 
+/// Every reply size by the budget's measure, and whether the backstop cut it.
+fn within_budget_uncut(what: &str, r: &rmcp::model::CallToolResult) -> String {
+    let text = r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.clone()).collect::<String>();
+    let size = text.len() + r.structured_content.as_ref().map_or(0, |v| v.to_string().len());
+    assert!(size <= tetel::reply::REPLY_BUDGET, "{what}: a {size}-byte reply is over the budget");
+    assert!(!text.contains("[tetel: this reply was cut"), "{what}: the backstop cut the reply");
+    text
+}
+
+/// TET-104: `look` echoes a caller's pattern or path, cut to ENTRY_CAP, so
+/// an over-budget one neither pushes the reply to the backstop nor leaves
+/// a partial search's matches no room. One case per echo site.
+#[tokio::test]
+async fn look_cuts_every_echoed_pattern_and_path() {
+    let sb = Sandbox::new("look-echo");
+    let long = "q".repeat(48_000);
+    sb.write("tree/hit.txt", "needle\n");
+    let locked = sb.write("tree/locked.txt", "needle\n");
+    let client = sb.connect().await;
+    let look = |a: serde_json::Value| client.call_tool(CallToolRequestParams::new("look").with_arguments(args(a)));
+    let tree = sb.dir.join("tree").display().to_string();
+
+    let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": long})).await.expect("look");
+    let text = within_budget_uncut("no-match line", &r);
+    assert!(text.contains("no matches for 'qqq"), "premise: a no-match reply:\n{}", &text[..text.len().min(300)]);
+
+    let bad = format!("({long}");
+    let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": bad})).await.expect("look");
+    let text = within_budget_uncut("invalid-pattern refusal", &r);
+    assert!(text.contains("not a valid extended regular expression"), "premise: the ERE refusal:\n{}", &text[..text.len().min(300)]);
+
+    let missing = sb.dir.join(&long).display().to_string();
+    let r = look(serde_json::json!({"workspace": "ws", "path": missing})).await.expect("look");
+    within_budget_uncut("no such path, open", &r);
+    let r = look(serde_json::json!({"workspace": "ws", "path": missing, "grep": "needle"})).await.expect("look");
+    within_budget_uncut("no such path, grep", &r);
+
+    // A partial search: one file grep cannot read, one it can.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": format!("needle|{long}")})).await.expect("look");
+    let text = within_budget_uncut("partial-search caveat", &r);
+    assert!(text.contains("PARTIAL SEARCH"), "premise: the search must be partial (not run as root):\n{}", &text[..text.len().min(300)]);
+    assert!(text.contains("hit.txt"), "a partial search must still show its match:\n{}", &text[..text.len().min(3000)]);
+
+    // Nothing readable at all: the search is refused rather than recorded.
+    let only_locked = locked.display().to_string();
+    let r = look(serde_json::json!({"workspace": "ws", "path": only_locked, "grep": format!("needle|{long}")})).await.expect("look");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let text = within_budget_uncut("unreadable-tree refusal", &r);
+    assert!(text.contains("grep could not read"), "premise: the unreadable refusal:\n{}", &text[..text.len().min(300)]);
+
+    client.cancel().await.expect("clean shutdown");
+}
+
+/// TET-104: `query` echoes an id or `from` that matched nothing, cut to
+/// ENTRY_CAP. One case per echo site.
+#[tokio::test]
+async fn query_cuts_every_echoed_id_and_from() {
+    let sb = Sandbox::new("query-echo");
+    let file = sb.write("src/a.txt", "a\n").display().to_string();
+    let client = sb.connect().await;
+    look(&client, "ws", &file).await;
+    fact(&client, "ws", "a fact to hang deps on").await;
+    let long = format!("F{}", "9".repeat(40_000));
+    let query = |a: serde_json::Value| client.call_tool(CallToolRequestParams::new("query").with_arguments(args(a)));
+
+    let cases = [
+        ("facts by id", serde_json::json!({"workspace": "ws", "what": "facts", "id": long}), "no such fact"),
+        ("claims by id", serde_json::json!({"workspace": "ws", "what": "claims", "id": format!("C{long}")}), "no such claim"),
+        ("deps of a fact", serde_json::json!({"workspace": "ws", "what": "deps", "id": long}), "no such fact"),
+        ("deps of a claim", serde_json::json!({"workspace": "ws", "what": "deps", "id": format!("C{long}")}), "no such claim"),
+        ("facts from", serde_json::json!({"workspace": "ws", "what": "facts", "from": long}), "to start from"),
+        ("deps from", serde_json::json!({"workspace": "ws", "what": "deps", "id": "F1", "from": long}), "to start from"),
+    ];
+    for (what, a, says) in cases {
+        let r = query(a).await.expect("query");
+        let text = within_budget_uncut(what, &r);
+        assert!(text.contains(says), "{what}: premise: expected '{says}' in:\n{}", &text[..text.len().min(300)]);
+    }
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 /// TET-93 C12 and C14 (vii) through a real client: `query` pages its own
 /// listings and a fact's extents, so no fact mode leaves a reply for the
 /// backstop to cut, and `from` and `extent_from` reach the paging.

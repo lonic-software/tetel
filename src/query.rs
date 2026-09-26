@@ -12,7 +12,8 @@
 //! [`ENTRY_CAP`], so one long record cannot crowd out the rest; `id`
 //! returns one fact or claim uncut, and a fact's extents page by
 //! `extent_from`, so every label can be read in full through some page
-//! unless it is itself longer than the budget.
+//! unless it is itself longer than the budget. An id or `from` echoed back
+//! because it matched nothing is cut to [`ENTRY_CAP`] (TET-104).
 //!
 //! The paging line leads the reply rather than trailing it, as `look`'s
 //! does: the backstop in `call_tool` keeps a reply's front and cuts its
@@ -101,7 +102,7 @@ fn paged(
         None => 0,
         Some(f) => match entries.iter().position(|e| e.id == f) {
             Some(i) => i,
-            None => return format!("tetel query: no {noun} with id {f} to start from\n"),
+            None => return format!("tetel query: no {noun} with id {} to start from\n", capped(f, ENTRY_CAP)),
         },
     };
     let longest = entries.iter().map(|e| e.id.as_str()).max_by_key(|id| id.len()).unwrap_or("");
@@ -185,7 +186,7 @@ fn facts_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
 /// it is longer than a page by itself, and the cut says so.
 fn fact_text(workspace_dir: &Path, id: &str, extent_from: Option<usize>) -> io::Result<String> {
     let Some(f) = facts::get(workspace_dir, id)? else {
-        return Ok(format!("tetel query: no such fact: {id}\n"));
+        return Ok(format!("tetel query: no such fact: {}\n", capped(id, ENTRY_CAP)));
     };
     let m = f.extent.len();
     let resume = format!("id: {id}, extent_from: ");
@@ -237,7 +238,7 @@ fn claim_lines(c: &claims::Claim, cap: bool) -> String {
 /// longer than the budget by itself is cut, and says so.
 fn claim_text(workspace_dir: &Path, id: &str) -> io::Result<String> {
     let Some(c) = claims::load_all(workspace_dir)?.into_iter().find(|c| c.id == id) else {
-        return Ok(format!("tetel query: no such claim: {id}\n"));
+        return Ok(format!("tetel query: no such claim: {}\n", capped(id, ENTRY_CAP)));
     };
     Ok(cut_stated(&claim_lines(&c, false), REPLY_BUDGET))
 }
@@ -268,7 +269,7 @@ fn prose_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
 fn deps_text(workspace_dir: &Path, id: &str, from: Option<&str>) -> io::Result<String> {
     let (head, dependents) = if id.starts_with('F') {
         if !facts::exists(workspace_dir, id)? {
-            return Ok(format!("tetel query: no such fact: {id}\n"));
+            return Ok(format!("tetel query: no such fact: {}\n", capped(id, ENTRY_CAP)));
         }
         let head = format!("{id} rests on: (facts are foundational observations; nothing)\n{id} cited by:\n");
         let cited_by: Vec<String> =
@@ -276,7 +277,7 @@ fn deps_text(workspace_dir: &Path, id: &str, from: Option<&str>) -> io::Result<S
         (head, cited_by)
     } else if id.starts_with('C') {
         let Some(claim) = claims::load_all(workspace_dir)?.into_iter().find(|c| c.id == id) else {
-            return Ok(format!("tetel query: no such claim: {id}\n"));
+            return Ok(format!("tetel query: no such claim: {}\n", capped(id, ENTRY_CAP)));
         };
         // Printed on every page, so held to ENTRY_CAP: past it, a count and
         // the call that lists them all.

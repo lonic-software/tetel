@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::config;
 use crate::pending::{self, Matcher, ObservationKind, PendingEntry};
-use crate::reply::{ENTRY_CAP, REPLY_BUDGET, floor_char_boundary};
+use crate::reply::{ENTRY_CAP, REPLY_BUDGET, capped, floor_char_boundary};
 use crate::workspace::{self, AuthoringError};
 use crate::worldstate;
 
@@ -516,7 +516,7 @@ fn drop_excluded(stdout: &str, exclusions: &Exclusions) -> String {
 pub fn look_path(workspace_dir: &Path, path: &str, lines: Option<(usize, usize)>) -> Result<LookOutcome, AuthoringError> {
     let p = Path::new(path);
     if !p.exists() {
-        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {path}")));
+        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {}", capped(path, ENTRY_CAP))));
     }
     if p.is_dir() {
         return Err(workspace::refuse(
@@ -870,6 +870,9 @@ fn ere_precheck(workspace_dir: &Path, pattern: &str) -> Result<(), AuthoringErro
     if grep_status_is_clean(&output.status) {
         return Ok(());
     }
+    // Both refusals below echo the pattern; cut to ENTRY_CAP so a long one
+    // cannot push the reply past the budget (TET-104).
+    let pattern = capped(pattern, ENTRY_CAP);
 
     let control = probe("a")?;
     if !grep_status_is_clean(&control.status) {
@@ -948,7 +951,7 @@ typed as",
 
     let root_path = Path::new(root);
     if !root_path.exists() {
-        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {root}")));
+        return Err(workspace::refuse(workspace_dir, "look", format!("no such path: {}", capped(root, ENTRY_CAP))));
     }
     // The explicitly-named root is the same hazard `look_path` has
     // (TET-79) — `grep pattern <fifo>` opens and reads it exactly as
@@ -1081,12 +1084,17 @@ typed as",
     // the search *complete*, and that becomes an annotation carried on
     // the record (see `partial`, below) rather than a discarded result.
     let clean = grep_status_is_clean(&output.status);
+    // What a reply echoes of the pattern: cut to ENTRY_CAP, so a long one
+    // cannot push the reply past the budget (TET-104). The labels below
+    // keep it whole: they are the evidence, and this reply does not print
+    // them.
+    let shown = capped(pattern, ENTRY_CAP);
     if !clean && stdout.trim().is_empty() {
         return Err(workspace::refuse(
             workspace_dir,
             "look",
             format!(
-                "{} searching {root} for '{pattern}' — the pattern is a valid extended regular \
+                "{} searching {root} for '{shown}' — the pattern is a valid extended regular \
 expression (checked before running), so this is the tree, not the query: most likely a file or \
 subtree under {root} grep could not read. Recording a no-match here would claim the pattern does \
 not occur anywhere in {root}, when the search never finished reading it. grep says: {}",
@@ -1097,10 +1105,10 @@ not occur anywhere in {root}, when the search never finished reading it. grep sa
     }
     // A caveat folded into `note` below (the same channel `exclusion_note`
     // already uses to carry what a search withheld) rather than a second
-    // channel of its own — so it survives everywhere `note` already goes:
-    // the printed return *and* the whole-search extent's own label, not
-    // only stdout a caller happened to be watching.
-    let partial_caveat = |says: &str| {
+    // channel of its own — so it reaches the whole-search extent's own
+    // label, not only stdout a caller happened to be watching. The printed
+    // return carries its own copy, `partial_reply` below, cut for the reply.
+    let partial_caveat = |pattern: &str, says: &str| {
         format!(
             "PARTIAL SEARCH — {} while searching {root} for '{pattern}': the matches recorded \
 here are real, but grep did not finish reading the tree, so an unread file or subtree may hold \
@@ -1109,17 +1117,18 @@ matches this search never saw. grep says: {says}",
         )
     };
     let says = grep_stderr_or_placeholder(&output);
-    let partial = (!clean).then(|| partial_caveat(&says));
-    // The reply's copy quotes at most ENTRY_CAP bytes of grep's stderr: a
+    let partial = (!clean).then(|| partial_caveat(pattern, &says));
+    // The reply's copy quotes at most ENTRY_CAP bytes of the pattern (see
+    // `shown`) and of grep's stderr: a
     // tree with thousands of unreadable files would otherwise fill the
     // reply with the complaint and leave no room for the matches. The
     // label keeps the whole quote.
     let partial_reply = (!clean).then(|| {
         let quote = floor_char_boundary(&says, ENTRY_CAP);
         if quote.len() == says.len() {
-            partial_caveat(&says)
+            partial_caveat(&shown, &says)
         } else {
-            partial_caveat(&format!("{quote} … [{} of {} bytes of stderr]", quote.len(), says.len()))
+            partial_caveat(&shown, &format!("{quote} … [{} of {} bytes of stderr]", quote.len(), says.len()))
         }
     });
 
@@ -1152,7 +1161,7 @@ matches this search never saw. grep says: {says}",
     let mut buf = pending::load(workspace_dir)?;
 
     if stdout.trim().is_empty() {
-        printed.push_str(&format!("no matches for '{pattern}' in {root}\n"));
+        printed.push_str(&format!("no matches for '{shown}' in {root}\n"));
         let whole = head(&excluded);
         if printed.len() + whole.len() <= REPLY_BUDGET {
             printed.push_str(&whole);
