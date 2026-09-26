@@ -1124,6 +1124,63 @@ async fn check_names_the_build_that_graded_it() {
     client.cancel().await.expect("clean shutdown");
 }
 
+/// A `check` report over the reply budget comes back through a real client
+/// as pages that are each within the budget and never cut by the
+/// backstop, each leading with its paging line and carrying the failing
+/// breakdown, and that together show every row of the CLI's report once,
+/// in order (TET-72).
+#[tokio::test]
+async fn an_over_budget_check_pages_every_row_through_a_real_client() {
+    let sb = Sandbox::new("check-pages");
+    let client = sb.connect().await;
+
+    let mut source = String::from("# A memo with many rows\n\n");
+    for i in 1..=160 {
+        let bogus = if i <= 10 { "bogus: x\n" } else { "" };
+        source.push_str(&format!(
+            "```tetel\nid: R-{i}\nclaim: Row {i} {}.\ndomain: a.rs#f{i}\nextent: a.rs#f{i}\npin: p1\nkind: READING\nstatus: VERIFIED\n{bogus}```\n\n",
+            "w".repeat(300)
+        ));
+    }
+    let memo = sb.write("many.md", &source);
+    let (code, cli) = tetel::check_file(&memo).expect("check runs");
+    assert_eq!(code, 1);
+    assert!(cli.len() > 2 * tetel::reply::REPLY_BUDGET, "the fixture must need several pages: {}", cli.len());
+    let rows = |text: &str| text.lines().filter(|l| l.starts_with("  - ")).map(str::to_string).collect::<Vec<_>>();
+
+    let mut seen = Vec::new();
+    let mut from: Option<usize> = None;
+    let mut pages = 0;
+    loop {
+        let mut arguments = serde_json::json!({ "file": memo.display().to_string() });
+        if let Some(f) = from {
+            arguments["from"] = f.into();
+        }
+        let result = client
+            .call_tool(CallToolRequestParams::new("check").with_arguments(args(arguments)))
+            .await
+            .expect("protocol level");
+        let text: String = result.content.iter().filter_map(|c| c.as_text().map(|t| t.text.clone())).collect();
+        pages += 1;
+        assert_eq!(result.is_error, Some(true), "every page reports the failing partition");
+        assert!(text.len() <= tetel::reply::REPLY_BUDGET, "page {pages}: {} bytes", text.len());
+        assert!(!text.contains("[tetel: this reply was cut"), "page {pages} reached the backstop");
+        let first = text.lines().next().unwrap();
+        assert!(first.starts_with("[tetel: showed check rows "), "page {pages} leads with: {first}");
+        assert!(text.contains("\nmachine-checked: 10 failing (grammar 10) — "), "page {pages} lacks the breakdown");
+        seen.extend(rows(&text));
+        from = first.split("continue with from: ").nth(1).map(|r| r.split(' ').next().unwrap().parse().unwrap());
+        if from.is_none() {
+            break;
+        }
+        assert!(pages < 50, "paging does not advance");
+    }
+    assert!(pages > 2);
+    assert_eq!(seen, rows(&cli));
+
+    client.cancel().await.expect("clean shutdown");
+}
+
 /// The completeness refusal must reach the MCP surface too.
 ///
 /// Not paranoia about a shared function: this exact render path has

@@ -848,6 +848,10 @@ struct CheckParams {
      /// path resolves against this server's working directory, not
      /// yours.
     file: String,
+    /// The 1-based row to start at. A reply that leaves rows out leads
+    /// with the `from` to continue with.
+    #[serde(default)]
+    from: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1518,10 +1522,11 @@ they are in the snapshot but nothing in the document rests on them"
     // before the server is ever served. See `check_description` below.
     #[tool(description = "placeholder — see `check_description` in this file; `Self::new` replaces this text before the server is ever served")]
     async fn check(&self, Parameters(p): Parameters<CheckParams>) -> Result<CallToolResult, ErrorData> {
-        match crate::check_file(&resolved(&p.file)) {
-            Ok((code, report)) => {
-                let block = vec![ContentBlock::text(report)];
-                Ok(if code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
+        match crate::check_report(&resolved(&p.file)) {
+            Ok(report) => {
+                let text = crate::report::page(&report, p.from).unwrap_or_else(|refusal| refusal);
+                let block = vec![ContentBlock::text(text)];
+                Ok(if report.code == crate::EXIT_CLEAN { CallToolResult::success(block) } else { CallToolResult::error(block) })
             }
             Err(e) => {
                 let msg = format!("error reading {}: {e}", resolved(&p.file).display());
