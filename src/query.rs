@@ -19,11 +19,10 @@
 //! tail, so the front is the one place a cut could not remove it. The CLI
 //! prints the same text, so the two surfaces page alike.
 
-use std::borrow::Cow;
 use std::io;
 use std::path::Path;
 
-use crate::reply::{ENTRY_CAP, REPLY_BUDGET, floor_char_boundary};
+use crate::reply::{ENTRY_CAP, REPLY_BUDGET, capped, floor_char_boundary};
 use crate::{claims, facts, prose};
 
 /// One query, as both surfaces ask it.
@@ -51,16 +50,6 @@ pub fn text(workspace_dir: &Path, q: Query) -> io::Result<String> {
         Query::Claim { id } => claim_text(workspace_dir, id),
         Query::Prose { from } => prose_text(workspace_dir, from),
         Query::Deps { id, from } => deps_text(workspace_dir, id, from),
-    }
-}
-
-/// `s` if it is within [`ENTRY_CAP`], else its longest prefix that fits
-/// beside a trailing " …".
-fn capped(s: &str) -> Cow<'_, str> {
-    if s.len() <= ENTRY_CAP {
-        Cow::Borrowed(s)
-    } else {
-        Cow::Owned(format!("{} …", floor_char_boundary(s, ENTRY_CAP - " …".len())))
     }
 }
 
@@ -148,8 +137,8 @@ fn extent_line(e: &facts::ExtentEntry, label: &str) -> String {
 fn facts_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
     let all = facts::load_all(workspace_dir)?;
     let listed = |f: &facts::Fact| -> (String, Vec<String>) {
-        let head = fact_head(f, &capped(&f.note));
-        (head, f.extent.iter().map(|e| extent_line(e, &capped(&e.label))).collect())
+        let head = fact_head(f, &capped(&f.note, ENTRY_CAP));
+        (head, f.extent.iter().map(|e| extent_line(e, &capped(&e.label, ENTRY_CAP))).collect())
     };
     let entries: Vec<Entry> = all
         .iter()
@@ -240,7 +229,7 @@ fn claims_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
 fn claim_lines(c: &claims::Claim, cap: bool) -> String {
     let status = if c.withdrawn { "withdrawn" } else { "active" };
     let from = c.from.join(",");
-    let cap = |s: &str| if cap { capped(s).into_owned() } else { s.to_string() };
+    let cap = |s: &str| if cap { capped(s, ENTRY_CAP).into_owned() } else { s.to_string() };
     format!("{}\t[{}]\trevisions: {}\tfrom: {}\n  prop: {}\n", c.id, status, c.revisions, cap(&from), cap(&c.prop))
 }
 
@@ -266,8 +255,8 @@ fn prose_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
                 i + 1,
                 b.id,
                 kind,
-                capped(shown),
-                capped(&cites),
+                capped(shown, ENTRY_CAP),
+                capped(&cites, ENTRY_CAP),
                 b.revisions
             );
             Entry { id: b.id.clone(), text }
