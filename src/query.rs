@@ -305,7 +305,7 @@ fn deps_text(workspace_dir: &Path, id: &str, from: Option<&str>) -> io::Result<S
         head.push_str(&listed);
         if shown < claim.from.len() {
             head.push_str(&format!(
-                "  … {} more facts: query claims with id: {id} lists them all\n",
+                "  … {} more facts; query claims with id: {id} shows the claim itself\n",
                 claim.from.len() - shown
             ));
         }
@@ -529,7 +529,7 @@ mod tests {
         append(&w.0, "prose.jsonl", &blocks);
 
         let pages = all_pages(|f| deps_text(&w.0, "C1", f).unwrap());
-        assert!(pages[0].contains("more facts: query claims with id: C1 lists them all"), "{}", &pages[0][..300]);
+        assert!(pages[0].contains("more facts; query claims with id: C1 shows the claim"), "{}", &pages[0][..300]);
         let got: Vec<&str> = pages.iter().flat_map(|p| p.lines().filter(|l| l.starts_with("  P"))).collect();
         assert_eq!(got.len(), 5000, "every dependent exactly once");
         assert!(pages.len() < 10, "the header crowds the dependents out: {} pages", pages.len());
