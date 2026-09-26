@@ -274,8 +274,9 @@ fn fact_result(
 }
 
 /// `run`'s reply: the exit code and the whole output, or, when the two do not
-/// fit the reply budget as JSON, the output's first whole lines that do and an
-/// `omitted` line saying what was left out (TET-95).
+/// fit the reply budget as JSON, the output's first whole lines that do (or a
+/// line cut inside itself, see below) and an `omitted` line saying what was
+/// left out (TET-95).
 ///
 /// Only the reply is cut. The capture keeps every byte, as `run_command`
 /// already stored it, so `omitted` says so. No default reduction below the
@@ -304,18 +305,20 @@ reply is held to {budget} bytes; run a narrower command to see the rest]"
         )
     };
     let whole_lines = |n: usize, left: usize| omitted(format!("lines 1-{n} of {total}"), left);
-    let cut_line = |x: usize, left: usize| {
-        omitted(format!("the first {x} of {} bytes of line 1 and none of the other {}", lines[0].len(), total - 1), left)
+    // Line `n + 1` cut to its first `x` bytes, after `n` whole lines.
+    let cut_line = |n: usize, x: usize, of: usize, left: usize| {
+        let before = if n == 0 { String::new() } else { format!("lines 1-{n} and ") };
+        omitted(format!("{before}the first {x} of {of} bytes of line {} of {total}", n + 1), left)
     };
     // Reserved at its longest before the lines are counted: no count in
-    // either form exceeds `total`, `lines[0].len()` or `output.len()`.
-    let reserved = json!({
-        "exit_code": exit_code,
-        "omitted": whole_lines(total, output.len()).max(cut_line(lines[0].len(), output.len())),
-        "output": "",
-    })
-    .to_string()
-    .len();
+    // either form exceeds `total`, the longest line or `output.len()`.
+    // Compared by length, not by `max` on the strings, which is alphabetical.
+    let longest = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    let longest_note = [whole_lines(total, output.len()), cut_line(total, longest, longest, output.len())]
+        .into_iter()
+        .max_by_key(String::len)
+        .unwrap();
+    let reserved = json!({ "exit_code": exit_code, "omitted": longest_note, "output": "" }).to_string().len();
     let room = budget.saturating_sub(reserved);
     // A line's cost is its JSON-escaped length: a quote, a backslash or a
     // control character takes more than its own bytes.
@@ -329,24 +332,27 @@ reply is held to {budget} bytes; run a narrower command to see the rest]"
         used += cost;
         n += 1;
     }
-    let (shown, note) = if n > 0 {
-        let shown: String = lines[..n].concat();
-        let left = output.len() - shown.len();
-        (shown, whole_lines(n, left))
+    let mut shown: String = lines[..n].concat();
+    // Whole lines, unless stopping at a line boundary gives up more than half
+    // the room: then the next line is cut inside itself to fill it, the rule
+    // the backstop's `prefix` follows, so a short header ahead of one long
+    // line (a minified file, `head`'s `==> f <==`) does not show only the
+    // header. With no whole line at all this is the only way a reply is not
+    // empty.
+    let note = if used >= room / 2 {
+        whole_lines(n, output.len() - shown.len())
     } else {
-        // Not even the first line fits: show its first chars that do, so a
-        // reply is never empty.
+        let next = lines[n];
         let mut end = 0;
-        let mut cost = 0;
-        for (i, c) in lines[0].char_indices() {
-            cost += escaped(c.encode_utf8(&mut [0; 4]));
-            if cost > room {
+        for (i, c) in next.char_indices() {
+            used += escaped(c.encode_utf8(&mut [0; 4]));
+            if used > room {
                 break;
             }
             end = i + c.len_utf8();
         }
-        let shown = lines[0][..end].to_string();
-        (shown, cut_line(end, output.len() - end))
+        shown.push_str(&next[..end]);
+        cut_line(n, end, next.len(), output.len() - shown.len())
     };
     json!({ "exit_code": exit_code, "omitted": note, "output": shown })
 }
@@ -1776,4 +1782,24 @@ pub async fn serve_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync
     let transport = stdio();
     server.serve(transport).await?.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A line cut inside itself ends on a char boundary. Called directly
+    /// rather than through a client: a slice off a boundary panics in the
+    /// server's handler, which a client sees as a reply that never comes.
+    #[test]
+    fn a_multibyte_line_is_cut_on_a_char_boundary() {
+        for head in ["", "h\n"] {
+            let output = format!("{head}{}", "中".repeat(20_000));
+            let v = run_result(0, &output);
+            let shown = v["output"].as_str().unwrap();
+            assert!(v.to_string().len() <= crate::reply::REPLY_BUDGET);
+            assert!(shown.len() > 16_384, "{} bytes shown", shown.len());
+            assert!(shown[head.len()..].chars().all(|c| c == '中'));
+        }
+    }
 }

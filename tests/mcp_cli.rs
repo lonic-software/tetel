@@ -2097,8 +2097,25 @@ async fn run_shapes_its_own_reply_and_the_backstop_never_fires() {
     let x = v["output"].as_str().unwrap().len();
     assert!(x > 12000, "too little of the line shown: {x}");
     assert!(v["output"].as_str().unwrap().chars().all(|c| c == '"'));
-    assert!(v["omitted"].as_str().unwrap().starts_with(&format!("[tetel: showed the first {x} of 40000 bytes of line 1 and none of the other 0; ")), "{v}");
+    assert!(v["omitted"].as_str().unwrap().starts_with(&format!("[tetel: showed the first {x} of 40000 bytes of line 1 of 1; ")), "{v}");
     assert_eq!(pending().pop().unwrap()["output"].as_str().unwrap().len(), 40000);
+
+    // A short header ahead of one long line: the long line is cut to fill
+    // the room, not left out after the header.
+    let reply = text(&run(owned(&["sh", "-c", "echo head; printf '%40000s' '' | tr ' ' x"])).await.expect("run"));
+    let v: serde_json::Value = serde_json::from_str(&reply).expect("the reply is JSON");
+    let out = v["output"].as_str().unwrap();
+    assert!(out.len() > 16384, "the room went unused after the header: {} bytes shown", out.len());
+    let x = out.len() - "head\n".len();
+    assert!(out.starts_with("head\nxxx"), "{}", &out[..20]);
+    assert!(v["omitted"].as_str().unwrap().starts_with(&format!("[tetel: showed lines 1-1 and the first {x} of 40000 bytes of line 2 of 2; ")), "{v}");
+
+    // A multibyte line is cut at a char boundary.
+    let reply = text(&run(owned(&["sh", "-c", "printf '%20000s' '' | sed 's/ /中/g'"])).await.expect("run"));
+    let v: serde_json::Value = serde_json::from_str(&reply).expect("the reply is JSON");
+    let out = v["output"].as_str().unwrap();
+    assert!(out.len() > 16384 && out.chars().all(|c| c == '中'), "{} bytes", out.len());
+    assert!(v["omitted"].as_str().unwrap().starts_with(&format!("[tetel: showed the first {} of 60000 bytes of line 1 of 1; ", out.len())), "{v}");
 
     // Within the budget: whole, with no `omitted`.
     let reply = text(&run(owned(&["seq", "1", "3"])).await.expect("run"));
