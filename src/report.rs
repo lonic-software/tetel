@@ -609,7 +609,7 @@ alone, the next renderer change would read as an edit.\n"
                 format!(
                     "  - [stale-render-record] this document is exactly what its snapshot \
 renders, but these snapshot files differ from the render record beside it (written by \
-{recorded_build}): {}. Render does not read them, so either a build that writes no render record \
+{recorded_build}): {}. The render does not reflect the difference, so either a build that writes no render record \
 re-rendered the pair and changed them, or they were edited by hand. Restore them, or re-render \
 from the workspace that wrote them; if you know a record-less build changed them, `tetel \
 rerender --reseal <this file>` reseals the record on your word. Left alone, the next \

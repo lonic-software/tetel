@@ -36,7 +36,7 @@ enum Command {
     /// a memo whose document or snapshot differs from its render record,
     /// one whose re-render would change a ledger claim, and one with no
     /// record unless `--unattributed` is given, and one whose record
-    /// disagrees only on files render does not read unless `--reseal` is
+    /// disagrees only on changes render does not reflect unless `--reseal` is
     /// given. A clean, sealed memo is
     /// left byte-for-byte alone. See `tetel::snapshot::rerender`.
     Rerender {
@@ -48,9 +48,9 @@ enum Command {
         /// render, never sealed as it stands.
         #[arg(long)]
         unattributed: bool,
-        /// Vouch that a matching memo's snapshot files that render does
-        /// not read were changed by a build that writes no render record,
-        /// not by hand. Its record is resealed over them; the document is
+        /// Vouch that a matching memo's snapshot files, changed in ways
+        /// render does not reflect, were changed by a build that writes no
+        /// render record, not by hand. Its record is resealed over them; the document is
         /// left untouched.
         #[arg(long)]
         reseal: bool,

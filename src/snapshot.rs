@@ -393,9 +393,9 @@ pub enum Provenance {
     /// build before TET-43): it neither writes one nor removes an old one.
     /// Otherwise the document agrees and only `files` (named, sorted,
     /// never empty) disagree — which such a build also does whenever the
-    /// rewrite changes only files render does not read (`refusals.log`,
-    /// `acks.jsonl`), and which a hand edit render does not reflect does
-    /// too. Digests cannot tell those two apart.
+    /// rewrite changes the snapshot in ways render does not reflect
+    /// (`refusals.log`, `acks.jsonl`, a fact field it never prints), and
+    /// which a hand edit render does not reflect does too. Digests cannot tell those two apart.
     StaleRecord { recorded_build: String, document_differs: bool, files: Vec<String> },
     /// The re-render differs and there is no record to say why: a hand
     /// edit, a workspace that moved on without a re-render, or a renderer

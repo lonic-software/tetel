@@ -5204,7 +5204,7 @@ fn rerender_refuses_a_migration_that_changes_a_ledger_proposition() {
     assert_eq!(std::fs::read_to_string(&memo).unwrap(), older);
 }
 
-/// C15 (x): a memo that still matches, whose record agrees on the document
+/// C15 (x): a memo whose render still matches, whose record agrees on the document
 /// but not on a snapshot file render never reads — `acks.jsonl`, or a
 /// fact field render does not print. A record-less rewrite leaves this
 /// state too (TET-43 review), so `check` reports it as a stale record
