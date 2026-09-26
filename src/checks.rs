@@ -297,20 +297,18 @@ impl Findings {
             || self.provenance_failed()
     }
 
-    /// Drift and an unreadable snapshot are machine failures: both are
-    /// objective contradictions between a document and the record it
-    /// claims to rest on, decidable without a human.
+    /// Every drift outcome and an unreadable snapshot are machine
+    /// failures: each is an objective contradiction between a document and
+    /// the record it claims to rest on, decidable without a human. That
+    /// includes a renderer change — see [`crate::snapshot`]'s module doc
+    /// comment for why this build cannot vouch for an older layout.
     ///
     /// A *missing* snapshot is deliberately not a failure. Every memo
     /// authored before `render --out` existed lacks one, and turning that
     /// into a hard failure would grade the tooling's own history rather
     /// than the document. It is reported as human-owed instead.
     pub fn provenance_failed(&self) -> bool {
-        matches!(
-            self.provenance,
-            crate::snapshot::Provenance::Drifted { .. }
-                | crate::snapshot::Provenance::Unreadable(_)
-        )
+        self.provenance.failed()
     }
 }
 
@@ -326,11 +324,12 @@ pub struct ProseRevisedSinceProof {
     /// takes no dependency on `compose`, since its own two inputs are
     /// exactly the snapshot's prose log and the claims/evidence
     /// `check_file` already holds (see that function's doc comment).
-    /// `None` if the block's id is absent from the offset map (should
-    /// not happen when both are read from the same snapshot, but this is
-    /// display metadata, never fabricated — a crate whose whole thesis
-    /// is not overstating provenance must not print a line number that
-    /// does not exist as if it did).
+    /// `None` when provenance is anything but `Matches` — the offsets are
+    /// lines of the snapshot's current render, which are the document's
+    /// lines only when the two are equal — or if the block's id is absent
+    /// from the offset map. This is display metadata, never fabricated: a
+    /// crate whose whole thesis is not overstating provenance must not
+    /// print a line number that does not exist as if it did.
     pub line: Option<usize>,
     /// Every in-proof claim this block cites, each with that claim's own
     /// first-proof timestamp and the pass whose record achieved it —
@@ -2730,10 +2729,20 @@ since it postdates C1's settlement"
 /// the point. A reviewer sees the rendered table; if the table can say
 /// something the record does not support, the table is the lie that
 /// matters.
+///
+/// `document_rows` is false only under
+/// [`crate::snapshot::Provenance::RendererChanged`]. There the render
+/// record vouches that document and snapshot are a pair an earlier render
+/// produced together, so every row in the document was written by the
+/// tool — and the document is in a layout this build's parser may misread,
+/// which would report the tool's own rows as "not written by `tetel
+/// target`". Under every other outcome direction 2 runs, because an
+/// edited document is exactly what it exists to catch.
 pub fn census_findings(
     doc_body: &[String],
     snapshot_targets: &[crate::targets::Target],
     snapshot_facts: &[crate::facts::Fact],
+    document_rows: bool,
 ) -> Vec<String> {
     let mut out = Vec::new();
     let live: Vec<&crate::targets::Target> = snapshot_targets.iter().filter(|t| !t.withdrawn).collect();
@@ -2757,6 +2766,9 @@ pub fn census_findings(
     // Direction 2: every target row the *document* renders must be one of
     // those. A row invented in the file is the tampering case a snapshot
     // exists to catch.
+    if !document_rows {
+        return out;
+    }
     for symbol in rendered_target_symbols(doc_body) {
         if !live.iter().any(|t| t.symbol == symbol) {
             out.push(format!(
@@ -2774,11 +2786,15 @@ pub fn census_findings(
 /// Nothing here re-reads the donor's source. The premise is compared
 /// against the captured bytes `facts.jsonl` already carries, so this runs
 /// no command and opens nothing the document names.
+///
+/// `document_rows` gates direction 2 exactly as it does in
+/// [`census_findings`], for the same reason.
 pub fn premise_findings(
     doc_body: &[String],
     snapshot_transplants: &[crate::transplants::Transplant],
     snapshot_facts: &[crate::facts::Fact],
     snapshot_claims: &[crate::claims::Claim],
+    document_rows: bool,
 ) -> Vec<String> {
     let mut out = Vec::new();
     let live: Vec<&crate::transplants::Transplant> =
@@ -2810,6 +2826,9 @@ pub fn premise_findings(
 
     // Direction 2: every transplant the document shows is one the
     // snapshot has.
+    if !document_rows {
+        return out;
+    }
     for id in rendered_transplant_ids(doc_body) {
         if !live.iter().any(|t| t.id == id) {
             out.push(format!(

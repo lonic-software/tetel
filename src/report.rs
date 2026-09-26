@@ -38,6 +38,18 @@ pub const MACHINE_CHECKED_CATEGORIES: &[&str] = &[
     "provenance drift",
 ];
 
+/// The row kinds a provenance outcome prints under, all in the "provenance
+/// drift" category above: one per outcome, so a reader and a test can tell
+/// a renderer change from an edit (TET-43). `provenance-drift` is the
+/// unattributed case and an unreadable snapshot.
+pub const PROVENANCE_ROW_KINDS: &[&str] = &[
+    "provenance-drift",
+    "document-edited",
+    "snapshot-edited",
+    "renderer-changed",
+    "stale-render-record",
+];
+
 /// Canonical category names for the HUMAN-OWED partition. Same rule and
 /// same guards as [`MACHINE_CHECKED_CATEGORIES`].
 ///
@@ -312,6 +324,20 @@ impl Blocks {
     }
 }
 
+/// A prose block's line in the document, or why it is unknown. `lib.rs`
+/// fills the line only under [`Provenance::Matches`], since the offsets
+/// are the snapshot's current render and are the document's lines only
+/// when the two are equal.
+fn block_line(line: Option<usize>, provenance: &Provenance) -> String {
+    match (line, provenance) {
+        (Some(n), _) => format!("line {n}"),
+        (None, Provenance::Matches) => "line unknown (offset lookup failed)".to_string(),
+        (None, _) => "line unknown (this document is not its snapshot's current render, so the \
+snapshot's line numbers are not its lines)"
+            .to_string(),
+    }
+}
+
 /// Each kind among `rows`, in order of first appearance, with how many
 /// rows carry it: `out-of-proof 14, provenance-drift 1`.
 pub fn count_by_kind<'a>(rows: impl IntoIterator<Item = &'a Block>) -> Vec<(&'static str, usize)> {
@@ -502,20 +528,75 @@ by `render`, so nothing else here has already caught it.\n"
             ),
         );
     }
+    // A record-less render (any build before TET-43) neither writes a
+    // record nor removes an old one, so it can leave a stale record beside
+    // a rewritten pair; the edited-outcome messages below name it as the
+    // second possible cause because digests cannot tell it from a hand edit.
+    const RECORDLESS: &str = "or it was re-rendered by a build that writes no render record \
+(older than TET-43), after which the renderer changed before anything checked it";
     match &findings.provenance {
-        Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
-            let where_ = match first_diff_line {
-                Some(n) => format!("first difference at line {n}"),
-                None => "identical line-for-line but different lengths".to_string(),
-            };
+        Provenance::Unattributed(diff) => {
             machine.row(
                 "provenance-drift",
                 format!(
                     "  - [provenance-drift] this document is not what its own snapshot renders \
-({where_}; snapshot {snapshot_lines} lines, document {memo_lines}). Either the document was \
-edited by hand after rendering, or the workspace moved on without a re-render — a reader \
-following a citation would land somewhere this text was never produced from. Re-render, or \
-recover the workspace the text really came from.\n"
+({}), and it has no render record to say which input moved. Three causes are possible: the \
+document was edited by hand after rendering, the workspace moved on without a re-render, or the \
+renderer itself changed since the document was rendered — a reader following a citation would \
+land somewhere this text was never produced from. If you know the renderer is the only thing \
+that changed, `tetel rerender --unattributed <this file>` migrates it from the snapshot; \
+otherwise re-render from the workspace the text really came from.\n",
+                    diff.describe()
+                ),
+            );
+        }
+        Provenance::DocumentEdited(diff) => {
+            machine.row(
+                "document-edited",
+                format!(
+                    "  - [document-edited] this document is not what its own snapshot renders \
+({}), and it differs from the document its render record describes, while the snapshot does not. \
+Either the document was edited by hand after rendering, {RECORDLESS}. Re-render from the \
+workspace, or restore the rendered text.\n",
+                    diff.describe()
+                ),
+            );
+        }
+        Provenance::SnapshotEdited { files, diff } => {
+            machine.row(
+                "snapshot-edited",
+                format!(
+                    "  - [snapshot-edited] this document is not what its own snapshot renders \
+({}), and these snapshot files differ from its render record: {}. Either the snapshot was \
+edited by hand, {RECORDLESS}. Re-render from the workspace, or restore the files.\n",
+                    diff.describe(),
+                    files.join(", ")
+                ),
+            );
+        }
+        Provenance::RendererChanged { recorded_build, diff } => {
+            machine.row(
+                "renderer-changed",
+                format!(
+                    "  - [renderer-changed] neither this document nor its snapshot has changed \
+since {recorded_build} rendered them, but this build renders the snapshot differently ({}). \
+Nothing was edited: the renderer changed. It still fails, because this build parses the ledger, \
+target rows and transplant ids out of the document in the layout it renders today, and cannot \
+vouch for its verdicts on an older one — the document-side target and transplant checks were \
+skipped for that reason. `tetel rerender <this file>` migrates it from the snapshot alone.\n",
+                    diff.describe()
+                ),
+            );
+        }
+        Provenance::StaleRecord { recorded_build } => {
+            machine.row(
+                "stale-render-record",
+                format!(
+                    "  - [stale-render-record] this document is exactly what its snapshot \
+renders, but the render record beside it (written by {recorded_build}) describes a different \
+document: the pair was re-rendered by a build that writes no render record and leaves an old one \
+in place. Nothing is wrong with the text. `tetel rerender <this file>` replaces the record; left \
+alone, the next renderer change would read as an edit.\n"
                 ),
             );
         }
@@ -621,10 +702,7 @@ ordering was clean, only that no skew large enough to flip it was found\n",
             // printing a fabricated `0` on the rare miss would be exactly
             // the overstated-provenance failure this crate exists to
             // avoid. Say so plainly instead.
-            let line = match p.line {
-                Some(n) => format!("line {n}"),
-                None => "line unknown (offset lookup failed)".to_string(),
-            };
+            let line = block_line(p.line, &findings.provenance);
             // The anchor this block was actually compared against —
             // `p.cited`'s own max, recomputed here rather than carried as
             // a separate field, since it's exactly what "after every
@@ -676,10 +754,7 @@ judges whether the paragraph is faithful — the tool's silence past this point 
 assertion, not a finding of its own\n",
         );
         for a in &findings.prose_acknowledged {
-            let line = match a.line {
-                Some(n) => format!("line {n}"),
-                None => "line unknown (offset lookup failed)".to_string(),
-            };
+            let line = block_line(a.line, &findings.provenance);
             out.row("prose acknowledged", format!(
                 "  - {} ({}): acknowledged {} (raw {}) — cites [{}]\n",
                 a.block_id,

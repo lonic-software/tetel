@@ -607,7 +607,15 @@ async fn every_cli_subcommand_has_an_mcp_tool() {
         // often the verifier is wrong, which is a calibration for
         // ignoring it. It is an analysis command for the person, run
         // from their terminal, over a machine that holds the workspace.
-        .filter(|c| c != "mcp" && c != "help" && c != "config" && c != "verify-report")
+        //
+        // `rerender` (TET-43) is withheld because what it writes is a
+        // vouching, not a render. It rewrites committed memos from their
+        // snapshots and seals them with a record saying document and
+        // snapshot are a pair, and its one flag, `--unattributed`, is
+        // someone attesting that only the renderer moved. That attestation
+        // is the person's to make, from their terminal, about memos an
+        // authoring agent did not render in its own session.
+        .filter(|c| c != "mcp" && c != "help" && c != "config" && c != "verify-report" && c != "rerender")
         .collect();
 
     assert!(

@@ -28,6 +28,25 @@ enum Command {
         /// The markdown file to check.
         file: PathBuf,
     },
+    /// Re-render committed memos from their own `<memo>.tetel` snapshots
+    /// and seal each with a render record — for migrating memos after a
+    /// change to what `render` emits (`check` reports `renderer-changed`).
+    ///
+    /// Needs no workspace: the snapshot is enough to render from. Refuses
+    /// a memo whose document or snapshot differs from its render record,
+    /// one whose re-render would change a ledger claim, and one with no
+    /// record unless `--unattributed` is given. A clean, sealed memo is
+    /// left byte-for-byte alone. See `tetel::snapshot::rerender`.
+    Rerender {
+        /// The memos to re-render.
+        #[arg(required = true)]
+        memos: Vec<PathBuf>,
+        /// Vouch that a memo with no render record changed only because
+        /// the renderer did. It is still rewritten as its snapshot's
+        /// render, never sealed as it stands.
+        #[arg(long)]
+        unattributed: bool,
+    },
     /// Emit the grounding brief for a memo's evidence ledger: every
     /// claim's id and proposition, byte-identical to the source, with
     /// domain/extent withheld so an independent pass can't see what the
@@ -455,6 +474,43 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Command::Rerender { memos, unattributed } => {
+            let mut failed = false;
+            for memo in &memos {
+                match tetel::snapshot::rerender(memo, unattributed) {
+                    Ok(done) => {
+                        use tetel::snapshot::Rerendered;
+                        let what = match done {
+                            Rerendered::Unchanged => "unchanged: already sealed and clean".to_string(),
+                            Rerendered::Sealed => {
+                                "sealed: it already matched its snapshot; a render record was \
+written and the document left untouched"
+                                    .to_string()
+                            }
+                            Rerendered::StaleRecordReplaced { recorded_build } => format!(
+                                "stale render record replaced (it was written by {recorded_build} \
+for an earlier document); nothing was edited"
+                            ),
+                            Rerendered::Migrated { recorded_build: Some(b), .. } => format!(
+                                "migrated: re-rendered from its snapshot (last rendered by {b}) \
+and sealed"
+                            ),
+                            Rerendered::Migrated { recorded_build: None, .. } => {
+                                "migrated on your word (--unattributed): re-rendered from its \
+snapshot and sealed"
+                                    .to_string()
+                            }
+                        };
+                        println!("{}: {what}", memo.display());
+                    }
+                    Err(e) => {
+                        eprintln!("tetel: {}: refused — {e}", memo.display());
+                        failed = true;
+                    }
+                }
+            }
+            ExitCode::from(if failed { 1 } else { 0 })
+        }
         Command::Brief { memo, json, authoring, confirm } => {
             if authoring {
                 print!("{}", tetel::brief::AUTHORING_BRIEF);
@@ -1035,25 +1091,14 @@ a value `{}` accepts.",
                 return ExitCode::from(1);
             }
 
-            // Document first, then snapshot: if the snapshot write fails
-            // the document still exists and `check` reports the missing
-            // record, which is a recoverable state. The reverse order
-            // could leave a snapshot claiming to describe a document that
-            // was never written.
-            if let Err(e) = std::fs::write(&path, &rendered) {
-                eprintln!("tetel: could not write {}: {e}", path.display());
-                return ExitCode::from(1);
-            }
-            // The workspace identity the snapshot needs is minted by
-            // `snapshot::write` itself — deliberately not here. This arm
-            // used to do it and the MCP render handler did not, so a memo
-            // authored over MCP shipped without one; see that function's
-            // doc comment.
-            if let Err(e) = tetel::snapshot::write(&path, &workspace_dir) {
-                eprintln!(
-                    "tetel: wrote {} but could not write its snapshot: {e}",
-                    path.display()
-                );
+            // The document, the snapshot and its render record are all
+            // written by `snapshot::write`, in the one order that can never
+            // leave a record describing a pair that was not written — see
+            // that function's doc comment. It also mints the workspace
+            // identity the snapshot needs; this arm used to do that and the
+            // MCP render handler did not.
+            if let Err(e) = tetel::snapshot::write(&path, &workspace_dir, &rendered) {
+                eprintln!("tetel: could not publish {}: {e}", path.display());
                 return ExitCode::from(1);
             }
 

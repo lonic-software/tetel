@@ -1,0 +1,13 @@
+{
+  "document": "b814cb763eb80f6a24c7f13eb14883158e42ddaf78cf084e995167877f4c533d",
+  "files": {
+    "claims.jsonl": "663fc001dff4033a73dce00e5c96bc9b7bedec51236c04c2cc1d7c99d8c9a2dc",
+    "counters.json": "f389ab1fe0890ab66e98b9aca779acdcf79bc8b886f449602bc10315675e5461",
+    "facts.jsonl": "81356a6750630209169fba4086ea147df5be382b98d578312f0047bdbfd449bf",
+    "identity.json": "86462848f5214aac5d8a0dc2547d275c7496331e1d973b1f7fc2b58f749f9b04",
+    "pending.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "prose.jsonl": "c080571f472464432271f7d6615af3a3878e50687f19b9fc5d0823bdd6f378f5",
+    "targets.jsonl": "76f107b44628fc5c9d9bdb50f2680a983a6d2c67e67f8c60f768bce331f4c08e"
+  },
+  "build": "tetel 0.1.0 build 5e83a51d8678"
+}

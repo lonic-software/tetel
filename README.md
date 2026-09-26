@@ -81,7 +81,7 @@ Verification is `check`, `brief` and `record`. `brief` emits every claim with it
 so an independent pass grades the proposition without seeing what the author declared it ranged over.
 `record` appends that pass's verdict to the ledger.
 
-Everything is also exposed over **MCP** (`tetel mcp`), which is how agents author with it — arguments
+Everything but `config`, `verify-report` and `rerender` is also exposed over **MCP** (`tetel mcp`), which is how agents author with it — arguments
 arrive as JSON with no shell in the path, so text that a shell would corrupt survives byte-exact.
 
 ### Where things live
@@ -91,6 +91,7 @@ arrive as JSON with no shell in the path, so text that a shell would corrupt sur
 | `design.md` | the rendered document — prose plus evidence rows, plain markdown so agents read it, tooling greps it, and review happens in a diff |
 | `design.md.evidence.jsonl` | the grounding ledger: append-only [in-toto](https://in-toto.io) statements, one per claim per pass, each carrying a digest of the exact proposition text it graded |
 | `design.md.tetel/` | the snapshot — the workspace state that produced the document, shipped beside it so a citation resolves in a repository that never had the workspace |
+| `design.md.tetel/render.json` | the render record — digests of the document and of each snapshot file, and the build that rendered them, so drift can say which of the three moved |
 | `~/.local/state/tetel/workspaces/<name>/` | live authoring state: facts, claims, prose, refusals, identity |
 
 Markdown is what `render` emits, not what tetel is about. **The render target is the most replaceable
@@ -146,6 +147,14 @@ Two labelled partitions, each stating its own scope, and **never a single docume
   extent labels are anchored to, a relative extent label carrying no root-relative marker, and
   tetel's own standing non-coverage. **None of it is settled by a passing check**,
   and none of it fails the run.
+
+Provenance drift names which input moved: `document-edited`, `snapshot-edited`, or
+`renderer-changed` when neither did, from the render record `render --out` writes. A memo with no
+record reports plain `provenance-drift`, and a record left describing another document is a
+`stale-render-record`. All of them fail, a renderer change included, because `check` reads the
+document in the layout the current build renders. After a change to what `render` emits,
+`tetel rerender <memo>...` migrates committed memos from their snapshots alone. It refuses an edit,
+and it refuses a rewrite that would change what any ledger claim says.
 
 Exit 2 means no tetel rows were found at all — out of scope, nothing checked, which is *not* a clean
 run.
