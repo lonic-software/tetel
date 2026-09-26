@@ -343,7 +343,7 @@ total differs the memo changed between pages: start again without `from`"
     };
     format!(
         "[tetel: showed check rows {first}-{last} of {total}; not shown: {}{continue_}]\n",
-        join_counts(left_out)
+        if left_out.is_empty() { "none".to_string() } else { join_counts(left_out) }
     )
 }
 
@@ -1023,7 +1023,7 @@ mod tests {
         let r = report(1, 0, |_| 3 * REPLY_BUDGET);
         let p = page(&r, None).unwrap();
         assert!(p.len() <= REPLY_BUDGET);
-        assert!(p.starts_with("[tetel: showed check rows 1-1 of 1; not shown: ]\n"), "{}", &p[..80]);
+        assert!(p.starts_with("[tetel: showed check rows 1-1 of 1; not shown: none]\n"), "{}", &p[..80]);
     }
 
     #[test]
