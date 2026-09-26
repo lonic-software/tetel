@@ -5,6 +5,7 @@
 
 use crate::checks::Findings;
 use crate::parse::Document;
+use crate::reply::{REPLY_BUDGET, floor_char_boundary};
 use crate::snapshot::Provenance;
 
 /// Exit codes. 0 and 1 are the conventional pass/fail; 2 is the D8 state —
@@ -247,6 +248,194 @@ fn format_interval(secs: u64) -> String {
     if parts.is_empty() { "0s".to_string() } else { parts.join(" ") }
 }
 
+/// One piece of a `check` report, in the order it prints.
+pub enum Block {
+    /// A line that frames the report rather than reporting a finding: a
+    /// partition's header, the blank line between partitions, the build
+    /// line. A reply that pages the report prints every one on every page.
+    Head(String),
+    /// The preamble a group of rows shares, printed over the rows that
+    /// follow it with its `kind`. Not a row and not counted: a page prints
+    /// it when it shows any row it heads, so no entry appears without it
+    /// and it never appears over none of them.
+    Lead { kind: &'static str, text: String },
+    /// One finding: its bullet and every line that belongs to it. `kind`
+    /// names the category it counts under — for a machine-checked
+    /// failure, the tag its bullet carries.
+    Row { kind: &'static str, text: String },
+}
+
+/// A `check` report kept as the rows it is made of, so a reply too large
+/// to send whole can be paged row by row. Rows are built as rows rather
+/// than recovered by splitting the printed text: a fact's extent can hold
+/// a multi-line command, so a finding's own text can contain lines that
+/// look like the start of another.
+pub struct Report {
+    pub code: i32,
+    pub blocks: Vec<Block>,
+}
+
+impl Report {
+    /// The report as the CLI prints it: every block, in order.
+    pub fn text(&self) -> String {
+        self.blocks
+            .iter()
+            .map(|b| match b {
+                Block::Head(s) | Block::Lead { text: s, .. } | Block::Row { text: s, .. } => s.as_str(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Default)]
+struct Blocks(Vec<Block>);
+
+impl Blocks {
+    fn head(&mut self, s: impl Into<String>) {
+        self.0.push(Block::Head(s.into()));
+    }
+
+    fn lead(&mut self, kind: &'static str, s: impl Into<String>) {
+        self.0.push(Block::Lead { kind, text: s.into() });
+    }
+
+    fn row(&mut self, kind: &'static str, s: impl Into<String>) {
+        self.0.push(Block::Row { kind, text: s.into() });
+    }
+
+    /// Appends to the row pushed last: a line that belongs to it.
+    fn more(&mut self, s: &str) {
+        match self.0.last_mut() {
+            Some(Block::Row { text, .. }) => text.push_str(s),
+            _ => unreachable!("a continuation line with no row before it"),
+        }
+    }
+}
+
+/// Each kind among `rows`, in order of first appearance, with how many
+/// rows carry it: `out-of-proof 14, provenance-drift 1`.
+pub fn count_by_kind<'a>(rows: impl IntoIterator<Item = &'a Block>) -> Vec<(&'static str, usize)> {
+    let mut counts: Vec<(&'static str, usize)> = Vec::new();
+    for b in rows {
+        if let Block::Row { kind, .. } = b {
+            match counts.iter_mut().find(|(k, _)| k == kind) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((kind, 1)),
+            }
+        }
+    }
+    counts
+}
+
+pub fn join_counts(counts: &[(&str, usize)]) -> String {
+    counts.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ")
+}
+
+/// The paging line `page` leads with: which rows it shows, of how many,
+/// the rows it left out counted by kind, and where to continue.
+fn paging_line(first: usize, last: usize, total: usize, left_out: &[(&str, usize)], next: Option<usize>) -> String {
+    let continue_ = match next {
+        Some(z) => format!(
+            "; continue with from: {z} — a reply is held to {REPLY_BUDGET} bytes, and if a later page's \
+total differs the memo changed between pages: start again without `from`"
+        ),
+        None => String::new(),
+    };
+    format!(
+        "[tetel: showed check rows {first}-{last} of {total}; not shown: {}{continue_}]\n",
+        if left_out.is_empty() { "none".to_string() } else { join_counts(left_out) }
+    )
+}
+
+/// `check`'s MCP reply: the whole report when `from` is absent and it fits
+/// the reply budget, otherwise one page of its rows. A page prints every
+/// [`Block::Head`] in place, so both partition headers and the failing
+/// breakdown are on every page, and whole rows from row `from` (1-based,
+/// in the order the CLI prints them) until the budget. It leads with the
+/// paging line, since the backstop keeps a reply's front. A
+/// [`Block::Lead`] is printed on a page that shows any row it heads. Every
+/// row is on some page; a row too large for a page by itself is shown
+/// alone and cut, and its marker says the CLI prints it whole — the one
+/// case where a reply cannot reach all of a row. `Err` is the refusal for
+/// a `from` that names no row.
+pub fn page(report: &Report, from: Option<usize>) -> Result<String, String> {
+    let rows: Vec<&Block> = report.blocks.iter().filter(|b| matches!(b, Block::Row { .. })).collect();
+    let n = rows.len();
+    if from.is_none() {
+        let whole = report.text();
+        if whole.len() <= REPLY_BUDGET {
+            return Ok(whole);
+        }
+    }
+    let start = from.unwrap_or(1);
+    if start == 0 || start > n {
+        return Err(format!("tetel check: no row {start} to start from; this report has {n} rows\n"));
+    }
+    let len = |b: &Block| match b {
+        Block::Head(s) | Block::Lead { text: s, .. } | Block::Row { text: s, .. } => s.len(),
+    };
+    // Every head and every lead, as if a page printed them all.
+    let fixed: usize = report.blocks.iter().filter(|b| !matches!(b, Block::Row { .. })).map(len).sum();
+    // Reserved at its longest before filling: every kind at its full
+    // count, every number at the width of `n`.
+    let reserve = paging_line(n, n, n, &count_by_kind(rows.iter().copied()), Some(n)).len();
+    let room = REPLY_BUDGET.saturating_sub(fixed + reserve);
+
+    let first = start - 1;
+    let mut end = first;
+    let mut used = 0;
+    while end < n && used + len(rows[end]) <= room {
+        used += len(rows[end]);
+        end += 1;
+    }
+    let alone = end == first;
+    if alone {
+        end = first + 1;
+    }
+
+    let mut body = String::new();
+    let mut i = 0;
+    for (bi, b) in report.blocks.iter().enumerate() {
+        match b {
+            Block::Head(s) => body.push_str(s),
+            Block::Lead { kind, text } => {
+                // The rows it heads: the run of its kind straight after it.
+                let heads = report.blocks[bi + 1..]
+                    .iter()
+                    .take_while(|b| matches!(b, Block::Row { kind: k, .. } if k == kind))
+                    .count();
+                if i < end && first < i + heads {
+                    body.push_str(text);
+                }
+            }
+            Block::Row { text, .. } => {
+                if i == first && alone {
+                    body.push_str(&cut_row(text, room));
+                } else if (first..end).contains(&i) {
+                    body.push_str(text);
+                }
+                i += 1;
+            }
+        }
+    }
+    if first == 0 && end == n && !alone {
+        return Ok(body);
+    }
+    let left_out = count_by_kind(rows[..first].iter().chain(&rows[end..]).copied());
+    let next = (end < n).then_some(end + 1);
+    Ok(format!("{}{body}", paging_line(start, end, n, &left_out, next)))
+}
+
+/// A row that does not fit a page by itself, cut to `room` and marked.
+fn cut_row(text: &str, room: usize) -> String {
+    let total = text.len();
+    let stated = |shown: usize| {
+        format!(" [tetel: this row cut to its first {shown} of {total} bytes; `tetel check` on the command line prints it whole]\n")
+    };
+    let shown = floor_char_boundary(text, room.saturating_sub(stated(total).len()));
+    format!("{shown}{}", stated(shown.len()))
+}
+
 /// `build` names the binary that produced this report (see `buildid.rs`).
 /// It is passed in rather than read here so this function stays a pure
 /// function of the document it grades — and it is *always* printed,
@@ -254,124 +443,136 @@ fn format_interval(secs: u64) -> String {
 /// outputs which disagree can be told apart by their checker. A report
 /// that does not name its build cannot be disbelieved.
 pub fn render(display_path: &str, doc: &Document, findings: &Findings, build: &str) -> (i32, String) {
+    let report = render_report(display_path, doc, findings, build);
+    (report.code, report.text())
+}
+
+pub fn render_report(display_path: &str, doc: &Document, findings: &Findings, build: &str) -> Report {
     if doc.row_groups_found == 0 && findings.ledger_claims_found == 0 {
         let msg = format!(
             "no tetel rows found in {display_path} — out of scope, nothing was checked. \
 This is a distinct state from a clean run, not a weaker way of spelling it (exit {EXIT_NO_ROWS}).\n\
 \nchecked by {build}\n"
         );
-        return (EXIT_NO_ROWS, msg);
+        return Report { code: EXIT_NO_ROWS, blocks: vec![Block::Head(msg)] };
     }
 
-    let mut out = String::new();
-
     // --- machine-checked partition -----------------------------------
-    let failing = findings.machine_check_failed();
-    let total_failures = findings.grammar_errors.len()
-        + findings.subset_failures.len()
-        + findings.abutting_failures.len()
-        + findings.unsettled_failures.len()
-        + findings.cascade_failures.len()
-        + findings.ledger_errors.len()
-        + findings.verdict_disagreements.len()
-        + findings.out_of_proof.len()
-        + findings.uncensused_targets.len()
-        + findings.unquoted_premises.len()
-        + usize::from(findings.acks_unreadable.is_some())
-        + usize::from(findings.provenance_failed());
-    let scope = join_categories(MACHINE_CHECKED_CATEGORIES);
-    if failing {
-        out.push_str(&format!(
-            "machine-checked: {total_failures} failing — {scope}\n"
-        ));
-        for e in &findings.grammar_errors {
-            out.push_str(&format!("  - [grammar] {e}\n"));
-        }
-        for e in &findings.subset_failures {
-            out.push_str(&format!("  - [subset] {e}\n"));
-        }
-        for e in &findings.abutting_failures {
-            out.push_str(&format!("  - [abutting-literal] {e}\n"));
-        }
-        for e in &findings.unsettled_failures {
-            out.push_str(&format!("  - [unsettled-citation] {e}\n"));
-        }
-        for e in &findings.cascade_failures {
-            out.push_str(&format!("  - [cascade] {e}\n"));
-        }
-        for e in &findings.ledger_errors {
-            out.push_str(&format!("  - [ledger] {e}\n"));
-        }
-        for e in &findings.verdict_disagreements {
-            out.push_str(&format!("  - [verdict-disagreement] {e}\n"));
-        }
-        for e in &findings.out_of_proof {
-            out.push_str(&format!("  - [out-of-proof] {e}\n"));
-        }
-        for e in &findings.uncensused_targets {
-            out.push_str(&format!("  - [uncensused-target] {e}\n"));
-        }
-        for e in &findings.unquoted_premises {
-            out.push_str(&format!("  - [unquoted-premise] {e}\n"));
-        }
-        if let Some(e) = &findings.acks_unreadable {
-            out.push_str(&format!(
+    // Its rows are built first so that the header's count and breakdown
+    // are read off them, rather than summed by hand beside them.
+    let mut machine = Blocks::default();
+    for e in &findings.grammar_errors {
+        machine.row("grammar", format!("  - [grammar] {e}\n"));
+    }
+    for e in &findings.subset_failures {
+        machine.row("subset", format!("  - [subset] {e}\n"));
+    }
+    for e in &findings.abutting_failures {
+        machine.row("abutting-literal", format!("  - [abutting-literal] {e}\n"));
+    }
+    for e in &findings.unsettled_failures {
+        machine.row("unsettled-citation", format!("  - [unsettled-citation] {e}\n"));
+    }
+    for e in &findings.cascade_failures {
+        machine.row("cascade", format!("  - [cascade] {e}\n"));
+    }
+    for e in &findings.ledger_errors {
+        machine.row("ledger", format!("  - [ledger] {e}\n"));
+    }
+    for e in &findings.verdict_disagreements {
+        machine.row("verdict-disagreement", format!("  - [verdict-disagreement] {e}\n"));
+    }
+    for e in &findings.out_of_proof {
+        machine.row("out-of-proof", format!("  - [out-of-proof] {e}\n"));
+    }
+    for e in &findings.uncensused_targets {
+        machine.row("uncensused-target", format!("  - [uncensused-target] {e}\n"));
+    }
+    for e in &findings.unquoted_premises {
+        machine.row("unquoted-premise", format!("  - [unquoted-premise] {e}\n"));
+    }
+    if let Some(e) = &findings.acks_unreadable {
+        machine.row(
+            "ack-log-unreadable",
+            format!(
                 "  - [ack-log-unreadable] a snapshot exists beside this document but its \
 acknowledgement log (acks.jsonl) could not be read ({e}) — reported rather than passed over, \
 because an unreadable record is not a matching one. Unlike prose.jsonl, this file is never read \
 by `render`, so nothing else here has already caught it.\n"
-            ));
-        }
-        match &findings.provenance {
-            Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
-                let where_ = match first_diff_line {
-                    Some(n) => format!("first difference at line {n}"),
-                    None => "identical line-for-line but different lengths".to_string(),
-                };
-                out.push_str(&format!(
+            ),
+        );
+    }
+    match &findings.provenance {
+        Provenance::Drifted { first_diff_line, snapshot_lines, memo_lines } => {
+            let where_ = match first_diff_line {
+                Some(n) => format!("first difference at line {n}"),
+                None => "identical line-for-line but different lengths".to_string(),
+            };
+            machine.row(
+                "provenance-drift",
+                format!(
                     "  - [provenance-drift] this document is not what its own snapshot renders \
 ({where_}; snapshot {snapshot_lines} lines, document {memo_lines}). Either the document was \
 edited by hand after rendering, or the workspace moved on without a re-render — a reader \
 following a citation would land somewhere this text was never produced from. Re-render, or \
 recover the workspace the text really came from.\n"
-                ));
-            }
-            Provenance::Unreadable(e) => {
-                out.push_str(&format!(
+                ),
+            );
+        }
+        Provenance::Unreadable(e) => {
+            machine.row(
+                "provenance-drift",
+                format!(
                     "  - [provenance-drift] a snapshot exists beside this document but could not \
 be rendered from ({e}) — reported rather than passed over, because an unreadable record is not \
 a matching one.\n"
-                ));
-            }
-            Provenance::Missing | Provenance::Matches => {}
+                ),
+            );
         }
+        Provenance::Missing | Provenance::Matches => {}
+    }
+
+    let failing = findings.machine_check_failed();
+    debug_assert_eq!(failing, !machine.0.is_empty(), "a machine failure with no row, or a row with no failure");
+    let scope = join_categories(MACHINE_CHECKED_CATEGORIES);
+    let mut out = Blocks::default();
+    if failing {
+        out.head(format!(
+            "machine-checked: {} failing ({}) — {scope}\n",
+            machine.0.len(),
+            join_counts(&count_by_kind(&machine.0))
+        ));
+        out.0.append(&mut machine.0);
     } else {
-        out.push_str(&format!("machine-checked: clean — {scope}\n"));
+        out.head(format!("machine-checked: clean — {scope}\n"));
     }
     if !findings.abutting_candidates.is_empty() {
-        out.push_str("  informational, not checked (never a failure, at any distance looser than abutting):\n");
+        out.lead(
+            "informational",
+            "  informational, not checked (never a failure, at any distance looser than abutting):\n",
+        );
         for c in &findings.abutting_candidates {
-            out.push_str(&format!("    - {c}\n"));
+            out.row("informational", format!("    - {c}\n"));
         }
     }
 
-    out.push('\n');
+    out.head("\n");
 
     // --- human-owed partition -----------------------------------------
-    out.push_str(&format!(
+    out.head(format!(
         "human-owed: {} \u{2014} none of this is settled by a passing check\n",
         join_categories(HUMAN_OWED_CATEGORIES)
     ));
     for e in &findings.superseded_evidence {
-        out.push_str(&format!("  - superseded evidence: {e}\n"));
+        out.row("superseded evidence", format!("  - superseded evidence: {e}\n"));
     }
     for (id, pass, note) in &findings.qualified_claims {
-        out.push_str(&format!(
+        out.row("qualified", format!(
             "  - {id}: QUALIFIED by pass {pass} — not a plain confirmation. \"{note}\"\n"
         ));
     }
     for line in &findings.grounding_provenance {
-        out.push_str(&format!("  - {line}\n"));
+        out.row("grounding provenance", format!("  - {line}\n"));
     }
     for w in &findings.mint_windows {
         let window = if w.is_first {
@@ -379,7 +580,7 @@ a matching one.\n"
         } else {
             "between this fact and the one before it"
         };
-        out.push_str(&format!(
+        out.row("mint-window refusals", format!(
             "  - {}: {} refusal(s) recorded {window} — what the author tried and could not do in \
 the window that produced it. Frequently innocent; worth a reader's eye when a note reaches past \
 its extent, because a refused `look` leaves the pending buffer untouched and the next mint folds \
@@ -388,10 +589,10 @@ whatever was already there:\n",
             w.refusals.len()
         ));
         for line in &w.refusals {
-            out.push_str(&format!("      {line}\n"));
+            out.more(&format!("      {line}\n"));
         }
         if w.straddles_a_boundary {
-            out.push_str(
+            out.more(
                 "      (a refusal here shares a second with a mint, so which side of it the \
 refusal fell on cannot be recovered — it is listed under both adjacent facts rather than \
 guessed at)\n",
@@ -405,7 +606,7 @@ guessed at)\n",
         // document. What is constant across every entry below is the
         // cross-process clock bound this whole check rests on, so it is
         // stated here rather than in each block's own bullet.
-        out.push_str(
+        out.lead("prose revised after proof",
             "  - prose revised after the claims it cites settled (entries below): the ordering \
 rests on two clocks nothing here can prove are the same — the authoring workspace's and the \
 grounding pass's. A reported ordering can be wrong only if the two differed by more than the \
@@ -434,7 +635,7 @@ ordering was clean, only that no skew large enough to flip it was found\n",
             // producing one).
             let anchor = p.cited.iter().map(|(_, t, _)| *t).max().unwrap_or(p.block_timestamp);
             let interval = format_interval(p.block_timestamp.saturating_sub(anchor));
-            out.push_str(&format!(
+            out.row("prose revised after proof", format!(
                 "  - {} ({}): this wording (text and citations) dates from {} (raw {}), {} \
 after every claim below had already entered proof:\n",
                 p.block_id,
@@ -450,10 +651,10 @@ after every claim below had already entered proof:\n",
             // verbatim, and the single most actionable thing this entry
             // can hand a reader without quoting the paragraph itself.
             if let Some(why) = &p.why {
-                out.push_str(&format!("      revised because: \"{why}\"\n"));
+                out.more(&format!("      revised because: \"{why}\"\n"));
             }
             for (id, first_proof, pass) in &p.cited {
-                out.push_str(&format!(
+                out.more(&format!(
                     "      {id}: first entered proof at {} (raw {}), by pass {pass}\n",
                     format_unix(*first_proof),
                     first_proof
@@ -467,7 +668,7 @@ after every claim below had already entered proof:\n",
         // the demanding group above rather than sitting inside it with an
         // annotation stapled on — the human act the group asks for has
         // already been performed, so the standing demand should not stand.
-        out.push_str(
+        out.lead("prose acknowledged",
             "  - prose acknowledged after the claims it cites settled (entries below): a human \
 said, in their own words, that they re-read each block's current text and citations against \
 every claim's current wording and found nothing to change. Nothing here verifies that reading or \
@@ -479,7 +680,7 @@ assertion, not a finding of its own\n",
                 Some(n) => format!("line {n}"),
                 None => "line unknown (offset lookup failed)".to_string(),
             };
-            out.push_str(&format!(
+            out.row("prose acknowledged", format!(
                 "  - {} ({}): acknowledged {} (raw {}) — cites [{}]\n",
                 a.block_id,
                 line,
@@ -489,11 +690,11 @@ assertion, not a finding of its own\n",
             ));
             // Same verbatim rule as `revised because:` above: the
             // author's own words, never paraphrased.
-            out.push_str(&format!("      acknowledged because: \"{}\"\n", a.why));
+            out.more(&format!("      acknowledged because: \"{}\"\n", a.why));
         }
     }
     for r in &findings.tree_states {
-        out.push_str(&format!(
+        out.row("tree states", format!(
             "  - {} was observed in {} different working-tree states by this memo's facts. Not a \
 defect — a tree moves while a design is written — but it is what tells you whether two facts \
 about the same code disagree about the world or about the same world, which their notes alone \
@@ -502,11 +703,11 @@ cannot say:\n",
             r.states.len()
         ));
         for (state, ids) in &r.states {
-            out.push_str(&format!("      {state}  ←  {}\n", ids.join(", ")));
+            out.more(&format!("      {state}  ←  {}\n", ids.join(", ")));
         }
     }
     if !findings.tree_ungradable.is_empty() {
-        out.push_str(&format!(
+        out.row("tree ungradable", format!(
             "  - [{}]: minted before an observation's tree marker named which tree it described, \
 so their recorded state is this tool's own working directory at capture time and not the tree they \
 read. Nothing can be compared against it — reported rather than passed over, because an ungradable \
@@ -519,7 +720,7 @@ record is not a matching one. Re-observing under the current build is the only r
         // it" — not "cloning this repository", which has no single referent
         // once there is more than one root, and which the single-root
         // branch below was found to overclaim even with one.
-        out.push_str(&format!(
+        out.row("relative label roots", format!(
             "  - this memo's relative extent labels are anchored to {} different roots: {}. A \
 relative label only opens against the root it is anchored to — cloning one of the roots listed \
 resolves only the labels anchored there, never the ones anchored to a different root in the list. \
@@ -537,7 +738,7 @@ correctly and relativize correctly, against a root this document does not otherw
         // exactly one root here too, and it is the wrong one. Naming the
         // root is what this row is for; resolving it is the reader's job,
         // same as the multi-root branch above.
-        out.push_str(&format!(
+        out.row("relative label roots", format!(
             "  - this memo's relative extent labels are anchored to one root: {root}. A relative \
 label only opens against that tree — whether `root` is the tree this document itself ships in is \
 not something `check` verifies, since a relative label does not name its own anchor; the \
@@ -545,7 +746,7 @@ author-typed pin claim is what a reader depends on for that\n"
         ));
     }
     if !findings.unmarked_relative_labels.is_empty() {
-        out.push_str(
+        out.lead("unmarked relative labels",
             "  - relative labels carrying no root-relative marker (spelled relative by the caller, \
 not by this tool, or minted before the marker existed — shape-identical to a root-relative label \
 once rendered, and not resolvable against any root this document declares):\n",
@@ -556,7 +757,7 @@ once rendered, and not resolvable against any root this document declares):\n",
         // flagged label into one fact's extent, and an unaggregated list
         // would turn that one finding into as many lines as it matched.
         for (id, labels) in &findings.unmarked_relative_labels {
-            out.push_str(&format!(
+            out.row("unmarked relative labels", format!(
                 "      {id} ({} label{}): {}\n",
                 labels.len(),
                 if labels.len() == 1 { "" } else { "s" },
@@ -565,7 +766,7 @@ once rendered, and not resolvable against any root this document declares):\n",
         }
     }
     for o in &findings.notes_outside_extent {
-        out.push_str(&format!(
+        out.row("note outside extent", format!(
             "  - {}: its note names {}, which this fact's extent does not cover (extent: {}) — \
 the extent was captured by the tool, the note was written, so the two disagreeing is worth a \
 reader's eye. A note may name a location as context; only you can tell that from a conclusion \
@@ -576,56 +777,56 @@ drawn about code this fact never opened\n",
         ));
     }
     for line in &findings.pre_dialect_no_matches {
-        out.push_str(&format!("  - {line}\n"));
+        out.row("pre-dialect pattern", format!("  - {line}\n"));
     }
     if matches!(findings.provenance, Provenance::Missing) && findings.cites_something {
-        out.push_str(
+        out.row("missing snapshot",
             "  - no workspace snapshot beside this document: its citation ids are \
 workspace-relative, so without the workspace that minted them every citation here is a pointer \
 this repository cannot resolve. Re-render with `tetel render --out <this file>` to write one.\n",
         );
     }
     for (id, kind_status, claim) in &findings.human_owed_rows {
-        out.push_str(&format!("  - {id} [{kind_status}]: {claim}\n"));
+        out.row("human-owed row", format!("  - {id} [{kind_status}]: {claim}\n"));
     }
     for (id, claim) in &findings.coverage_skipped {
-        out.push_str(&format!(
+        out.row("coverage not checked", format!(
             "  - {id}: coverage not machine-checked (domain or extent contains a proc:/external designator, so no coverage claim of any strength is made) — {claim}\n"
         ));
     }
     if !findings.run_row_ids.is_empty() {
-        out.push_str(&format!(
+        out.row("RUN rows", format!(
             "  - RUN rows [{}]: a matching re-run establishes only that the command reproduces its stored value, never that the value establishes the claim\n",
             findings.run_row_ids.join(", ")
         ));
     }
     if !findings.cited_undefined.is_empty() {
-        out.push_str(&format!(
+        out.row("cited but undefined", format!(
             "  - cited but undefined: [{}]\n",
             findings.cited_undefined.join(", ")
         ));
     }
     for (id, claim) in &findings.defined_uncited {
-        out.push_str(&format!(
+        out.row("defined but uncited", format!(
             "  - {id}: defined but never cited; default disposition is delete, not hunting for a citation — {claim}\n"
         ));
     }
     for (id, proposition) in &findings.ungrounded_claims {
-        out.push_str(&format!(
+        out.row("ungrounded", format!(
             "  - {id}: ungrounded — no evidence record on file — {proposition}\n"
         ));
     }
     for (id, proposition) in &findings.attested_grounded_claims {
-        out.push_str(&format!(
+        out.row("attested only", format!(
             "  - {id}: grounded only by attested evidence — someone looked, off-instrument; \
 distinct from no evidence at all, but never enough on its own to move past vouched — {proposition}\n"
         ));
     }
     for line in &findings.unresolved_evidence_sources {
-        out.push_str(&format!("  - {line}\n"));
+        out.row("unresolved evidence source", format!("  - {line}\n"));
     }
     for (id, proposition) in &findings.no_scope_claims {
-        out.push_str(&format!(
+        out.row("no scope declared", format!(
             "  - {id}: no scope declared (tetel's authoring model has no domain/extent field on a claim) — no coverage claim of any strength is made — {proposition}\n"
         ));
     }
@@ -634,38 +835,39 @@ distinct from no evidence at all, but never enough on its own to move past vouch
     // nobody; repeating it per row buried the findings that are about
     // *this* document under a constant.
     if findings.ledger_has_no_scope_columns {
-        out.push_str(
+        out.row("no scope columns",
             "  - no claim in this document declares a scope: `tetel claim` has no such field, \
 so no coverage claim of any strength is made by any row. What each claim rests on is in the \
 Facts table; whether it rests on enough is yours to judge\n",
         );
     }
     for e in &findings.unverifiable_targets {
-        out.push_str(&format!(
+        out.row("unverifiable target", format!(
             "  - target `{e}` is declared in this document but no snapshot shipped beside it, \
 so nothing here can verify the census behind it — reproduce it from the workspace, or re-render with `--out`\n"
         ));
     }
     for e in &findings.unverifiable_transplants {
-        out.push_str(&format!(
+        out.row("unverifiable transplant", format!(
             "  - transplant {e} is shown in this document but no snapshot shipped beside it, so \
 nothing here can verify that its premises are the donor's words or that anything answers them — \
 reproduce it from the workspace, or re-render with `--out`\n"
         ));
     }
     for item in NON_COVERAGE {
-        out.push_str(&format!("  - tetel does not catch: {item}\n"));
+        out.row("standing non-coverage", format!("  - tetel does not catch: {item}\n"));
     }
 
-    out.push_str(&format!("\nchecked by {build}\n"));
+    out.head(format!("\nchecked by {build}\n"));
 
     let code = if failing { EXIT_CHECK_FAILED } else { EXIT_CLEAN };
-    (code, out)
+    Report { code, blocks: out.0 }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_interval, format_unix, HUMAN_OWED_CATEGORIES, MACHINE_CHECKED_CATEGORIES};
+    use super::{format_interval, format_unix, page, Block, Report, HUMAN_OWED_CATEGORIES, MACHINE_CHECKED_CATEGORIES};
+    use crate::reply::REPLY_BUDGET;
 
     /// The mint-time verifier belongs to neither partition, and this is
     /// the assertion that keeps it out of both.
@@ -725,5 +927,134 @@ mod tests {
         assert_eq!(format_interval(65), "1m 5s");
         assert_eq!(format_interval(3_665), "1h 1m", "seconds are dropped once hours and minutes both show");
         assert_eq!(format_interval(90_061), "1d 1h", "days coarsen away minutes and seconds entirely");
+    }
+
+    /// A report shaped like `check`'s: a machine header, `failing` rows of
+    /// one kind, the partition break, the human header, `owed` rows of
+    /// another, the build line. Row `i`'s text starts with `<row i>` so a
+    /// page can be read back row by row, and is `len` bytes long.
+    fn report(failing: usize, owed: usize, len: impl Fn(usize) -> usize) -> Report {
+        let row = |kind: &'static str, i: usize| {
+            let tag = format!("  - <row {i}> ");
+            let body = "x".repeat(len(i).saturating_sub(tag.len() + 1));
+            Block::Row { kind, text: format!("{tag}{body}\n") }
+        };
+        let mut blocks = vec![Block::Head("machine-checked: header\n".into())];
+        blocks.extend((1..=failing).map(|i| row("out-of-proof", i)));
+        blocks.push(Block::Head("\nhuman-owed: header\n".into()));
+        blocks.extend((failing + 1..=failing + owed).map(|i| row("superseded evidence", i)));
+        blocks.push(Block::Head("\nchecked by tetel test build\n".into()));
+        Report { code: 1, blocks }
+    }
+
+    fn shown(page: &str) -> Vec<usize> {
+        page.lines().filter_map(|l| l.strip_prefix("  - <row ")?.split('>').next()?.parse().ok()).collect()
+    }
+
+    fn next_from(page: &str) -> Option<usize> {
+        let first = page.lines().next()?;
+        first.split("continue with from: ").nth(1)?.split(' ').next()?.parse().ok()
+    }
+
+    /// Follows the paging lines from the first page to the last and
+    /// returns every page.
+    fn every_page(r: &Report) -> Vec<String> {
+        let mut pages = vec![page(r, None).unwrap()];
+        while let Some(from) = next_from(pages.last().unwrap()) {
+            pages.push(page(r, Some(from)).unwrap());
+            assert!(pages.len() < 1000, "paging does not advance");
+        }
+        pages
+    }
+
+    #[test]
+    fn a_report_within_the_budget_is_sent_whole_and_unmarked() {
+        let r = report(2, 3, |_| 100);
+        assert_eq!(page(&r, None).unwrap(), r.text());
+    }
+
+    #[test]
+    fn an_over_budget_report_pages_every_row_once_in_order_within_the_budget() {
+        // Row lengths vary so that pages end at many different offsets
+        // against the reserve for the paging line.
+        let r = report(40, 200, |i| 150 + (i * 37) % 900);
+        assert!(r.text().len() > 3 * REPLY_BUDGET);
+        let pages = every_page(&r);
+        assert!(pages.len() > 3);
+        let mut seen = Vec::new();
+        for p in &pages {
+            assert!(p.len() <= REPLY_BUDGET, "a page of {} bytes", p.len());
+            assert!(p.starts_with("[tetel: showed check rows "), "the paging line leads: {}", &p[..80]);
+            for head in ["machine-checked: header\n", "\nhuman-owed: header\n", "\nchecked by tetel test build\n"] {
+                assert!(p.contains(head), "every page carries every head");
+            }
+            seen.extend(shown(p));
+        }
+        assert_eq!(seen, (1..=240).collect::<Vec<_>>());
+        assert!(!pages.last().unwrap().lines().next().unwrap().contains("continue with"));
+    }
+
+    #[test]
+    fn the_paging_line_counts_what_it_left_out_by_kind() {
+        let r = report(40, 200, |_| 400);
+        let first = page(&r, None).unwrap();
+        let n = shown(&first).len();
+        assert!(n > 40 && n < 240, "the first page shows every failing row and some owed rows: {n}");
+        let line = first.lines().next().unwrap();
+        assert!(line.starts_with(&format!("[tetel: showed check rows 1-{n} of 240; not shown: superseded evidence {};", 240 - n)), "{line}");
+        let last = page(&r, Some(200)).unwrap();
+        assert!(last.lines().next().unwrap().contains("not shown: out-of-proof 40, superseded evidence 159]"), "{}", last.lines().next().unwrap());
+    }
+
+    #[test]
+    fn a_row_larger_than_a_page_is_shown_alone_and_says_it_was_cut() {
+        let r = report(1, 2, |i| if i == 2 { 3 * REPLY_BUDGET } else { 100 });
+        let pages = every_page(&r);
+        assert_eq!(pages.iter().map(|p| shown(p)).collect::<Vec<_>>(), vec![vec![1], vec![2], vec![3]]);
+        assert!(pages[1].len() <= REPLY_BUDGET);
+        assert!(
+            pages[1].contains(&format!(" of {} bytes; `tetel check` on the command line prints it whole]\n", 3 * REPLY_BUDGET)),
+            "the cut is stated, and where the rest is"
+        );
+    }
+
+    #[test]
+    fn a_report_that_is_one_cut_row_still_leads_with_the_paging_line() {
+        let r = report(1, 0, |_| 3 * REPLY_BUDGET);
+        let p = page(&r, None).unwrap();
+        assert!(p.len() <= REPLY_BUDGET);
+        assert!(p.starts_with("[tetel: showed check rows 1-1 of 1; not shown: none]\n"), "{}", &p[..80]);
+    }
+
+    #[test]
+    fn a_lead_is_printed_on_every_page_that_shows_a_row_it_heads_and_on_no_other() {
+        let mut r = report(100, 200, |i| 150 + (i * 37) % 900);
+        // Longer than any row, so a page that printed it without having
+        // reserved it would overrun the budget.
+        let lead = &format!("  - the preamble the owed rows share (entries below): {}\n", "p".repeat(4000));
+        let at = r.blocks.iter().position(|b| matches!(b, Block::Head(h) if h.contains("human-owed"))).unwrap() + 1;
+        r.blocks.insert(at, Block::Lead { kind: "superseded evidence", text: lead.into() });
+        let pages = every_page(&r);
+        assert!(pages.len() > 3);
+        let mut seen = Vec::new();
+        for p in &pages {
+            assert!(p.len() <= REPLY_BUDGET, "a page of {} bytes", p.len());
+            let rows = shown(p);
+            assert_eq!(p.contains(lead), rows.iter().any(|&i| i > 100), "rows {rows:?}");
+            seen.extend(rows);
+        }
+        assert_eq!(seen, (1..=300).collect::<Vec<_>>(), "a lead is not a row");
+        assert!(pages[0].lines().next().unwrap().contains(" of 300;"));
+        assert!(shown(&pages[0]).iter().all(|&i| i <= 100));
+        assert!(!pages[0].contains(lead), "a page of failing rows only does not carry the owed rows' lead");
+    }
+
+    #[test]
+    fn a_from_that_names_no_row_is_refused_with_the_row_count() {
+        let r = report(2, 3, |_| 100);
+        for from in [0, 6] {
+            assert_eq!(page(&r, Some(from)), Err(format!("tetel check: no row {from} to start from; this report has 5 rows\n")));
+        }
+        assert!(page(&r, Some(5)).unwrap().starts_with("[tetel: showed check rows 5-5 of 5; not shown: out-of-proof 2, superseded evidence 2]\n"));
     }
 }

@@ -1908,6 +1908,54 @@ status: VERIFIED
         assert!(findings.grammar_errors.iter().any(|e| e.contains("duplicate id")));
     }
 
+    /// The failing header's count and its breakdown are read off the rows
+    /// printed under it, so neither can disagree with them (TET-72).
+    #[test]
+    fn the_failing_header_counts_its_rows_by_kind() {
+        let source = "\
+```tetel
+id: G-1
+claim: One.
+domain: a.rs#f
+extent: a.rs#f
+pin: p1
+kind: READING
+status: VERIFIED
+bogus: x
+```
+
+```tetel
+id: G-2
+claim: Two.
+domain: a.rs#g
+extent: a.rs#g
+pin: p1
+kind: READING
+status: VERIFIED
+bogus: y
+```
+
+```tetel
+id: S-1
+claim: Three.
+domain: src/ticket.rs
+extent: src/ticket.rs#new
+pin: p1
+kind: READING
+status: VERIFIED
+```
+";
+        let (code, text, _) = check(source);
+        assert_eq!(code, EXIT_CHECK_FAILED);
+        assert!(
+            text.starts_with("machine-checked: 3 failing (grammar 2, subset 1) — grammar, "),
+            "{}",
+            text.lines().next().unwrap()
+        );
+        assert_eq!(text.matches("\n  - [grammar] ").count(), 2);
+        assert_eq!(text.matches("\n  - [subset] ").count(), 1);
+    }
+
     #[test]
     fn value_forbidden_on_reading_is_a_grammar_error() {
         let source = "\

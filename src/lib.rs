@@ -117,6 +117,12 @@ pub fn check_str(display_path: &str, source: &str) -> (i32, String) {
 /// whatever evidence has been recorded in `<file>.evidence.jsonl`, if it
 /// exists.
 pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
+    let report = check_report(path)?;
+    Ok((report.code, report.text()))
+}
+
+/// [`check_file`]'s report kept as rows, for a reply that pages it.
+pub fn check_report(path: &Path) -> std::io::Result<report::Report> {
     // Refuses a FIFO/socket/device before the read rather than blocking
     // inside it — same guard `look` uses (TET-79), through the
     // workspace-less path since `check` opens no workspace.
@@ -300,7 +306,7 @@ pub fn check_file(path: &Path) -> std::io::Result<(i32, String)> {
     // at workspace-relative ids has a record to be missing.
     findings.cites_something = !citations::scan_citations(&doc.body).is_empty();
 
-    Ok(report::render(&path.display().to_string(), &doc, &findings, &buildid::label()))
+    Ok(report::render_report(&path.display().to_string(), &doc, &findings, &buildid::label()))
 }
 
 /// Runs `brief` against a file on disk: every claim in its evidence
