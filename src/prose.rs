@@ -294,11 +294,8 @@ pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome,
                 return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --before"));
             }
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --ack requires --why"))?;
-            acks::create(workspace_dir, &id, &why)?;
-            // `create` has just found this block, and refused if it could not.
-            let block = load_all(workspace_dir)?.into_iter().find(|b| b.id == id);
-            let was = block.map(|b| Was::block(&b, None)).expect("an acknowledged block exists");
-            Ok(ProseOutcome::Acked { id, was })
+            let block = acks::create(workspace_dir, &id, &why)?;
+            Ok(ProseOutcome::Acked { id, was: Was::block(&block, None) })
         }
     }
 }

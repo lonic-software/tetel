@@ -72,20 +72,36 @@ pub struct Was {
     cites: Option<Vec<String>>,
     /// A prose revision's paragraph count before and after it.
     paragraphs: Option<(usize, usize)>,
+    /// A claim withdrawn before this act. Revising or withdrawing one is
+    /// allowed, and is as likely a wrong id as any other act.
+    withdrawn: bool,
 }
 
 /// A block's paragraphs: its runs of text separated by a blank line.
 /// `render` emits a block's text as it is, so a blank line inside it is the
-/// paragraph break a reader sees.
+/// paragraph break a reader sees. A line of only spaces, or a CRLF line
+/// ending, renders as the same break, so both count as one.
 pub fn paragraphs(text: &str) -> usize {
-    text.split("\n\n").filter(|p| !p.trim().is_empty()).count()
+    let mut count = 0;
+    let mut inside = false;
+    for line in text.lines() {
+        let blank = line.trim().is_empty();
+        if !blank && !inside {
+            count += 1;
+        }
+        inside = !blank;
+    }
+    count
 }
 
-/// `s`'s first line, cut so its JSON-escaped form is within
-/// [`OPENING_CAP`], with a trailing " …" when anything was left out.
+/// `s`'s first line that is not blank, cut so its JSON-escaped form is
+/// within [`OPENING_CAP`], with a trailing " …" when anything was left
+/// out. Stored text keeps the leading newline a heredoc gives it, and an
+/// empty first line would identify nothing.
 fn opening(s: &str) -> String {
+    let s = s.trim();
     let first = s.lines().next().unwrap_or("");
-    let more_lines = first.len() < s.trim_end().len();
+    let more_lines = first.len() < s.len();
     if escaped_len(first) <= OPENING_CAP && !more_lines {
         return first.to_string();
     }
@@ -134,21 +150,29 @@ impl Was {
             opening: opening(&b.text),
             cites: Some(b.cite.clone()),
             paragraphs: now.map(|n| (paragraphs(&b.text), paragraphs(n))),
+            withdrawn: false,
         }
     }
 
     /// A fact's note.
     pub fn note(note: &str) -> Was {
-        Was { kind: None, level: None, opening: opening(note), cites: None, paragraphs: None }
+        Was { kind: None, level: None, opening: opening(note), cites: None, paragraphs: None, withdrawn: false }
     }
 
     pub fn claim(c: &Claim) -> Was {
-        Was { kind: None, level: None, opening: opening(&c.prop), cites: Some(c.from.clone()), paragraphs: None }
+        Was {
+            kind: None,
+            level: None,
+            opening: opening(&c.prop),
+            cites: Some(c.from.clone()),
+            paragraphs: None,
+            withdrawn: c.withdrawn,
+        }
     }
 
     /// A target: its symbol and the census fact it cites.
     pub fn target(t: &Target) -> Was {
-        Was { kind: None, level: None, opening: opening(&t.symbol), cites: Some(vec![t.from.clone()]), paragraphs: None }
+        Was { kind: None, level: None, opening: opening(&t.symbol), cites: Some(vec![t.from.clone()]), paragraphs: None, withdrawn: false }
     }
 
     /// A transplant: its donor fact and the target it installs into.
@@ -159,12 +183,13 @@ impl Was {
             opening: opening(&format!("from {} into {}", t.from, t.into)),
             cites: None,
             paragraphs: None,
+            withdrawn: false,
         }
     }
 
     /// A premise: the donor's words it selected.
     pub fn premise(p: &Premise) -> Was {
-        Was { kind: None, level: None, opening: opening(&p.text), cites: None, paragraphs: None }
+        Was { kind: None, level: None, opening: opening(&p.text), cites: None, paragraphs: None, withdrawn: false }
     }
 
     /// The `was` object of an MCP reply.
@@ -185,6 +210,9 @@ impl Was {
         }
         if let Some((before, after)) = self.paragraphs {
             out["paragraphs"] = json!({ "before": before, "after": after });
+        }
+        if self.withdrawn {
+            out["withdrawn"] = json!(true);
         }
         out
     }
@@ -214,6 +242,9 @@ impl Was {
         if let Some((before, after)) = self.paragraphs {
             let unit = if before == 1 { "paragraph" } else { "paragraphs" };
             s.push_str(&format!("; {before} {unit}, now {after}"));
+        }
+        if self.withdrawn {
+            s.push_str("; it was already withdrawn");
         }
         s
     }
@@ -262,12 +293,25 @@ mod tests {
         assert_eq!(paragraphs("\n\nA\n\n\n\nB\n\n"), 2);
         assert_eq!(paragraphs("A\nstill A"), 1);
         assert_eq!(paragraphs(""), 0);
+        // A blank line holding spaces, or ending CRLF, renders as a break.
+        assert_eq!(paragraphs("A\n \nB"), 2);
+        assert_eq!(paragraphs("A\r\n\r\nB"), 2);
     }
 
     #[test]
     fn an_opening_is_the_first_line_and_says_when_more_followed() {
         assert_eq!(opening("one line"), "one line");
         assert_eq!(opening("first\nsecond"), format!("first{ELLIPSIS}"));
+        assert_eq!(opening("\n\nafter a heredoc's newline\n"), "after a heredoc's newline");
+    }
+
+    #[test]
+    fn a_claim_already_withdrawn_says_so() {
+        let mut c = Claim { id: "C1".into(), prop: "p".into(), from: vec!["F1".into()], withdrawn: false, revisions: 0 };
+        assert!(Was::claim(&c).json().get("withdrawn").is_none());
+        c.withdrawn = true;
+        assert_eq!(Was::claim(&c).json()["withdrawn"], true);
+        assert_eq!(Was::claim(&c).line(), "  it was \"p\", citing F1; it was already withdrawn");
     }
 
     #[test]
