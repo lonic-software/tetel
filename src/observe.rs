@@ -1105,9 +1105,9 @@ not occur anywhere in {root}, when the search never finished reading it. grep sa
     }
     // A caveat folded into `note` below (the same channel `exclusion_note`
     // already uses to carry what a search withheld) rather than a second
-    // channel of its own — so it survives everywhere `note` already goes:
-    // the printed return *and* the whole-search extent's own label, not
-    // only stdout a caller happened to be watching.
+    // channel of its own — so it reaches the whole-search extent's own
+    // label, not only stdout a caller happened to be watching. The printed
+    // return carries its own copy, `partial_reply` below, cut for the reply.
     let partial_caveat = |pattern: &str, says: &str| {
         format!(
             "PARTIAL SEARCH — {} while searching {root} for '{pattern}': the matches recorded \
