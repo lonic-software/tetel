@@ -332,7 +332,7 @@ fn block_line(line: Option<usize>, provenance: &Provenance) -> String {
     match (line, provenance) {
         (Some(n), _) => format!("line {n}"),
         (None, p) if p.renders_exactly() => "line unknown (offset lookup failed)".to_string(),
-        (None, Provenance::Unreadable(_)) => "line unknown (its snapshot could not be read, so \
+        (None, Provenance::Unreadable(_)) => "line unknown (its snapshot or render record could not be read, so \
 nothing says the snapshot's line numbers are its lines)"
             .to_string(),
         (None, _) => "line unknown (this document is not its snapshot's current render, so the \
@@ -612,7 +612,7 @@ renders, but these snapshot files differ from the render record beside it (writt
 {recorded_build}): {}. Render does not read them, so either a build that writes no render record \
 re-rendered the pair and changed them, or they were edited by hand. Restore them, or re-render \
 from the workspace that wrote them; if you know a record-less build changed them, `tetel \
-rerender --unattributed <this file>` reseals the record on your word. Left alone, the next \
+rerender --reseal <this file>` reseals the record on your word. Left alone, the next \
 renderer change would read as an edit.\n",
                     files.join(", ")
                 ),

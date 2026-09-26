@@ -5208,10 +5208,11 @@ fn rerender_refuses_a_migration_that_changes_a_ledger_proposition() {
 /// but not on a snapshot file render never reads — `acks.jsonl`, or a
 /// fact field render does not print. A record-less rewrite leaves this
 /// state too (TET-43 review), so `check` reports it as a stale record
-/// naming the file, and `rerender` reseals it only on the operator's word.
-/// Mutations: compare only files render never reads (misses the
-/// `facts.jsonl` edit); skip the files under a match (`check` passes it);
-/// reseal without the flag; refuse even with it.
+/// naming the file, and `rerender` reseals it only on the operator's word,
+/// given as `--reseal` and not `--unattributed`. Mutations: compare only
+/// files render never reads (misses the `facts.jsonl` edit); skip the
+/// files under a match (`check` passes it); reseal without the flag, or
+/// under `--unattributed`; refuse even with it.
 #[test]
 fn rerender_will_not_reseal_over_an_edit_render_does_not_reflect() {
     for (tag, file, edit) in [
@@ -5233,7 +5234,7 @@ fn rerender_will_not_reseal_over_an_edit_render_does_not_reflect() {
         let (code, report) = check_memo(&sb, &memo);
         assert_eq!(code, 1, "{tag}: a record that disagrees with the pair fails:\n{report}");
         assert!(report.contains("[stale-render-record]"), "{tag}:\n{report}");
-        assert!(report.contains(file) && report.contains("--unattributed"), "{tag}:\n{report}");
+        assert!(report.contains(file) && report.contains("--reseal"), "{tag}:\n{report}");
 
         let record_before = std::fs::read(record_path(&memo)).unwrap();
         let (code, out) = rerender(&sb, &[memo.to_str().unwrap()]);
@@ -5241,7 +5242,12 @@ fn rerender_will_not_reseal_over_an_edit_render_does_not_reflect() {
         assert!(out.contains(file), "{tag}: must name the file: {out}");
         assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before, "{tag}");
 
+        // The other vouch does not consent to this one.
         let (code, out) = rerender(&sb, &["--unattributed", memo.to_str().unwrap()]);
+        assert_ne!(code, 0, "{tag}: --unattributed must not reseal: {out}");
+        assert_eq!(std::fs::read(record_path(&memo)).unwrap(), record_before, "{tag}");
+
+        let (code, out) = rerender(&sb, &["--reseal", memo.to_str().unwrap()]);
         assert_eq!(code, 0, "{tag}: {out}");
         assert!(out.contains("resealed"), "{tag}: {out}");
         assert_eq!(std::fs::read_to_string(&memo).unwrap(), doc, "{tag}: the document is untouched");

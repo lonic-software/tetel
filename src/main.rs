@@ -35,19 +35,25 @@ enum Command {
     /// Needs no workspace: the snapshot is enough to render from. Refuses
     /// a memo whose document or snapshot differs from its render record,
     /// one whose re-render would change a ledger claim, and one with no
-    /// record unless `--unattributed` is given. A clean, sealed memo is
+    /// record unless `--unattributed` is given, and one whose record
+    /// disagrees only on files render does not read unless `--reseal` is
+    /// given. A clean, sealed memo is
     /// left byte-for-byte alone. See `tetel::snapshot::rerender`.
     Rerender {
         /// The memos to re-render.
         #[arg(required = true)]
         memos: Vec<PathBuf>,
-        /// Vouch for what no render record attributes: that a memo with no
-        /// record changed only because the renderer did (it is still
-        /// rewritten as its snapshot's render, never sealed as it stands),
-        /// or that snapshot files render does not read were changed by a
-        /// build that writes no record (the record is resealed over them).
+        /// Vouch that a memo with no render record changed only because
+        /// the renderer did. It is still rewritten as its snapshot's
+        /// render, never sealed as it stands.
         #[arg(long)]
         unattributed: bool,
+        /// Vouch that a matching memo's snapshot files that render does
+        /// not read were changed by a build that writes no render record,
+        /// not by hand. Its record is resealed over them; the document is
+        /// left untouched.
+        #[arg(long)]
+        reseal: bool,
     },
     /// Emit the grounding brief for a memo's evidence ledger: every
     /// claim's id and proposition, byte-identical to the source, with
@@ -476,10 +482,10 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Command::Rerender { memos, unattributed } => {
+        Command::Rerender { memos, unattributed, reseal } => {
             let mut failed = false;
             for memo in &memos {
-                match tetel::snapshot::rerender(memo, unattributed) {
+                match tetel::snapshot::rerender(memo, unattributed, reseal) {
                     Ok(done) => {
                         use tetel::snapshot::Rerendered;
                         let what = match done {
@@ -494,7 +500,7 @@ written and the document left untouched"
 for an earlier document); nothing was edited"
                             ),
                             Rerendered::Resealed { recorded_build, files } => format!(
-                                "resealed on your word (--unattributed): {} differed from the \
+                                "resealed on your word (--reseal): {} differed from the \
 record {recorded_build} wrote, and the record now matches them; the document was left untouched",
                                 files.join(", ")
                             ),

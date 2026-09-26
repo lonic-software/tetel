@@ -494,7 +494,7 @@ pub enum Rerendered {
     /// was replaced.
     StaleRecordReplaced { recorded_build: String },
     /// A record that agreed on the document but not on `files` was
-    /// replaced on the operator's word (`--unattributed`).
+    /// replaced on the operator's word (`--reseal`).
     Resealed { recorded_build: String, files: Vec<String> },
     /// The document was rewritten as its snapshot's current render, and
     /// sealed. `vouched` is true when the operator vouched for an
@@ -514,7 +514,10 @@ pub enum Rerendered {
 ///
 /// `unattributed` is the operator vouching for a memo with no record. It
 /// still writes the render of the snapshot, never the bytes as they stand.
-pub fn rerender(memo: &Path, unattributed: bool) -> Result<Rerendered, String> {
+/// `reseal` is the operator vouching that snapshot files render does not
+/// read were changed by a build that writes no record. The two are kept
+/// apart so that vouching for one state never consents to the other.
+pub fn rerender(memo: &Path, unattributed: bool, reseal: bool) -> Result<Rerendered, String> {
     let dir = snapshot_path(memo);
     if !dir.is_dir() {
         return Err(format!(
@@ -547,12 +550,12 @@ pub fn rerender(memo: &Path, unattributed: bool) -> Result<Rerendered, String> {
             // does not reflect differ. A record-less rewrite and a hand edit
             // look identical here, and resealing would erase the only trace
             // of the edit — so only the operator can say which it was.
-            if !unattributed {
+            if !reseal {
                 return Err(format!(
                     "it re-renders exactly, but these snapshot files differ from its render \
 record: {}. An edit that render does not reflect is still an edit, and resealing would erase \
 the only trace of it — restore the files, or re-render from the workspace that wrote them. If \
-you know a build that writes no render record changed them, re-run with --unattributed to vouch \
+you know a build that writes no render record changed them, re-run with --reseal to vouch \
 for it",
                     files.join(", ")
                 ));
