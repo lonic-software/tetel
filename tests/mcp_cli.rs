@@ -2712,3 +2712,110 @@ async fn at_the_floor_a_short_field_is_not_lengthened() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+// --- TET-66: every act on an existing id says what that id held ---------
+
+/// A revision that hit the wrong block used to reply exactly as one that
+/// hit the right block. Each act naming an existing id now carries `was`,
+/// the object as it stood before the act, and this drives all seven through
+/// a real client.
+///
+/// Every echoed value differs from what the act writes: the old opening
+/// from the new text, the old citations from the new ones, one paragraph
+/// from two. So building `was` after the write in `prose::revise`,
+/// `facts::revise` or `claims::revise` reddens that act's assertion. A
+/// withdrawal or an acknowledgement changes nothing `was` shows, so its
+/// failure is naming the wrong object: each acts on an id that is not the
+/// first of its kind (P3, C2, T2, X1.1 beside X1), so describing the first
+/// one instead reddens it too.
+#[tokio::test]
+async fn every_act_on_an_existing_id_says_what_it_held() {
+    let sb = Sandbox::new("mcp-was");
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git").arg("-C").arg(&sb.dir).args(args).output().expect("git").status;
+        assert!(ok.success(), "git {args:?} failed");
+    };
+    git(&["init", "-q"]);
+    sb.write("donor.rs", "fn walk() {\n    // sound only if walked earlier in this same session\n}\n");
+    sb.write("dest.rs", "fn audit() { walk(); }\n");
+    git(&["add", "-A"]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+
+    let client = sb.connect().await;
+    let ws = "ws-was";
+    let root = sb.dir.to_str().unwrap().to_string();
+    let donor = sb.dir.join("donor.rs").to_str().unwrap().to_string();
+    let call = |tool: &'static str, a: serde_json::Value| {
+        let c = &client;
+        async move {
+            let r = c
+                .call_tool(CallToolRequestParams::new(tool).with_arguments(args(a)))
+                .await
+                .unwrap_or_else(|e| panic!("{tool} failed at protocol level: {e}"));
+            assert_ne!(r.is_error, Some(true), "{tool} was refused: {:?}", r.structured_content);
+            // `look` answers in text only.
+            r.structured_content.unwrap_or_default()
+        }
+    };
+
+    call("look", serde_json::json!({"workspace": ws, "path": donor})).await;
+    call("fact", serde_json::json!({"workspace": ws, "note": "the donor's walk discipline"})).await;
+    call("look", serde_json::json!({"workspace": ws, "path": root, "grep": "walk"})).await;
+    call("fact", serde_json::json!({"workspace": ws, "note": "every use of walk"})).await;
+    call("target", serde_json::json!({"workspace": ws, "symbol": "walk", "cites": "F2"})).await;
+    call("look", serde_json::json!({"workspace": ws, "path": root, "grep": "audit"})).await;
+    call("fact", serde_json::json!({"workspace": ws, "note": "every use of audit"})).await;
+    call("target", serde_json::json!({"workspace": ws, "symbol": "audit", "cites": "F3"})).await;
+    call("transplant", serde_json::json!({"workspace": ws, "from": "F1", "into": "T1"})).await;
+    call("transplant", serde_json::json!({"workspace": ws, "premise": "X1", "text": "walked earlier in this same session"}))
+        .await;
+    call("claim", serde_json::json!({"workspace": ws, "proposition": "the order carries over", "cites": "F1"})).await;
+    call("claim", serde_json::json!({"workspace": ws, "proposition": "walk has one caller", "cites": "F2"})).await;
+    call("prose", serde_json::json!({"workspace": ws, "text": "It carries over.", "cites": "C1"})).await;
+    call("prose", serde_json::json!({"workspace": ws, "text": "The degradation contract", "heading_level": 2})).await;
+    call("prose", serde_json::json!({"workspace": ws, "text": "A third block.", "cites": "C1"})).await;
+
+    // A heading overwritten by paragraph text: the incident's shape.
+    let r = call(
+        "prose",
+        serde_json::json!({"workspace": ws, "revise": "P2", "why": "w", "text": "One.\n\nTwo.", "cites": "C2"}),
+    )
+    .await;
+    assert_eq!(
+        r["was"],
+        serde_json::json!({"kind": "heading", "level": 2, "opening": "The degradation contract", "cites": [],
+            "paragraphs": {"before": 1, "after": 2}}),
+        "{r}"
+    );
+
+    // A paragraph whose citations change: the old ones are what is echoed.
+    let r = call("prose", serde_json::json!({"workspace": ws, "revise": "P1", "why": "w", "text": "Reworded.", "cites": "C2"}))
+        .await;
+    assert_eq!(r["was"]["kind"], "paragraph", "{r}");
+    assert_eq!(r["was"]["opening"], "It carries over.", "{r}");
+    assert_eq!(r["was"]["cites"], serde_json::json!(["C1"]), "{r}");
+
+    let r = call("fact", serde_json::json!({"workspace": ws, "revise": "F1", "why": "w", "note": "a new note"})).await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "the donor's walk discipline"}), "{r}");
+
+    let r = call("claim", serde_json::json!({"workspace": ws, "revise": "C1", "why": "w", "proposition": "new", "cites": "F2"}))
+        .await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "the order carries over", "cites": ["F1"]}), "{r}");
+
+    // An acknowledgement changes nothing, so it echoes the block as it is.
+    let r = call("prose", serde_json::json!({"workspace": ws, "ack": "P3", "why": "re-read"})).await;
+    assert_eq!(r["was"], serde_json::json!({"kind": "paragraph", "opening": "A third block.", "cites": ["C1"]}), "{r}");
+
+    let r = call("claim", serde_json::json!({"workspace": ws, "withdraw": "C2", "why": "w"})).await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "walk has one caller", "cites": ["F2"]}), "{r}");
+
+    let r = call("transplant", serde_json::json!({"workspace": ws, "withdraw": "X1.1", "why": "w"})).await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "walked earlier in this same session"}), "{r}");
+    let r = call("transplant", serde_json::json!({"workspace": ws, "withdraw": "X1", "why": "w"})).await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "from F1 into T1"}), "{r}");
+
+    let r = call("target", serde_json::json!({"workspace": ws, "withdraw": "T2", "why": "w"})).await;
+    assert_eq!(r["was"], serde_json::json!({"opening": "audit", "cites": ["F3"]}), "{r}");
+
+    client.cancel().await.expect("clean shutdown");
+}

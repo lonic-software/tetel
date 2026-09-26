@@ -747,8 +747,9 @@ a value `{}` accepts.",
                     }
                     ExitCode::from(0)
                 }
-                Ok(tetel::facts::FactOutcome::Revised { id }) => {
+                Ok(tetel::facts::FactOutcome::Revised { id, was }) => {
                     println!("{id} revised.");
+                    println!("{}", was.line());
                     for o in tetel::scope::for_fact(&workspace_dir, &id) {
                         eprintln!("tetel: {}", tetel::scope::advice(&o));
                     }
@@ -802,12 +803,14 @@ a value `{}` accepts.",
             };
 
             match tetel::claims::dispatch(&workspace_dir, req) {
-                Ok(tetel::claims::ClaimOutcome::Withdrawn { id }) => {
+                Ok(tetel::claims::ClaimOutcome::Withdrawn { id, was }) => {
                     println!("{id} withdrawn.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
-                Ok(tetel::claims::ClaimOutcome::Revised { id }) => {
+                Ok(tetel::claims::ClaimOutcome::Revised { id, was }) => {
                     println!("{id} revised.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
                 Ok(tetel::claims::ClaimOutcome::Created(outcome)) => {
@@ -853,8 +856,9 @@ a value `{}` accepts.",
             };
 
             match tetel::targets::dispatch(&workspace_dir, req) {
-                Ok(tetel::targets::TargetOutcome::Withdrawn { id }) => {
+                Ok(tetel::targets::TargetOutcome::Withdrawn { id, was }) => {
                     println!("{id} withdrawn.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
                 Ok(tetel::targets::TargetOutcome::Declared(t)) => {
@@ -916,8 +920,9 @@ a value `{}` accepts.",
                     );
                     ExitCode::from(0)
                 }
-                Ok(tetel::transplants::TransplantOutcome::Withdrawn { id }) => {
+                Ok(tetel::transplants::TransplantOutcome::Withdrawn { id, was }) => {
                     println!("{id} withdrawn.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
                 Err(e) => {
@@ -992,16 +997,18 @@ a value `{}` accepts.",
             };
 
             match tetel::prose::dispatch(&workspace_dir, req) {
-                Ok(tetel::prose::ProseOutcome::Revised { id }) => {
+                Ok(tetel::prose::ProseOutcome::Revised { id, was }) => {
                     println!("{id} revised.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
                 Ok(tetel::prose::ProseOutcome::Created(block)) => {
                     println!("{} appended.", block.id);
                     ExitCode::from(0)
                 }
-                Ok(tetel::prose::ProseOutcome::Acked { id }) => {
+                Ok(tetel::prose::ProseOutcome::Acked { id, was }) => {
                     println!("{id} acknowledged.");
+                    println!("{}", was.line());
                     ExitCode::from(0)
                 }
                 Err(e) => {

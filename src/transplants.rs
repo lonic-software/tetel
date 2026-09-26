@@ -71,6 +71,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::was::Was;
 use crate::workspace::{self, AuthoringError, Kind};
 use crate::{claims, facts, targets};
 
@@ -349,16 +350,17 @@ pub fn discharge(workspace_dir: &Path, premise_id: &str, cites: &str) -> Result<
     Ok(Premise { id: p.id.clone(), text: p.text.clone(), discharged_by: Some(cites.to_string()), withdrawn: false })
 }
 
-/// `tetel transplant --withdraw <X1|X1.1> --why <text>`.
-pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<(), AuthoringError> {
+/// `tetel transplant --withdraw <X1|X1.1> --why <text>`. Returns the
+/// transplant or premise as it was, for the reply (TET-66).
+pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<Was, AuthoringError> {
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "transplant", "--withdraw requires --why"));
     }
     let all = load_all(workspace_dir)?;
-    let already = if let Some(t) = all.iter().find(|t| t.id == id) {
-        t.withdrawn
+    let (already, was) = if let Some(t) = all.iter().find(|t| t.id == id) {
+        (t.withdrawn, Was::transplant(t))
     } else if let Some(p) = all.iter().flat_map(|t| t.premises.iter()).find(|p| p.id == id) {
-        p.withdrawn
+        (p.withdrawn, Was::premise(p))
     } else {
         return Err(workspace::refuse(
             workspace_dir,
@@ -372,7 +374,7 @@ pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<(), Authori
     let event =
         TransplantEvent::Withdraw { id: id.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(())
+    Ok(was)
 }
 
 /// Live premises with no live discharge, as `(transplant, premise, text)`.
@@ -456,7 +458,9 @@ pub enum TransplantOutcome {
     Declared(Transplant),
     PremiseAdded(Premise),
     Discharged(Premise),
-    Withdrawn { id: String },
+    /// `was` describes the transplant or premise as it stood before the
+    /// withdrawal (see [`crate::was`]).
+    Withdrawn { id: String, was: Was },
 }
 
 pub fn dispatch(workspace_dir: &Path, req: TransplantRequest) -> Result<TransplantOutcome, AuthoringError> {
@@ -472,6 +476,6 @@ pub fn dispatch(workspace_dir: &Path, req: TransplantRequest) -> Result<Transpla
             discharge(workspace_dir, &premise, &cites.unwrap_or_default()).map(TransplantOutcome::Discharged)
         }
         TransplantRequest::Withdraw { id, why } => withdraw(workspace_dir, &id, &why.unwrap_or_default())
-            .map(|()| TransplantOutcome::Withdrawn { id }),
+            .map(|was| TransplantOutcome::Withdrawn { id, was }),
     }
 }

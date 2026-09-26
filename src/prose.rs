@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::acks;
+use crate::was::Was;
 use crate::workspace::{self, AuthoringError, Kind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +172,8 @@ pub fn create(
 }
 
 /// `tetel prose --revise <id> --why <text> [new text, from stdin by default]`.
-/// Revise a block's text, and optionally its citations.
+/// Revise a block's text, and optionally its citations, and describe the
+/// block as it was, for the reply (TET-66).
 ///
 /// `cite: None` leaves citations untouched. Until this parameter existed,
 /// a paragraph created without a citation could never be given one —
@@ -184,10 +186,10 @@ pub fn revise(
     new_text: &str,
     why: &str,
     cite: Option<Vec<String>>,
-) -> Result<(), AuthoringError> {
-    if !exists(workspace_dir, id)? {
+) -> Result<Was, AuthoringError> {
+    let Some(previous) = load_all(workspace_dir)?.into_iter().find(|b| b.id == id) else {
         return Err(workspace::refuse(workspace_dir, "prose", format!("no such prose block: {id}")));
-    }
+    };
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "prose", "--revise requires --why (revisions must explain themselves)"));
     }
@@ -199,7 +201,7 @@ pub fn revise(
         timestamp: workspace::now_unix(),
     };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(())
+    Ok(Was::block(&previous, Some(new_text)))
 }
 
 /// What `tetel prose` was asked to do — append a paragraph, append a
@@ -233,10 +235,12 @@ pub enum ProseRequest {
     },
 }
 
+/// `was` on `Revised` and `Acked` describes the block the act named, so a
+/// reply can show which block that was (see [`crate::was`]).
 pub enum ProseOutcome {
-    Revised { id: String },
+    Revised { id: String, was: Was },
     Created(Block),
-    Acked { id: String },
+    Acked { id: String, was: Was },
 }
 
 /// Dispatches a [`ProseRequest`] to [`create`] or [`revise`], refusing
@@ -250,7 +254,7 @@ pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome,
         ProseRequest::Revise { id, text, why, cite } => {
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --revise requires --why"))?;
             let cite = cite.as_deref().map(parse_ids);
-            revise(workspace_dir, &id, &text, &why, cite).map(|()| ProseOutcome::Revised { id })
+            revise(workspace_dir, &id, &text, &why, cite).map(|was| ProseOutcome::Revised { id, was })
         }
         ProseRequest::Heading { text, level, before } => {
             let level = level.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --heading requires --level"))?;
@@ -290,7 +294,11 @@ pub fn dispatch(workspace_dir: &Path, req: ProseRequest) -> Result<ProseOutcome,
                 return Err(workspace::refuse(workspace_dir, "prose", "--ack cannot be combined with --before"));
             }
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "prose", "prose --ack requires --why"))?;
-            acks::create(workspace_dir, &id, &why).map(|_| ProseOutcome::Acked { id })
+            acks::create(workspace_dir, &id, &why)?;
+            // `create` has just found this block, and refused if it could not.
+            let block = load_all(workspace_dir)?.into_iter().find(|b| b.id == id);
+            let was = block.map(|b| Was::block(&b, None)).expect("an acknowledged block exists");
+            Ok(ProseOutcome::Acked { id, was })
         }
     }
 }

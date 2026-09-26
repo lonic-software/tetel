@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evidence::sha256_hex;
 use crate::pending;
+use crate::was::Was;
 use crate::workspace::{self, AuthoringError, Kind};
 
 /// One observation folded into a fact's extent — the label a human
@@ -608,10 +609,12 @@ pub fn mint(workspace_dir: &Path, note: &str) -> Result<Fact, AuthoringError> {
 }
 
 /// `tetel fact --revise <id> --note <new-text> --why <text>`.
-pub fn revise(workspace_dir: &Path, id: &str, new_note: &str, why: &str) -> Result<(), AuthoringError> {
-    if !exists(workspace_dir, id)? {
+///
+/// Returns the note as it was, for the reply (TET-66).
+pub fn revise(workspace_dir: &Path, id: &str, new_note: &str, why: &str) -> Result<Was, AuthoringError> {
+    let Some(previous) = load_all(workspace_dir)?.into_iter().find(|f| f.id == id) else {
         return Err(workspace::refuse(workspace_dir, "fact", format!("no such fact: {id}")));
-    }
+    };
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "fact", "--revise requires --why (revisions must explain themselves)"));
     }
@@ -621,7 +624,7 @@ pub fn revise(workspace_dir: &Path, id: &str, new_note: &str, why: &str) -> Resu
     let event =
         FactEvent::Revise { id: id.to_string(), note: new_note.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(())
+    Ok(Was::note(&previous.note))
 }
 
 /// What `tetel fact` was asked to do — mint a new fact from the pending
@@ -636,7 +639,8 @@ pub enum FactRequest {
 
 pub enum FactOutcome {
     Minted(Fact),
-    Revised { id: String },
+    /// `was` describes the note the revision replaced (see [`crate::was`]).
+    Revised { id: String, was: Was },
 }
 
 /// Dispatches a [`FactRequest`] to [`mint`] or [`revise`], refusing with
@@ -655,7 +659,7 @@ pub fn dispatch(workspace_dir: &Path, req: FactRequest) -> Result<FactOutcome, A
             let note = note.ok_or_else(|| {
                 workspace::refuse(workspace_dir, "fact", "fact --revise requires --note (the new note text)")
             })?;
-            revise(workspace_dir, &id, &note, &why).map(|()| FactOutcome::Revised { id })
+            revise(workspace_dir, &id, &note, &why).map(|was| FactOutcome::Revised { id, was })
         }
     }
 }

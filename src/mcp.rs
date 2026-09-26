@@ -215,6 +215,7 @@ fn fact_result(
     action: &str,
     folded: Vec<String>,
     refused: Vec<String>,
+    was: Option<crate::was::Was>,
     verify: serde_json::Value,
 ) -> serde_json::Value {
     let attention: Vec<serde_json::Value> = crate::scope::for_fact(dir, id)
@@ -258,6 +259,11 @@ fn fact_result(
         // design ships enabled is one of the two it never touches.
         "verify": verify,
     });
+    // A revision's `was` goes in before the lists are fitted, so the room
+    // they are fitted to is what it leaves.
+    if let Some(w) = was {
+        out["was"] = w.json();
+    }
     for (k, v) in &lists {
         out[*k] = json!(v);
     }
@@ -1111,9 +1117,9 @@ impl TetelServer {
                     crate::verify::fact_subject(&dir, &f.id).ok()
                 });
                 let verify = verify_block(&dir, &settings, "fact", delivered, &queued);
-                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded, refused, verify)))
+                Ok(CallToolResult::structured(fact_result(&dir, &f.id, "minted", folded, refused, None, verify)))
             }
-            Ok(facts::FactOutcome::Revised { id }) => {
+            Ok(facts::FactOutcome::Revised { id, was }) => {
                 // A revision changes the note, which is the text being
                 // compared, so it is normally a new comparison. A note
                 // revised to byte-identical text is not, and nothing
@@ -1133,6 +1139,7 @@ impl TetelServer {
                     "revised",
                     Vec::new(),
                     Vec::new(),
+                    Some(was),
                     verify,
                 )))
             }
@@ -1200,7 +1207,7 @@ impl TetelServer {
                     "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
                 })))
             }
-            Ok(claims::ClaimOutcome::Revised { id }) => {
+            Ok(claims::ClaimOutcome::Revised { id, was }) => {
                 let queued = start_verification(&dir, &settings, "claim", || {
                     // Inside the closure, not before it: replaying the
                     // whole claim log is what the laziness is for, and
@@ -1217,6 +1224,7 @@ impl TetelServer {
                 Ok(CallToolResult::structured(json!({
                     "id": id,
                     "action": "revised",
+                    "was": was.json(),
                     "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
                 })))
             }
@@ -1225,11 +1233,12 @@ impl TetelServer {
             // delivers whatever finished before it. Routed through the
             // same helper so that with the verb on it reports `skipped`
             // rather than `off`.
-            Ok(claims::ClaimOutcome::Withdrawn { id }) => {
+            Ok(claims::ClaimOutcome::Withdrawn { id, was }) => {
                 let queued = start_verification(&dir, &settings, "claim", || None);
                 Ok(CallToolResult::structured(json!({
                     "id": id,
                     "action": "withdrawn",
+                    "was": was.json(),
                     "verify": verify_block(&dir, &settings, "claim", delivered, &queued),
                 })))
             }
@@ -1252,8 +1261,8 @@ impl TetelServer {
                 "symbol": t.symbol,
                 "censused_by": t.from,
             }))),
-            Ok(targets::TargetOutcome::Withdrawn { id }) => {
-                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
+            Ok(targets::TargetOutcome::Withdrawn { id, was }) => {
+                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn", "was": was.json()})))
             }
             Err(e) => Ok(refusal("target", &p.workspace, e)),
         }
@@ -1291,8 +1300,8 @@ impl TetelServer {
                 "action": "discharged",
                 "answered_by": pr.discharged_by,
             }))),
-            Ok(transplants::TransplantOutcome::Withdrawn { id }) => {
-                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn"})))
+            Ok(transplants::TransplantOutcome::Withdrawn { id, was }) => {
+                Ok(CallToolResult::structured(json!({"id": id, "action": "withdrawn", "was": was.json()})))
             }
             Err(e) => Ok(refusal("transplant", &p.workspace, e)),
         }
@@ -1369,7 +1378,7 @@ impl TetelServer {
                     "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
                 })))
             }
-            Ok(prose::ProseOutcome::Revised { id }) => {
+            Ok(prose::ProseOutcome::Revised { id, was }) => {
                 let queued = start_verification(&dir, &settings, "prose", || {
                     // Inside the closure, for the same reason.
                     let b = prose::load_all(&dir).ok()?.into_iter().find(|b| b.id == id)?;
@@ -1384,6 +1393,7 @@ impl TetelServer {
                 Ok(CallToolResult::structured(json!({
                     "id": id,
                     "action": "revised",
+                    "was": was.json(),
                     "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
                 })))
             }
@@ -1391,11 +1401,12 @@ impl TetelServer {
             // the comparison would be the one the previous call already
             // made. It starts nothing and delivers as any authoring call
             // does.
-            Ok(prose::ProseOutcome::Acked { id }) => {
+            Ok(prose::ProseOutcome::Acked { id, was }) => {
                 let queued = start_verification(&dir, &settings, "prose", || None);
                 Ok(CallToolResult::structured(json!({
                     "id": id,
                     "action": "acknowledged",
+                    "was": was.json(),
                     "verify": verify_block(&dir, &settings, "prose", delivered, &queued),
                 })))
             }
@@ -1809,5 +1820,24 @@ mod tests {
             assert!(shown.len() > 16_384, "{} bytes shown", shown.len());
             assert!(shown[head.len()..].chars().all(|c| c == '中'));
         }
+    }
+
+    /// A fact revision's `was` is fitted with the rest of the reply, not
+    /// added after the lists have taken the whole budget (TET-66). Reverts:
+    /// set `was` after `fit_lists` and the reply goes over the budget.
+    #[test]
+    fn a_fact_revisions_was_survives_lists_that_fill_the_budget() {
+        let dir = std::env::temp_dir().join(format!("tetel-was-fit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Entries of a few bytes, so the lists fill the budget to within a
+        // few bytes and leave no slack a late `was` could hide in.
+        let many: Vec<String> = (0..20_000).map(|i| format!("{i}")).collect();
+        let was = crate::was::Was::note(&"n".repeat(1000));
+        let out = fact_result(&dir, "F1", "revised", many.clone(), many, Some(was.clone()), json!({"status": "off"}));
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(out["was"], was.json(), "{out}");
+        assert!(out.get("omitted").is_some(), "premise: the lists did not all fit: {out}");
+        let size = out.to_string().len();
+        assert!(size <= crate::reply::REPLY_BUDGET, "{size}");
     }
 }

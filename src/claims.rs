@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::facts;
+use crate::was::Was;
 use crate::workspace::{self, AuthoringError, Kind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,17 +189,18 @@ fn overlap_report(workspace_dir: &Path, cited_ids: &[String]) -> io::Result<Vec<
 
 /// `tetel claim --revise <id> --why <text> [--proposition <text>] [--cites ...]`.
 /// At least one of `new_prop`/`new_from_csv` must be given — a revision
-/// that changes nothing isn't a revision.
+/// that changes nothing isn't a revision. Returns the claim as it was, for
+/// the reply (TET-66).
 pub fn revise(
     workspace_dir: &Path,
     id: &str,
     new_prop: Option<&str>,
     new_from_csv: Option<&str>,
     why: &str,
-) -> Result<(), AuthoringError> {
-    if !exists(workspace_dir, id)? {
+) -> Result<Was, AuthoringError> {
+    let Some(previous) = load_all(workspace_dir)?.into_iter().find(|c| c.id == id) else {
         return Err(workspace::refuse(workspace_dir, "claim", format!("no such claim: {id}")));
-    }
+    };
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "claim", "--revise requires --why (revisions must explain themselves)"));
     }
@@ -224,20 +226,21 @@ pub fn revise(
     }
     let event = ClaimEvent::Revise { id: id.to_string(), prop, from, why: why.to_string(), timestamp: workspace::now_unix() };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(())
+    Ok(Was::claim(&previous))
 }
 
-/// `tetel claim --withdraw <id> --why <text>`.
-pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<(), AuthoringError> {
-    if !exists(workspace_dir, id)? {
+/// `tetel claim --withdraw <id> --why <text>`. Returns the claim as it
+/// was, for the reply (TET-66).
+pub fn withdraw(workspace_dir: &Path, id: &str, why: &str) -> Result<Was, AuthoringError> {
+    let Some(previous) = load_all(workspace_dir)?.into_iter().find(|c| c.id == id) else {
         return Err(workspace::refuse(workspace_dir, "claim", format!("no such claim: {id}")));
-    }
+    };
     if why.trim().is_empty() {
         return Err(workspace::refuse(workspace_dir, "claim", "--withdraw requires --why"));
     }
     let event = ClaimEvent::Withdraw { id: id.to_string(), why: why.to_string(), timestamp: workspace::now_unix() };
     workspace::append_jsonl(&log_path(workspace_dir), &event)?;
-    Ok(())
+    Ok(Was::claim(&previous))
 }
 
 /// What `tetel claim` was asked to do — create, revise or withdraw. The
@@ -252,8 +255,10 @@ pub enum ClaimRequest {
 
 pub enum ClaimOutcome {
     Created(CreateOutcome),
-    Revised { id: String },
-    Withdrawn { id: String },
+    /// `was` on `Revised` and `Withdrawn` describes the claim the act named
+    /// (see [`crate::was`]).
+    Revised { id: String, was: Was },
+    Withdrawn { id: String, was: Was },
 }
 
 /// Dispatches a [`ClaimRequest`] to [`create`], [`revise`] or
@@ -266,11 +271,11 @@ pub fn dispatch(workspace_dir: &Path, req: ClaimRequest) -> Result<ClaimOutcome,
     match req {
         ClaimRequest::Withdraw { id, why } => {
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim --withdraw requires --why"))?;
-            withdraw(workspace_dir, &id, &why).map(|()| ClaimOutcome::Withdrawn { id })
+            withdraw(workspace_dir, &id, &why).map(|was| ClaimOutcome::Withdrawn { id, was })
         }
         ClaimRequest::Revise { id, prop, from, why } => {
             let why = why.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim --revise requires --why"))?;
-            revise(workspace_dir, &id, prop.as_deref(), from.as_deref(), &why).map(|()| ClaimOutcome::Revised { id })
+            revise(workspace_dir, &id, prop.as_deref(), from.as_deref(), &why).map(|was| ClaimOutcome::Revised { id, was })
         }
         ClaimRequest::Create { prop, from } => {
             let prop = prop.ok_or_else(|| workspace::refuse(workspace_dir, "claim", "claim requires --proposition"))?;
