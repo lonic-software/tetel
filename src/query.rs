@@ -171,7 +171,9 @@ fn facts_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
                 k + 1
             )
         };
-        let reserve = rest(0).len();
+        // `rest(k)` prints two numbers, neither above the extent count, so
+        // that count in both places is the widest line it can print.
+        let reserve = rest(0).len() + lines.len().to_string().len() - 1;
         let mut k = 0;
         while k < lines.len() && out.len() + lines[k].len() + reserve <= room {
             out.push_str(&lines[k]);
@@ -186,23 +188,42 @@ fn facts_text(workspace_dir: &Path, from: Option<&str>) -> io::Result<String> {
 }
 
 /// One fact with its note and labels uncut, its extents paged from the
-/// 1-based `extent_from`. The id line and note lead every page; a note
-/// that would take more than half the budget is cut, and says so.
+/// 1-based `extent_from`.
+///
+/// The note is shown only when `extent_from` is absent, and on a page of
+/// its own when the first extent does not fit beside it; an `extent_from`
+/// page carries just the id line. So a note or a label is cut only when
+/// it is longer than a page by itself, and the cut says so.
 fn fact_text(workspace_dir: &Path, id: &str, extent_from: Option<usize>) -> io::Result<String> {
     let Some(f) = facts::get(workspace_dir, id)? else {
         return Ok(format!("tetel query: no such fact: {id}\n"));
     };
     let m = f.extent.len();
-    let start = extent_from.unwrap_or(1);
-    if start == 0 || start > m.max(1) {
-        return Ok(format!("tetel query: {id} has {m} extents; extent_from must be 1-{m}\n"));
-    }
-    let head = cut_stated(&fact_head(&f, &f.note), REPLY_BUDGET / 2);
+    let resume = format!("id: {id}, extent_from: ");
+    let note_only = format!(
+        "[tetel: showed the note; {m} extents follow — continue with {resume}1 — a reply is held to {REPLY_BUDGET} bytes]\n"
+    );
+    let reserve = paging_line("extents", &resume, m, m, m, Some(&m.to_string())).len().max(note_only.len());
     let lines: Vec<String> = f.extent.iter().map(|e| extent_line(e, &e.label)).collect();
     let entries: Vec<Entry> =
         lines.iter().enumerate().map(|(k, l)| Entry { id: (k + 1).to_string(), text: l.clone() }).collect();
-    let from = entries.get(start - 1).map(|e| e.id.as_str());
-    let resume = format!("id: {id}, extent_from: ");
+    let id_line = format!("{}\t{}\trevisions: {}\n", f.id, f.pin, f.revisions);
+    let head = match extent_from {
+        None => {
+            let note = cut_stated(&format!("  note: {}\n", f.note), REPLY_BUDGET - reserve - id_line.len());
+            let head = id_line + &note;
+            if m > 0 && head.len() + lines[0].len() + reserve > REPLY_BUDGET {
+                return Ok(note_only + &head);
+            }
+            head
+        }
+        Some(_) if m == 0 => return Ok(format!("tetel query: {id} has no extents\n")),
+        Some(k) if k == 0 || k > m => {
+            return Ok(format!("tetel query: {id} has {m} extents; extent_from must be 1-{m}\n"));
+        }
+        Some(_) => id_line,
+    };
+    let from = entries.get(extent_from.unwrap_or(1) - 1).map(|e| e.id.as_str());
     Ok(paged("extents", &resume, &head, &entries, from, |k, room| cut_stated(&lines[k], room)))
 }
 
@@ -268,9 +289,25 @@ fn deps_text(workspace_dir: &Path, id: &str, from: Option<&str>) -> io::Result<S
         let Some(claim) = claims::load_all(workspace_dir)?.into_iter().find(|c| c.id == id) else {
             return Ok(format!("tetel query: no such claim: {id}\n"));
         };
+        // Printed on every page, so held to ENTRY_CAP: past it, a count and
+        // the call that lists them all.
         let mut head = format!("{id} rests on:\n");
+        let mut listed = String::new();
+        let mut shown = 0;
         for f in &claim.from {
-            head.push_str(&format!("  {f}\n"));
+            let line = format!("  {f}\n");
+            if listed.len() + line.len() > ENTRY_CAP {
+                break;
+            }
+            listed.push_str(&line);
+            shown += 1;
+        }
+        head.push_str(&listed);
+        if shown < claim.from.len() {
+            head.push_str(&format!(
+                "  … {} more facts: query claims with id: {id} lists them all\n",
+                claim.from.len() - shown
+            ));
         }
         head.push_str(&format!("{id} cited by:\n"));
         let cited_by: Vec<String> =
@@ -457,6 +494,76 @@ mod tests {
         // `id` on a claim returns it whole, where the listing cut it.
         assert!(claim_text(&w.0, "C7").unwrap().contains(&"p".repeat(2000)));
         assert!(!claims_text(&w.0, None).unwrap().contains(&"p".repeat(ENTRY_CAP + 1)));
+    }
+
+    /// The "more extents" line prints two counts that can be wider than
+    /// the ones its room was reserved for (50 and 1 against 20 and 31).
+    /// That width shows only when the extent lines fill the room to the
+    /// byte. Each extent line is 929 bytes, and stepping the note one byte
+    /// at a time across more than that makes some step fill it exactly.
+    #[test]
+    fn an_oversized_fact_alone_on_its_page_stays_within_the_budget_at_every_note_length() {
+        let w = ws("sweep");
+        let labels: Vec<String> = (1..=50).map(|k| label(7, k, 900)).collect();
+        for len in 1..=ENTRY_CAP {
+            let mut f = fact(7, &labels);
+            f["note"] = serde_json::json!("n".repeat(len));
+            std::fs::write(w.0.join("facts.jsonl"), format!("{f}\n{}\n", fact(8, &labels))).unwrap();
+            let page = facts_text(&w.0, None).unwrap();
+            assert!(page.contains("more extents"), "premise: F7 must overflow its page at note length {len}");
+            assert!(page.len() <= REPLY_BUDGET, "a page of {} bytes at note length {len}", page.len());
+        }
+    }
+
+    /// A claim's rests-on list is printed on every `deps` page, so it has
+    /// to be bounded or it crowds the dependents out and the page over.
+    #[test]
+    fn deps_on_a_claim_citing_thousands_of_facts_pages_within_the_budget() {
+        let w = ws("wide-claim");
+        let from: Vec<String> = (1..=5000).map(|i| format!("F{i}")).collect();
+        let claim = serde_json::json!({"event": "Create", "id": "C1", "prop": "p", "from": from, "timestamp": 0});
+        append(&w.0, "claims.jsonl", &[claim]);
+        let blocks: Vec<_> = (1..=5000)
+            .map(|i| serde_json::json!({"event": "Create", "id": format!("P{i}"), "heading": false, "text": "t", "cite": ["C1"], "timestamp": 0}))
+            .collect();
+        append(&w.0, "prose.jsonl", &blocks);
+
+        let pages = all_pages(|f| deps_text(&w.0, "C1", f).unwrap());
+        assert!(pages[0].contains("more facts: query claims with id: C1 lists them all"), "{}", &pages[0][..300]);
+        let got: Vec<&str> = pages.iter().flat_map(|p| p.lines().filter(|l| l.starts_with("  P"))).collect();
+        assert_eq!(got.len(), 5000, "every dependent exactly once");
+        assert!(pages.len() < 10, "the header crowds the dependents out: {} pages", pages.len());
+        let whole = claim_text(&w.0, "C1").unwrap();
+        assert!(whole.contains(",F5000\n"), "the claim itself lists every fact it rests on");
+    }
+
+    /// A long note must not cost a label under the budget its full text,
+    /// and a note longer than half the budget is still readable whole.
+    #[test]
+    fn a_long_note_leaves_every_label_under_the_budget_readable_uncut() {
+        let w = ws("long-note");
+        let labels: Vec<String> = (1..=4).map(|k| label(1, k, 20_000)).collect();
+        let mut f = fact(1, &labels);
+        f["note"] = serde_json::json!("n".repeat(15_000));
+        let mut g = fact(2, &[label(2, 1, 10)]);
+        g["note"] = serde_json::json!("m".repeat(25_000));
+        append(&w.0, "facts.jsonl", &[f, g]);
+
+        let mut pages = vec![fact_text(&w.0, "F1", None).unwrap()];
+        while let Some(at) = pages.last().unwrap().find("extent_from: ") {
+            let k: usize = pages.last().unwrap()[at + "extent_from: ".len()..].split(' ').next().unwrap().parse().unwrap();
+            assert!(pages.len() < 20, "paging does not end");
+            pages.push(fact_text(&w.0, "F1", Some(k)).unwrap());
+        }
+        assert!(pages.iter().all(|p| p.len() <= REPLY_BUDGET));
+        assert!(pages[0].contains(&format!("  note: {}\n", "n".repeat(15_000))), "the note must be whole");
+        let shown: Vec<&str> = pages.iter().flat_map(|p| p.lines()).filter(|l| l.starts_with("  extent: ")).collect();
+        let want: Vec<String> = labels.iter().map(|l| format!("  extent: {l} [world-state: ws]")).collect();
+        assert_eq!(shown, want, "every label exactly once, uncut");
+
+        let page = fact_text(&w.0, "F2", None).unwrap();
+        assert!(page.len() <= REPLY_BUDGET && page.contains(&"m".repeat(25_000)), "a 25 KB note must be readable whole");
+        assert!(fact_text(&w.0, "F1", Some(5)).unwrap().contains("extent_from must be 1-4"));
     }
 
     #[test]

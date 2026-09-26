@@ -2100,12 +2100,13 @@ async fn query_pages_its_own_reply_and_the_backstop_never_fires() {
         t
     };
 
-    // Create the workspace, then give it 40 facts of 40 extents each,
-    // every label longer than a listing shows.
+    // Create the workspace, then give it 40 facts of 3 extents each, and
+    // F7 of 40, every label longer than a listing shows: most pages hold
+    // several facts, and F7 needs a page to itself.
     text(&query(serde_json::json!({"workspace": "ws-q", "what": "facts"})).await.expect("query"));
     let facts: String = (1..=40)
         .map(|i| {
-            let extent: Vec<_> = (1..=40)
+            let extent: Vec<_> = (1..=if i == 7 { 40 } else { 3 })
                 .map(|k| {
                     let l = format!("L{i}-{k}:{}", "x".repeat(1500));
                     serde_json::json!({"key": l, "label": l, "world_state": "ws"})
@@ -2121,13 +2122,20 @@ async fn query_pages_its_own_reply_and_the_backstop_never_fires() {
 
     let mut ids = Vec::new();
     let mut from: Option<String> = None;
+    let mut pages = 0;
     loop {
         let mut a = serde_json::json!({"workspace": "ws-q", "what": "facts"});
         if let Some(f) = &from {
             a["from"] = serde_json::json!(f);
         }
         let page = text(&query(a).await.expect("query"));
-        ids.extend(page.lines().filter(|l| l.starts_with('F')).map(|l| l.split('\t').next().unwrap().to_string()));
+        let here: Vec<String> = page.lines().filter(|l| l.starts_with('F')).map(|l| l.split('\t').next().unwrap().to_string()).collect();
+        if here.contains(&"F7".to_string()) {
+            assert_eq!(here, ["F7"], "F7 must have its page to itself");
+            assert!(page.contains("more extents: read them with id: F7, extent_from: "), "{page}");
+        }
+        pages += 1;
+        ids.extend(here);
         from = page.split("continue with from: ").nth(1).map(|r| r.split(' ').next().unwrap().to_string());
         assert!(ids.len() <= 40, "paging repeats facts: {ids:?}");
         if from.is_none() {
@@ -2135,6 +2143,7 @@ async fn query_pages_its_own_reply_and_the_backstop_never_fires() {
         }
     }
     assert_eq!(ids, (1..=40).map(|i| format!("F{i}")).collect::<Vec<_>>(), "every fact exactly once");
+    assert!(pages < 20, "premise: most pages must hold several facts, got {pages} pages");
 
     let mut labels = 0;
     let mut next = None;

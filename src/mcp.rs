@@ -1198,7 +1198,7 @@ they are in the snapshot but nothing in the document rests on them"
         ))
     }
 
-    #[tool(description = "Plain, greppable, read-only inspection of facts, claims, prose, or an id's dependencies. Never refuses. `workspace` is required (never defaulted); ids are workspace-relative only. A listing pages: it shows whole records up to the reply bound, each label and text cut to 1024 bytes, and when it leaves records out it leads with the `from` id to continue with. `id` with `facts` or `claims` returns that one record uncut; a fact's extents page by `extent_from`.")]
+    #[tool(description = "Plain, greppable, read-only inspection of facts, claims, prose, or an id's dependencies. Never refuses. `workspace` is required (never defaulted); ids are workspace-relative only. A listing pages: it shows whole records up to the reply bound, each label and text cut to 1024 bytes, and when it leaves records out it leads with the `from` id to continue with. `id` with `facts` or `claims` returns that one record uncut, a fact's extents paged by `extent_from`; only a note or label longer than a page by itself is cut, and the cut is stated.")]
     async fn query(&self, Parameters(p): Parameters<QueryParams>) -> Result<CallToolResult, ErrorData> {
         let dir = open_workspace(&p.workspace)?;
         let (id, from) = (p.id.as_deref(), p.from.as_deref());
