@@ -404,14 +404,42 @@ enum Command {
 
 #[derive(Subcommand)]
 enum QueryCommand {
-    /// List every fact.
-    Facts,
-    /// List every claim.
-    Claims,
-    /// List every prose block, in document order.
-    Prose,
+    /// List every fact, a page at a time; or, with `--id`, one fact with
+    /// its labels uncut.
+    Facts {
+        /// The fact to start the listing at.
+        #[arg(long, conflicts_with = "id")]
+        from: Option<String>,
+        /// Show this one fact, its labels uncut, its extents paged.
+        #[arg(long)]
+        id: Option<String>,
+        /// With `--id`: the 1-based extent to start at.
+        #[arg(long, requires = "id")]
+        extent_from: Option<usize>,
+    },
+    /// List every claim, a page at a time; or, with `--id`, one claim
+    /// whole.
+    Claims {
+        /// The claim to start the listing at.
+        #[arg(long, conflicts_with = "id")]
+        from: Option<String>,
+        /// Show this one claim, whole.
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// List every prose block, in document order, a page at a time.
+    Prose {
+        /// The block to start the listing at.
+        #[arg(long)]
+        from: Option<String>,
+    },
     /// What a fact or claim id rests on and is cited by.
-    Deps { id: String },
+    Deps {
+        id: String,
+        /// The dependent to start the list of dependents at.
+        #[arg(long)]
+        from: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -1207,12 +1235,15 @@ fact — they are in the snapshot but nothing in the document rests on them"
         }
         Command::Query { what } => {
             let workspace_dir = tetel::workspace::workspace_dir(&cli.workspace);
-            let result = match what {
-                QueryCommand::Facts => tetel::query::facts_text(&workspace_dir),
-                QueryCommand::Claims => tetel::query::claims_text(&workspace_dir),
-                QueryCommand::Prose => tetel::query::prose_text(&workspace_dir),
-                QueryCommand::Deps { id } => tetel::query::deps_text(&workspace_dir, &id),
+            let result = match &what {
+                QueryCommand::Facts { id: Some(id), extent_from, .. } => tetel::query::Query::Fact { id, extent_from: *extent_from },
+                QueryCommand::Facts { id: None, from, .. } => tetel::query::Query::Facts { from: from.as_deref() },
+                QueryCommand::Claims { id: Some(id), .. } => tetel::query::Query::Claim { id },
+                QueryCommand::Claims { id: None, from } => tetel::query::Query::Claims { from: from.as_deref() },
+                QueryCommand::Prose { from } => tetel::query::Query::Prose { from: from.as_deref() },
+                QueryCommand::Deps { id, from } => tetel::query::Query::Deps { id, from: from.as_deref() },
             };
+            let result = tetel::query::text(&workspace_dir, result);
             match result {
                 Ok(out) => {
                     print!("{out}");

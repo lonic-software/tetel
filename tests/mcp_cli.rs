@@ -2082,3 +2082,79 @@ async fn look_shapes_its_own_reply_and_the_backstop_never_fires() {
 
     client.cancel().await.expect("clean shutdown");
 }
+
+/// TET-93 C12 and C14 (vii) through a real client: `query` pages its own
+/// listings and a fact's extents, so no fact mode leaves a reply for the
+/// backstop to cut, and `from` and `extent_from` reach the paging.
+#[tokio::test]
+async fn query_pages_its_own_reply_and_the_backstop_never_fires() {
+    let sb = Sandbox::new("query-pages");
+    let budget = tetel::reply::REPLY_BUDGET;
+    let client = sb.connect().await;
+    let query = |a: serde_json::Value| client.call_tool(CallToolRequestParams::new("query").with_arguments(args(a)));
+    let text = |r: &rmcp::model::CallToolResult| {
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        let t = r.content.iter().filter_map(|c| c.as_text()).map(|t| t.text.clone()).collect::<String>();
+        assert!(t.len() <= budget, "{} bytes over the budget", t.len());
+        assert!(!t.contains("[tetel: this reply was cut"), "the backstop fired for a query:\n{}", &t[..300]);
+        t
+    };
+
+    // Create the workspace, then give it 40 facts of 40 extents each,
+    // every label longer than a listing shows.
+    text(&query(serde_json::json!({"workspace": "ws-q", "what": "facts"})).await.expect("query"));
+    let facts: String = (1..=40)
+        .map(|i| {
+            let extent: Vec<_> = (1..=40)
+                .map(|k| {
+                    let l = format!("L{i}-{k}:{}", "x".repeat(1500));
+                    serde_json::json!({"key": l, "label": l, "world_state": "ws"})
+                })
+                .collect();
+            serde_json::json!({"event": "Create", "id": format!("F{i}"), "note": "n", "extent": extent,
+                "output": "", "pin": "pin", "timestamp": 0})
+            .to_string()
+                + "\n"
+        })
+        .collect();
+    std::fs::write(sb.state_home().join("workspaces/ws-q/facts.jsonl"), facts).unwrap();
+
+    let mut ids = Vec::new();
+    let mut from: Option<String> = None;
+    loop {
+        let mut a = serde_json::json!({"workspace": "ws-q", "what": "facts"});
+        if let Some(f) = &from {
+            a["from"] = serde_json::json!(f);
+        }
+        let page = text(&query(a).await.expect("query"));
+        ids.extend(page.lines().filter(|l| l.starts_with('F')).map(|l| l.split('\t').next().unwrap().to_string()));
+        from = page.split("continue with from: ").nth(1).map(|r| r.split(' ').next().unwrap().to_string());
+        assert!(ids.len() <= 40, "paging repeats facts: {ids:?}");
+        if from.is_none() {
+            break;
+        }
+    }
+    assert_eq!(ids, (1..=40).map(|i| format!("F{i}")).collect::<Vec<_>>(), "every fact exactly once");
+
+    let mut labels = 0;
+    let mut next = None;
+    loop {
+        let mut a = serde_json::json!({"workspace": "ws-q", "what": "facts", "id": "F7"});
+        if let Some(k) = next {
+            a["extent_from"] = serde_json::json!(k);
+        }
+        let page = text(&query(a).await.expect("query"));
+        labels += page.lines().filter(|l| l.starts_with("  extent: L7-") && l.len() > 1500).count();
+        next = page.split("continue with id: F7, extent_from: ").nth(1).map(|r| r.split(' ').next().unwrap().parse::<usize>().unwrap());
+        assert!(labels <= 40, "paging repeats extents");
+        if next.is_none() {
+            break;
+        }
+    }
+    assert_eq!(labels, 40, "every extent of F7 exactly once, uncut");
+
+    let refused = query(serde_json::json!({"workspace": "ws-q", "what": "claims", "extent_from": 2})).await;
+    assert!(refused.is_err(), "extent_from without id on a fact must be refused: {refused:?}");
+
+    client.cancel().await.expect("clean shutdown");
+}

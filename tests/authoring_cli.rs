@@ -1113,6 +1113,36 @@ fn query_deps_reports_what_a_fact_is_cited_by_and_what_a_claim_rests_on() {
     assert!(out.contains("F1"), "output was:\n{out}");
 }
 
+/// TET-93 C12: the CLI's `query` takes the MCP tool's paging flags, so the
+/// two surfaces read a workspace the same way.
+#[test]
+fn query_takes_the_same_paging_flags_as_the_mcp_tool() {
+    let sb = Sandbox::new("query-flags");
+    for name in ["a", "b", "c"] {
+        sb.write(&format!("src/{name}.rs"), "content\n");
+        sb.run(&["look", &format!("src/{name}.rs")]);
+    }
+    sb.run(&["fact", "--note", "three files"]);
+    sb.write("src/d.rs", "content\n");
+    sb.run(&["look", "src/d.rs"]);
+    sb.run(&["fact", "--note", "one file"]);
+    sb.run(&["claim", "--proposition", "a claim", "--cites", "F1"]);
+
+    let (code, out, _) = sb.run(&["query", "facts", "--from", "F2"]);
+    assert_eq!(code, 0);
+    assert!(out.starts_with("[tetel: showed facts 2-2 of 2]\nF2\t"), "output was:\n{out}");
+
+    let (_, out, _) = sb.run(&["query", "facts", "--id", "F1", "--extent-from", "2"]);
+    assert!(out.starts_with("[tetel: showed extents 2-3 of 3]\nF1\t"), "output was:\n{out}");
+    assert!(!out.contains("src/a.rs") && out.contains("src/b.rs") && out.contains("src/c.rs"), "output was:\n{out}");
+
+    let (_, out, _) = sb.run(&["query", "claims", "--id", "C1"]);
+    assert!(out.starts_with("C1\t") && out.contains("prop: a claim"), "output was:\n{out}");
+
+    let (code, _, err) = sb.run(&["query", "facts", "--extent-from", "2"]);
+    assert_eq!(code, 2, "--extent-from without --id must be refused: {err}");
+}
+
 #[test]
 fn render_appends_a_checkable_evidence_ledger_without_altering_prose_bytes() {
     // Fix 1: `tetel check` on a document `tetel render` just produced
