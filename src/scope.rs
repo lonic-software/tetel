@@ -292,11 +292,36 @@ fn observed_extensions(facts: &[Fact]) -> Vec<String> {
 /// containing the other keeps both spellings resolving to the same file
 /// without inventing a path-resolution step that could differ from what
 /// `look` recorded.
+///
+/// A search's label names some of the git-ignored paths it skipped, so a
+/// location the search never read can appear in its label. Those names are
+/// taken out of the label before it is searched, so the test that decides
+/// coverage never sees them, however the note spells the path (TET-92).
 fn extent_covers(fact: &Fact, mentioned: &str) -> bool {
     fact.extent.iter().any(|e| {
-        let hay = format!("{} {}", e.key, e.label);
+        let hay = format!("{} {}", e.key, without_ignored(e));
         hay.contains(mentioned) || mentioned.contains(e.key.as_str())
     })
+}
+
+/// `e`'s label with every git-ignored path it names removed, in the forms
+/// `observe::exclusion_note` writes them: whole, and cut to `ENTRY_CAP`.
+fn without_ignored(e: &crate::facts::ExtentEntry) -> std::borrow::Cow<'_, str> {
+    if e.ignored.is_empty() {
+        return std::borrow::Cow::Borrowed(&e.label);
+    }
+    let mut names: Vec<String> = Vec::new();
+    for n in &e.ignored {
+        names.push(n.clone());
+        names.push(crate::reply::capped(n, crate::reply::ENTRY_CAP).into_owned());
+    }
+    // Longest first, so a name that contains another is removed whole.
+    names.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    let mut label = e.label.clone();
+    for n in names {
+        label = label.replace(&n, "");
+    }
+    std::borrow::Cow::Owned(label)
 }
 
 /// What to tell the author, at the moment of minting.
@@ -432,6 +457,7 @@ pub(crate) mod tests_support {
                     out_len: None,
                     matcher: None,
                     root_relative: false,
+                    ignored: Vec::new(),
                 })
                 .collect(),
             output: String::new(),

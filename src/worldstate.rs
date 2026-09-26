@@ -379,6 +379,7 @@ mod tests {
                     out_len: None,
                     matcher: None,
                     root_relative: false,
+                    ignored: Vec::new(),
                 })
                 .collect(),
             output: String::new(),
@@ -423,6 +424,7 @@ mod tests {
                     out_len: None,
                     matcher: None,
                     root_relative: *root_relative,
+                    ignored: Vec::new(),
                 })
                 .collect(),
             output: String::new(),

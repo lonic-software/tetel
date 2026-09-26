@@ -131,6 +131,16 @@ pub struct PendingEntry {
     /// is the only claim this field ever makes, and it is never a default.
     #[serde(default)]
     pub root_relative: bool,
+    /// Every git-ignored path a `Search` or `NoMatch` entry skipped, spelled
+    /// as its label spells paths, a directory with a trailing `/`; empty
+    /// everywhere else and on entries written before this field existed.
+    ///
+    /// The label names only the first few and a hash of the whole set
+    /// (TET-92): it is repeated by every reply and report that shows an
+    /// extent, and naming every path there cost one caller a quarter of a
+    /// session's tool output. This is where the names are kept instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
 }
 
 fn path(workspace_dir: &Path) -> PathBuf {
