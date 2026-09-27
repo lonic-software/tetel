@@ -12,7 +12,7 @@ It is also aimed at a gap the existing check names for itself. `scope.rs` report
 
 *cites: C2*
 
-## ## The surface
+## The surface
 
 The mint results already carry two findings of this family, and they set the register. `fact` returns `attention`, a top-level array whose entries say a note names a location the extent does not cover; `claim` returns `overlap`, the ids and shared extent keys of facts the author looked at and did not cite. Both are shaped as fields rather than sentences on the stated ground that the caller is a program, and a field it can branch on beats a string it has to notice. The verifier's finding belongs in the same place for the same reason — and, following the same doc comment, for the reason that only the author, near the moment of writing, can still cheaply tell context from conclusion.
 
@@ -28,7 +28,7 @@ One field in that object is not optional and has no counterpart in the precedent
 
 *cites: C4*
 
-## ## What the eval settled, and what it did not
+## What the eval settled, and what it did not
 
 The measurement in `scripts/verifier-eval/` decides the shape of the check and deliberately decides nothing about its worth. On fifteen cases run three times, the one-call direct comparison caught thirty-two of thirty-three planted defects and left all twelve sound claims alone for six tenths of a cent; the three-call extract-then-judge pipeline managed twenty-eight of thirty-two and seven of twelve for nearly nine times the money. Better on both axes at a ninth of the cost is not a close call, and the hypothesis that extracting first and comparing second would beat a single call did not survive contact with the numbers. The direct comparison is therefore the default.
 
@@ -44,7 +44,7 @@ A pipeline is nevertheless kept as a selectable mode, and it is not the one the 
 
 *cites: C6*
 
-## ## Configuration, and the key that never lands in it
+## Configuration, and the key that never lands in it
 
 `config.rs` sets an admission test before it offers a registry: every setting in that file must be visible in the output it affects, and a setting that cannot be shown that way should not be added. The grounding floor passes because it is printed beside the owed list it produced. Five keys are wanted here — `verify.enabled`, `verify.model`, `verify.approach`, `verify.timeout_ms` and `verify.verbs` — and it is worth being exact about which of them an echo of status, model and non-determinism would actually cover. `verify.enabled` shows up as a status of `off` and `verify.model` by name; `verify.timeout_ms` would surface only in the one state that trips it, `verify.verbs` only by inference from an absence, and `verify.approach` — the choice between two materially different mechanisms — nowhere at all, so a reader could not tell which of them produced the finding in front of them. Under the rule as the module states it, that is a disqualification and not a rough edge. The answer is to widen the echo rather than to keep a key in defiance of the sentence quoted to justify it: `verify_block` writes the effective value of all five into every `verify` object it builds — status, model, approach, timeout and the verb list — beside `deterministic: false`, including on the calls where the setting made nothing happen. Each key is then one entry in the existing static registry with its own `accepts` rule, and each is on the page of every response it affects. They need neither a new scope nor a new file. The absent project scope stays absent for the reason the module already gives: such a file would have to be written inside the repository under design, where the workspace module refuses to write at all.
 
@@ -54,25 +54,25 @@ The API key is not among them and must come from the environment, because config
 
 *cites: C7*
 
-## ## The crate property this breaks
+## The crate property this breaks
 
 `lib.rs` pins two properties across the whole crate, and this feature makes one of them false the day it lands: there are no network calls anywhere, which the dependency set enforces rather than the prose. The parenthesis is the part that matters. Once an HTTP client is linked the dependency set enforces nothing, and a softened version of the same sentence would be prose impersonating an invariant. The module has already been through this once and says so in its preamble — a single sentence about the whole crate was wrong for months, which is why the write list is stated per command — so the replacement takes the form the file already prefers, and it has to cover all fifteen commands the file lists or it reintroduces the same defect through the enumeration instead of the generalisation. Three reach: `fact`, `claim` and `prose` may make one outbound call to the configured provider, and only when the feature is enabled with a key present in the environment. Eleven make none: `check`, `brief`, `query`, `review`, `workspaces`, `look`, `target`, `transplant`, `render`, `record` and `config`. `run` gets its own line, because neither list is true of it. The crate makes no call of its own for `run`; `run` spawns the command the author typed, in the author's own session, and that process can reach the network exactly as anything else the author runs in a terminal can. The categorical sentence never had to say this, being about the crate's own calls; a per-command row does. The second pinned property, that nothing here ever executes a command named by a document, survives intact — `run` executes what the author types, never what a memo contains — and it is the reason `check` is on the eleven and not the three.
 
 *cites: C9*
 
-## ## Which partition it belongs to
+## Which partition it belongs to
 
 Neither. `report.rs` holds two arrays of canonical category names, one per partition, and they exist as a single enumerated source because three hand-maintained copies of the same lists had already drifted apart — the module's scope strings and the `check` tool description are both generated from them. So the arrays are not a taxonomy of findings in general; they are a statement of what `check` covers. This check does not run inside `check`, does not enter the record, the memo, the snapshot or the evidence ledger, and does not repeat: the same input can produce a different answer, so a reader holding the document could not recompute it even in principle. Adding it to either array would make a scope string promise coverage `check` does not have, which is the exact failure the arrays were introduced to end. The warning lives in the mint result and nowhere else.
 
 *cites: C10, C4*
 
-## ## Where findings persist
+## Where findings persist
 
 A workspace already keeps a log of things that happened but are not records — `refusals.log` — and a sibling `verify.log` is the natural home for findings an author scrolled past. But `refusals.log` is exactly the wrong sibling to copy in one respect: it is an entry in `SNAPSHOT_FILES`, so it is shipped into `<memo>.tetel/` on every render. A log of model output shipped that way would put non-reproducible text inside the snapshot, which is the one place this design has promised never to reach. What rescues the idea is the shape of the list rather than the manners around it: `SNAPSHOT_FILES` is an enumeration of ten names, and `write` walks exactly that array and copies exactly those names, so a workspace file whose name is not in it cannot be copied at all. The array says as much about itself — enumerated rather than copied wholesale, so that a future workspace file is a deliberate decision to ship or withhold rather than an accident of `cp -r`. It would be wrong to lean on the entries' comments for this: only four of the ten carry one, and of the six that do not, only `pending.json` is argued for in the array's doc comment. The comment is a courtesy; the enumeration is the mechanism. So `verify.log` stays out of the snapshot by construction, needs no mechanism to keep it there, and shipping it later would take a deliberate line in that array.
 
 *cites: C11*
 
-## ## What is compared, and what it costs
+## What is compared, and what it costs
 
 Mints are instant today, and the eval's calls were not. The cost is easy to underestimate because the unit paying it is the tool call rather than the record: in the largest memo on disk, the append-only logs hold two hundred and seventy-seven lines across facts, claims and prose, of which a hundred and fourteen claim lines resolve to thirty-nine distinct claims. Two thirds of claim traffic is revision. Verifying every line of a run like that is tens of minutes of added wall-clock against a few cents of spend, so the design is shaped by the clock and not by the bill.
 
@@ -86,13 +86,13 @@ Which of the three verbs is checked by default is the one place this design has 
 
 *cites: C13*
 
-## ## The modification surface
+## The modification surface
 
 Five symbols are declared as modification targets, and each was censused across the whole worktree before being named here. The first draft of this section named three, and the census that corrected it is the reason the number moved. `fact_result` is defined once and called twice in production, from the minted and the revised arms of the `fact` tool — but it builds only `fact` results. A `claim` result is assembled inline, in the three `ClaimOutcome` match arms at `src/mcp.rs:700`, `709` and `710`, where `fact_result` does not appear at all; `prose` is assembled the same way in the three `ProseOutcome` arms at `821`, `822` and `823`. Since `claim` is the verb this design turns on by default, a `verify` key added to `fact_result` alone would reach everything except the path that ships enabled. So `ClaimOutcome` and `ProseOutcome` join the list, and with them a `verify_block` helper — censused at zero occurrences, so the name is free — that every site calls, so that the status vocabulary, the model name, the `deterministic: false` marker and the guidance string cannot drift between verbs. The config half is genuinely self-contained: `known_keys` occurs twice in the entire worktree, both inside the config module, and `Accepts` six times, likewise all inside it with one variant in use, so the work is new registry entries, new `Accepts` variants, and matching arms in the validator and in the message that tells an author what they could have written instead. The same censuses show the CLI in `src/main.rs` matching on both outcome enums; it is not modified, because the finding is a field in an MCP result and the CLI surfaces stay as they are.
 
 *cites: C14*
 
-## ## The degradation contract
+## The degradation contract
 
 Every terminal state of the provider call maps to exactly one `status`, and the mapping has to be total or it reproduces the defect it exists to prevent. Disabled by configuration is `off`. No key in the environment is `unauthorized`. A transport failure or a non-2xx reply is `unavailable`. Expiry of the budget is `timeout`. A truncated draw is the case the eval already met — reaching the token ceiling comes back with a body of length zero, which is trivially easy to treat as a clean result — and it is `unavailable`, never `ok`. The state an earlier drafting of this contract missed is the one that is hardest to see: a perfectly good 2xx reply, non-empty and non-truncated, whose content is not a usable answer. The harness this design borrows its contract from meets that state in three distinct shapes — no brace-delimited substring in the body at all, a substring that fails `json.loads`, and a decoded object whose verdict is outside the three permitted values — and none of them is a transport failure, a non-2xx, an empty body or a truncation. All three are `unparsable`. `ok` is reachable only from a decoded verdict in the fixed vocabulary, which is what keeps an unreadable answer from arriving as a clean bill with an empty `findings` array. That is precisely the mistake the eval's own harness made in its first form — an errored row recorded as an unflagged one, which reads as a miss on a defective case and a correct silence on a sound one, wrong in both directions at once — and the fix there was to give errors their own column entering no denominator. `status` is the same discipline. The budget's unit is stated with it: `verify.timeout_ms` bounds one mint's verification end to end, across every retry, because the harness's own call retries up to three times with a tripled cap, and a per-attempt bound would quietly license three times the declared spend. And since the call runs after the mint result has already gone back, every state here is reported on a later call and none of them can fail a mint, delay a reply or move an exit code.
 
@@ -106,7 +106,7 @@ Which raises the question the previous paragraph does not answer: nothing so far
 
 *cites: C20*
 
-## ## The gate
+## The gate
 
 Nothing described above was to be built before the retrodiction test, and the corpus for it was already on disk. Seven memos each carry an evidence log beside a snapshot. The claim logs record every Create and Revise with a timestamp and the wording carried at that moment, so a claim's text as it stood at first render can be reconstructed exactly — whenever the claim existed at first render at all. The evidence logs are in-toto statements whose subject is a claim id and whose predicate carries a verdict, and across all seven there are 786 of them: 578 supports, 185 qualifies, 23 refutes. Those are row counts, and rows are the wrong unit for this test. The verifier runs once per claim, over one wording, and returns at most one flag; resolved onto claims, the same 786 rows cover 143 distinct claims, of which only 125 were created at or before their memo's first evidence row. The other eighteen have no first-render wording to feed the verifier — five of them among the fourteen claims that were ever refuted — and they leave every denominator rather than counting as misses, which is the discipline the eval imposed on its own errored rows for the same reason. What remains is three populations the test can iterate: 62 claims carrying supports and nothing else, 9 carrying at least one refutes, 60 carrying at least one qualifies. For each, two questions: did the verifier flag that first-render wording, and did the flag name the same defect a later pass named.
 

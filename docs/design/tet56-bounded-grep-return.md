@@ -4,13 +4,13 @@ This memo designs one change with two halves. `look` decides for itself how much
 
 *cites: C1*
 
-## ## Where the bound goes
+## Where the bound goes
 
 `look_grep` already does the two jobs separately. It runs grep once, then builds `printed` — the string handed back to the author, which today is grep's stdout verbatim followed by a parenthesised exclusion note — and, independently, the pending entries: one `Search` record carrying the root, the pattern and a matched-file count, and one `GrepMatch` record per matched file carrying that file's matched lines. The two are derived from the same stdout but neither reads the other, and that separation is what the bound rests on: out of a bounded call, every entry's captured output, its key and its world-tree markers come back byte-identical to what they are today, so two observations of one root still overlap and a later reader still re-reads the same bytes. What does not stay identical is the extent, the pin and the fact that ships. `facts::mint` copies each entry's label straight into the extent and hashes label, world markers and output into the pin, and this design writes a shortfall segment into the label — so wherever the bound bites, all three differ from what they would otherwise have been. That is the point and not a cost. It is the same property the exclusion note was given when TET-46 chose to list the skipped memo paths rather than count them, so that two searches withholding different things could not fingerprint alike; a bounded search and a whole one should not fingerprint alike either. What makes f3 cheap, and what keeps it inside the ticket's scope, is narrower than "nothing changes": no new record, no second pass over the buffer, nothing read back out of the entries, no signature touched. One number is computed while `printed` is being assembled, and the label is built from that number. The direction matters to whoever implements this — bound first, label from the bound. An implementer who bounds `printed` and leaves the label alone has rebuilt the silent cut this memo exists to remove.
 
 *cites: C2*
 
-## ## Where the shortfall is recorded
+## Where the shortfall is recorded
 
 The ticket's phrase "in the search label" names a place the bound has to appear, and the reason for it needs stating precisely. A memo's Facts table renders the Extent column as the observation labels joined with `; ` — every entry's label, the whole-search record's and each per-file record's alike — while keys and captured output are deliberately excluded from the document. So a label is the only kind of thing a later reader of the memo can learn a truncation from, and anything recorded only in the captured output is invisible in the artefact this design exists to make honest. Which label is then a second question, and it has a different answer: the search record's, because the bound is a property of the search and not of any one file. The per-file records are built from the full stdout and ship complete however little was returned, and their labels name a file and a pattern and nothing about size, so a shortfall written into one of them would be attributed to a file that did not suffer it. But what all of this establishes is necessity and not sufficiency, and it establishes it for one audience only: the reader of a committed memo. It says nothing about the author, who at the moment they read a return has read no label at all.
 
@@ -20,7 +20,7 @@ The author is the other audience, and the label does not reach them in time. `lo
 
 *cites: C21, C7*
 
-## ## What the bound is, and where it comes from
+## What the bound is, and where it comes from
 
 There is no honest way to derive the number. The MCP `look` handler receives a workspace, a path, an optional line range and an optional pattern, and hands back `printed` without measuring it; no field anywhere in that call carries a caller's result cap, so tetel cannot learn one at run time. The number is therefore a person's choice, and this crate has already decided how it treats those. `describe_buffer` declined to invent a staleness threshold because "a number chosen here would be arbitrary", and made the underlying fact visible instead. The same shape applies here: the constant is a documented judgement, and nothing load-bearing rests on its exact value — what the design guarantees is that whatever was withheld is named. How it is named is not open in the same way. `refuse_incomplete` already shortens an author's premise to its first line for a refusal message and marks the result with a trailing ` …`, so the spelling is a house convention to be followed rather than a blank page: the number is a judgement, the marker is not.
 
@@ -50,7 +50,7 @@ One objection deserves answering here rather than later, because it is the one t
 
 *cites: C19*
 
-## ## The other `look` paths
+## The other `look` paths
 
 The other `look` path turns out to have a different answer from the one its shape suggests. `look_path` computes `shown` and uses it twice, but not as one value in one place: `printed` is a string of its own that receives a *copy* of `shown` by borrow, and only afterwards is `shown` moved into the pending entry's `output`. Two independent strings exist between those two points, so a bound applied to `printed` there leaves the captured output, the label, the key, the extent, the pin and the snapshot byte-identical — the same separation `look_grep` has, in a function that reads at first glance as though it has none. There is therefore no code-shaped reason to leave the plain `look <path>` alone, and no other reason either: a whole-file read that overruns the caller's cap is the same silent cut this design exists to stop. So it is bounded too, on the same terms.
 
@@ -66,13 +66,13 @@ The order of the edit has to be stated for this function specifically, because t
 
 *cites: C10*
 
-## ## The change, and how far it reaches
+## The change, and how far it reaches
 
 Two functions change, both in `observe.rs`. A whole-worktree census of `look_grep` finds five occurrences in two source files — the definition, one call site in `dispatch`, three doc comments — and a census of `look_path` finds four in one file: the definition, one call site in the same `dispatch`, two doc comments. No test, no binary and no other module names either of them. The bound, the marker in the returned text and the label segment are all assembled inside each function, and neither signature changes, so nothing calling them has to be touched — not `dispatch`, not the CLI, not the MCP handler.
 
 *cites: C11*
 
-## ## What the census refusal still guarantees
+## What the census refusal still guarantees
 
 TET-28's refusal is untouched, and its wording needs no amendment. It fires on `ExtentEntry::censuses`, which reads the search's existence and its root out of an extent that is immutable once minted and that a bound on `printed` never reaches. More to the point, the refusal already tells the truth about its own scope: it "is about the search's existence and where it was rooted, never about what it found". A design that bounds what the author is shown does not make that sentence any less accurate — it was never a claim about what the author read.
 
@@ -82,7 +82,7 @@ Carrying that mechanism across brings its two preconditions with it. The donor s
 
 *cites: C13, C14*
 
-## ## Whether the truncation has to be visible anywhere else
+## Whether the truncation has to be visible anywhere else
 
 It does, in one place beyond the two the design has already settled — the label and the return itself — and the shape of that place is settled by TET-46. `check`'s standing non-coverage list gains a line. That list already distinguishes a withholding tetel chose — its own output, skipped during traversal — from things it merely suffers, like the symlinked directories and binary files the platform's grep never visits; the comment beside them insists a deliberate exclusion earns its own line rather than being folded into a sentence about platform accidents. A bound tetel applies to its own return is deliberate, so it gets its own line. That line has two halves, and only the first of them names a verb.
 
@@ -96,7 +96,7 @@ The division of labour between the two is also TET-46's, and it answers the "of 
 
 *cites: C16*
 
-## ## What an author does when they hit the bound
+## What an author does when they hit the bound
 
 Almost nothing new, and the honest form of that answer matters more than a paging flag would. The obvious remedies are closed for the case that motivated the ticket: a census is one search of the whole worktree for the symbol itself, so narrowing the root or trimming the pattern does not yield a smaller census, it yields something that is not a census, and `look --grep` has no other parameter to turn. What an author can do is search a subdirectory as an additional observation standing beside the census rather than replacing it, and — outside the return path entirely — reach the per-file match records, which hold every matched line and ship whole into the snapshot. So the design's claim is narrow and should be read narrowly: it does not give the author back what was withheld; it stops the withholding from being secret, on the surface they read at the time and in the memo afterwards. The bounded plain `look <path>` is the easier case: `--lines A:B` is already a first-class parameter of the same verb, so an author who wants a further whole line of the file asks for it, and each such read keys on the resolved path and therefore overlaps the first.
 
