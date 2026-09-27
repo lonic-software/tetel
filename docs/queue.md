@@ -109,14 +109,6 @@ These are questions, and each should produce a decision (possibly "no") rather t
 | D8 | **TET-108** — a Jev-backed locator ahead of `look` in attacker and grounder passes | One bounded experiment, not a design. The ceiling is ~3–4% of a session. jevgrep's "40%" rests on one 10-task run that excludes Jev's own cost. The locator may only point: evidence still comes from `look`, it never stands in for an exhaustive search, and it never sees the memo. |
 | D9 | **TET-33** — an optional model-backed critic gating ingestion | The README places this deliberately last, after the deterministic layers have narrowed the question. Keep it there. |
 
-## E. Housekeeping
-
-| # | Ticket | Action |
-|---|---|---|
-| E1 | **TET-39** — whether a captured value is ever re-executed | Its own summary says rejected on safety and never to be re-weighed. Close it; the decision belongs in the README, where it already is. |
-| E2 | **TET-50** — batching record creation | Superseded by TET-60, which is done. Close. |
-| E3 | **TET-1** — epic: authoring and evidence capture, backlog from the S9–S12 runs | Re-scope or close: the backlog it names has been overtaken by the tickets above. |
-
 ---
 
 ## Done
@@ -141,3 +133,6 @@ Kept for their notes. Each row keeps the number it had when it closed, and the n
 | was A16a | **TET-99** — a refused `verify.typed_model` value turns the typed legs off without a word in the reply | **Done** (PR #26, 2026-09-23), taken ahead of A1–A16 as a follow-up to PR #23. The refusal is now stated as `typed_model_refused`, beside `typed_model_not_run` and under the same conditions. It is not in `detail` as first planned: `verify.model`'s refusal reaches `detail` only by turning the status `unauthorized`, and a refused typed model leaves the status alone. The value is named only when it is a well-formed model name, otherwise withheld as `hides_rejected_value` withholds it. Same class as A16, which is still open. |
 | was A17 | **TET-84** — `verify` returns `unavailable` on 31% of mints | **Done**: all three parts merged, the last on 2026-09-24 (PR #32). Part three follows `docs/design/tet84-loud-status.md` (PR #31). A failed verification's reply carries its `detail`, and the reply text now goes to the log-only `Record.reply`. Under the three failure statuses `guidance` says the mint was not checked. `unverified` names every mint whose latest verification failed, on every reply; withdrawn claims and verbs no longer verified are left out. Known gap: if `claims.jsonl` cannot be read, withdrawn claims appear in `unverified`. Parts one and two, as recorded 2026-09-23: The 19 `unavailable` mints were budget expiry reported under the wrong status. The 19 `unavailable` mints were budget expiry reported under the wrong status. The provider sends its headers at once and its body when the model is done, so the budget ran out during the body read, and that path reported `unavailable` / "reply body could not be read". It is now `timeout` (PR #28). It was not out-of-credit: that is a 402, which already had its own detail. The "four attempts" were the verification's calls across its legs, not retries. The default budget is now 100s per OpenRouter leg, up from 60s (PR #29), because on `gpt-6-luna` 60s still cut off 12 of 113 answered gated `fact` draws. Re-running a verification without changing the text is deferred to TET-100 (A17a). |
 | was B4a | **TET-97** — the verifier-eval corpora sit in the worktree every census searches | **Done**, see N3. |
+| was E1 | **TET-39** — whether a captured value is ever re-executed | **Closed** 2026-09-27. Its own summary says rejected on safety and never to be re-weighed. The decision belongs in the README, where it already is. |
+| was E2 | **TET-50** — batching record creation | **Closed** 2026-09-27. Superseded by TET-60, which is done. |
+| was E3 | **TET-1** — epic: authoring and evidence capture, backlog from the S9–S12 runs | **Closed** 2026-09-27. The backlog it names has been overtaken by the tickets above. |
