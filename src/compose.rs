@@ -45,7 +45,7 @@ fn render_prose(blocks: &[prose::Block]) -> (String, HashMap<String, usize>) {
             let level = b.level.unwrap_or(2).clamp(1, 6);
             out.push_str(&"#".repeat(level as usize));
             out.push(' ');
-            out.push_str(&b.text);
+            out.push_str(heading_text(&b.text));
             out.push('\n');
         } else {
             out.push_str(&b.text);
@@ -57,6 +57,36 @@ fn render_prose(blocks: &[prose::Block]) -> (String, HashMap<String, usize>) {
         }
     }
     (out, offsets)
+}
+
+/// A heading block's text with any markdown heading marker it carries
+/// removed (TET-83). A block's depth is its `level`, and `render_prose`
+/// writes the marker for it — but authors repeatedly typed the marker
+/// into the text as well, and markdown takes whatever follows the first
+/// marker as the heading's content, so `## ## Foo` shows a reader a
+/// literal `## Foo`. Five of the first thirteen memos did it; two were
+/// repaired by hand with `prose --revise`, three shipped with it.
+///
+/// Stripped is what markdown would read as an opening sequence at the
+/// start of the content: after leading spaces and tabs, one to six `#`
+/// followed by a space, a tab or the end of the text. Anything else is
+/// left byte-for-byte as written, so `#hashtag` and `C#` survive, and
+/// the declared `level` wins over a marker of a different depth. A
+/// heading that really starts with a literal `# ` has to escape it as
+/// `\#`, as it would in hand-written markdown.
+fn heading_text(text: &str) -> &str {
+    let mut rest = text;
+    loop {
+        let t = rest.trim_start_matches([' ', '\t']);
+        let hashes = t.len() - t.trim_start_matches('#').len();
+        let after = &t[hashes..];
+        let is_marker = (1..=6).contains(&hashes)
+            && (after.is_empty() || after.starts_with([' ', '\t']));
+        if !is_marker {
+            return rest;
+        }
+        rest = after.trim_start_matches([' ', '\t']);
+    }
 }
 
 /// Per-block starting line in the document `render` would produce from
@@ -448,5 +478,29 @@ mod tests {
             Some(&5),
             "P2 costs it one text line before the next separator, so P3 begins on line 5"
         );
+    }
+
+    /// TET-83: a marker typed into a heading's text renders once, at the
+    /// block's declared level. Each heading's text differs from its
+    /// expected line only by the marker, so writing `b.text` unchanged
+    /// reddens every one of the first three rows. `### Mismatch` at level
+    /// 2 separates "strip the marker" from "trust the text's own depth".
+    /// The last three rows are the texts that must stay byte-for-byte:
+    /// a `#` with no space after it is not a marker, and a paragraph is
+    /// never touched (tet29 writes its headings as paragraphs).
+    #[test]
+    fn a_marker_typed_into_heading_text_renders_once_at_the_declared_level() {
+        let cases: &[(bool, Option<u8>, &str, &str)] = &[
+            (true, Some(2), "## The surface", "## The surface\n"),
+            (true, Some(2), " \t## ## Twice", "## Twice\n"),
+            (true, Some(2), "### Mismatch", "## Mismatch\n"),
+            (true, Some(3), "#hashtag and C#", "### #hashtag and C#\n"),
+            (true, Some(2), "####### Seven is not a marker", "## ####### Seven is not a marker\n"),
+            (false, None, "## A paragraph that is a heading", "## A paragraph that is a heading\n"),
+        ];
+        for (heading, level, text, expected) in cases {
+            let (rendered, _) = render_prose(&[block("P1", *heading, *level, text, &[])]);
+            assert_eq!(&rendered, expected, "text {text:?}");
+        }
     }
 }
