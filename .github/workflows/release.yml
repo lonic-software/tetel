@@ -47,12 +47,17 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      # A hand-pushed tag without the bin/release bump would publish
-      # binaries whose --version names another release.
-      - name: Tag matches Cargo.toml
-        if: startsWith(github.ref, 'refs/tags/v')
+      # The binary reports Cargo.toml's version — and on a tag, the tag's: a
+      # hand-pushed tag without the bin/release bump would publish binaries
+      # whose --version names another release.
+      - name: Version matches
         shell: bash
-        run: test "$(target/${{ matrix.target }}/release/tetel --version)" = "tetel ${GITHUB_REF_NAME#v}"
+        run: |
+          got=$(target/${{ matrix.target }}/release/tetel --version)
+          want="tetel $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          echo "binary: $got; Cargo.toml: $want; ref: $GITHUB_REF"
+          test "$got" = "$want"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then test "$got" = "tetel ${GITHUB_REF_NAME#v}"; fi
 
       # Assets are named WITHOUT the version so the installer can use the
       # stable /releases/latest/download/ URL (no API calls, no rate limits).
@@ -83,6 +88,42 @@ jobs:
           (cd "$rel" && $sum -- * > checksums.txt)
           TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$bin" $UNDER sh install.sh
           $UNDER "$bin/tetel" --version
+
+          # No checksums.txt: refused for that reason, nothing installed;
+          # then the explicit opt-out installs.
+          rm "$rel/checksums.txt"
+          if TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$RUNNER_TEMP/refused" $UNDER sh install.sh 2> err.txt; then
+            echo "installed with no checksums.txt"; exit 1
+          fi
+          cat err.txt
+          grep -q 'refusing to install unverified' err.txt
+          test ! -e "$RUNNER_TEMP/refused/tetel"
+          TETEL_NO_VERIFY=1 TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$RUNNER_TEMP/optout" $UNDER sh install.sh
+          test -x "$RUNNER_TEMP/optout/tetel"
+
+      # install.sh's Windows path: a fresh install, then two upgrades, each
+      # with a `tetel mcp` server running from the file being replaced.
+      - name: Installer smoke (install.sh, Git Bash)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          tmp=$(cygpath -u "$RUNNER_TEMP")
+          rel="$tmp/relsh"; bin="$tmp/binsh"
+          mkdir -p "$rel" && cp dist/* "$rel"/
+          (cd "$rel" && sha256sum -- * > checksums.txt)
+          TETEL_BASE_URL="file:///$(cygpath -m "$rel")"
+          export TETEL_BASE_URL TETEL_INSTALL_DIR="$bin"
+          sh install.sh
+          sleep 600 | "$bin/tetel.exe" mcp & first=$!
+          sleep 2; kill -0 "$first"
+          sh install.sh
+          sleep 600 | "$bin/tetel.exe" mcp & second=$!
+          sleep 2; kill -0 "$second"
+          sh install.sh
+          ls -la "$bin"
+          kill -0 "$first" && kill -0 "$second"
+          "$bin/tetel.exe" --version
+          kill "$first" "$second" || true
 
       # A fresh install under Windows PowerShell 5.1 the way a stock
       # `irm | iex` runs it; upgrades under pwsh 7 while `tetel mcp` servers

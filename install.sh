@@ -106,6 +106,9 @@ case "$ext" in
 esac
 [ -f "${tmp}/${bin}" ] || err "archive did not contain ${bin}"
 
+mkdir -p "$INSTALL_DIR"
+# Absolute: the PATH note and the shadowing check compare against it.
+INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd)
 dest="${INSTALL_DIR}/${bin}"
 upgrading=""
 [ -e "$dest" ] && upgrading=1
@@ -117,7 +120,6 @@ upgrading=""
 # but allows renaming the running one away, so it goes aside first — to a
 # fresh name, since an earlier aside may itself still be running — and comes
 # back if the final rename fails.
-mkdir -p "$INSTALL_DIR"
 staged="${INSTALL_DIR}/.${bin}.new.$$"
 cp "${tmp}/${bin}" "$staged"
 chmod 755 "$staged"
@@ -127,12 +129,15 @@ if [ "$ext" = "zip" ] && [ -e "$dest" ]; then
     mv -f "$dest" "$aside" || { rm -f "$staged"; err "could not move ${dest} aside"; }
 fi
 if ! mv -f "$staged" "$dest"; then
-    [ -n "$aside" ] && { mv -f "$aside" "$dest" || true; }
     rm -f "$staged"
+    if [ -n "$aside" ] && ! mv -f "$aside" "$dest"; then
+        err "could not replace ${dest}, nor restore the previous build — it is at ${aside}; rename it back to ${bin}"
+    fi
     err "could not replace ${dest}"
 fi
 if [ -n "$aside" ]; then
-    # Best effort: asides a server still runs from stay locked and are skipped.
+    # Best effort: an aside that cannot be removed is left for a later
+    # install to clean up.
     for old in "${dest}".old-*; do
         [ "$old" = "$aside" ] || rm -f "$old" 2>/dev/null || true
     done

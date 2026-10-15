@@ -25,6 +25,8 @@ $ProgressPreference = "SilentlyContinue"   # the progress bar slows IWR down bad
 $Repo = if ($env:TETEL_REPO) { $env:TETEL_REPO } else { "lonic-software/tetel" }
 $Version = if ($env:TETEL_VERSION) { $env:TETEL_VERSION } else { "latest" }
 $InstallDir = if ($env:TETEL_INSTALL_DIR) { $env:TETEL_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\tetel" }
+# Absolute and in Windows form: it is written into the persistent user PATH.
+$InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 
 if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") {
     throw "no Windows ARM build yet - build from source: cargo install --path ."
@@ -79,21 +81,27 @@ try {
     # aside goes back, so a failed upgrade never leaves no tetel.exe.
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
     $Dest = Join-Path $InstallDir "tetel.exe"
-    $Staged = Join-Path $InstallDir ".tetel.new.exe"
+    $Staged = Join-Path $InstallDir ".tetel.new.$PID.exe"
     Copy-Item $New $Staged -Force
     $Aside = $null
-    if (Test-Path $Dest) {
-        $Aside = "$Dest.old-$([DateTime]::UtcNow.Ticks)"
-        Move-Item $Dest $Aside
-    }
     try {
+        if (Test-Path $Dest) {
+            $Aside = "$Dest.old-$([DateTime]::UtcNow.Ticks)"
+            Move-Item $Dest $Aside
+        }
         Move-Item $Staged $Dest
     } catch {
-        if ($Aside) { Move-Item $Aside $Dest -ErrorAction SilentlyContinue }
+        $Failure = $_
         Remove-Item $Staged -Force -ErrorAction SilentlyContinue
+        if ($Aside -and (Test-Path $Aside)) {
+            try { Move-Item $Aside $Dest } catch {
+                throw "could not install $Dest ($Failure), nor restore the previous build - it is at $Aside; rename it back to tetel.exe"
+            }
+        }
         throw
     }
-    # Best effort: asides a server still runs from stay locked and are skipped.
+    # Best effort: an aside that cannot be removed (a server still runs from
+    # it) is left for a later install to clean up.
     Get-ChildItem $InstallDir -Filter "tetel.exe.old-*" |
         Where-Object { $_.FullName -ne $Aside } |
         Remove-Item -Force -ErrorAction SilentlyContinue

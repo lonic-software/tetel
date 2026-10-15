@@ -9,7 +9,11 @@ git fetch --tags --quiet 2>/dev/null || true
 
 latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
 latest=${latest#v}
-: "${latest:=0.0.0}"
+if [ -z "$latest" ]; then
+  # No release yet: the first one ships the version Cargo.toml already has.
+  latest=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+  echo "$latest"
+fi
 
 IFS=. read -r major minor patch <<<"$latest"
 echo "$major.$minor.$((patch + 1))"
