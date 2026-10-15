@@ -537,24 +537,39 @@ impl Exclusions {
     }
 }
 
-/// Makes `cmd`'s arguments arrive as passed, which on Unix they already
-/// do. On Windows the `grep` tetel needs is Git for Windows' MSYS build,
-/// and an MSYS program glob-expands its own command line, treating `\` as
-/// the glob escape: `cfg\(test\)` arrived as `cfg(test)` and searched for
-/// `cfgtest`, and a `[`/`*`/`?` pattern could expand against filenames.
-/// `MSYS=noglob` turns that off, appended so other MSYS options survive.
-fn verbatim_args(cmd: &mut Command) -> &mut Command {
-    if cfg!(windows) {
-        let mut v = std::env::var("MSYS").unwrap_or_default();
-        if !v.split_whitespace().any(|o| o == "noglob") {
-            if !v.is_empty() {
-                v.push(' ');
-            }
-            v.push_str("noglob");
-        }
-        cmd.env("MSYS", v);
+/// The arguments that hand grep `pattern`: `-e <pattern>` on Unix, and on
+/// Windows `-f <file>` with the pattern as the file's one line.
+///
+/// Windows has no argv, only a command line each program parses itself,
+/// and the grep tetel needs there is Git for Windows' MSYS build, whose
+/// runtime re-parses that line with its own quoting and glob rules:
+/// `cfg\(test\)` arrived as `cfg(test)` and searched for `cfgtest`. The
+/// line is also capped at 32,767 characters, which a long pattern
+/// exceeded outright. A file sidesteps both. One line is one pattern —
+/// newlines are refused before this runs — so the search is the same.
+/// The returned guard deletes the file when dropped.
+fn pattern_args(pattern: &str) -> Result<(Vec<std::ffi::OsString>, Option<PatternFile>), AuthoringError> {
+    if !cfg!(windows) {
+        return Ok((vec!["-e".into(), pattern.into()], None));
     }
-    cmd
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "tetel-pattern-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&path, format!("{pattern}\n"))
+        .map_err(|e| AuthoringError::Io(format!("could not write the grep pattern file: {e}")))?;
+    Ok((vec!["-f".into(), path.clone().into()], Some(PatternFile(path))))
+}
+
+struct PatternFile(std::path::PathBuf);
+
+impl Drop for PatternFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 /// Splits one `grep -H -n` output line into its filename and the rest, at
@@ -975,8 +990,11 @@ fn grep_stderr_or_placeholder(output: &std::process::Output) -> String {
 /// when nothing was found).
 fn ere_precheck(workspace_dir: &Path, pattern: &str) -> Result<(), AuthoringError> {
     let probe = |p: &str| -> Result<std::process::Output, AuthoringError> {
-        verbatim_args(&mut Command::new("grep"))
-            .args(["-E", "-e", p, "/dev/null"])
+        let (pat, _file) = pattern_args(p)?;
+        Command::new("grep")
+            .arg("-E")
+            .args(pat)
+            .arg("/dev/null")
             .output()
             .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))
     };
@@ -1168,12 +1186,12 @@ typed as",
         args.push(flag);
     }
 
-    args.push("-e");
-    args.push(pattern);
-    args.push(root);
+    let (pat, _pattern_file) = pattern_args(pattern)?;
 
-    let output = verbatim_args(&mut Command::new("grep"))
+    let output = Command::new("grep")
         .args(&args)
+        .args(pat)
+        .arg(root)
         .output()
         .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -1583,7 +1601,6 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     let started = Instant::now();
 
     let mut cmd = Command::new(&argv[0]);
-    verbatim_args(&mut cmd);
     cmd.args(&argv[1..])
         // Null, never inherited. `run` passes `argv` and nothing else — there
         // is no way for an author to supply input — so a child reading stdin

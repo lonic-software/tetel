@@ -136,6 +136,10 @@ fn replace_by_rename(exe: &std::path::Path, content: &[u8]) {
     std::fs::write(&staged, content).expect("failed to stage the replacement binary");
     let perms = std::fs::metadata(exe).unwrap().permissions();
     std::fs::set_permissions(&staged, perms).unwrap();
+    // Windows refuses to rename over a running executable but lets it be
+    // renamed away, which is what install.ps1 does with the old binary.
+    #[cfg(windows)]
+    std::fs::rename(exe, exe.with_extension("old")).expect("failed to move the running original aside");
     std::fs::rename(&staged, exe).expect("failed to rename the replacement over the original");
 }
 
