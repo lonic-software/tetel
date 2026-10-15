@@ -243,7 +243,13 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/lonic-software/tetel/main/install.ps1 | iex
 ```
 
-Both download the latest release for your platform, verify it against the release's
+Or, with [pult](https://github.com/lonic-software/pult), on any of them:
+
+```sh
+pult x github.com/lonic-software/tetel install
+```
+
+All of them download the latest release for your platform, verify it against the release's
 `checksums.txt` — refusing to install if it cannot, unless `TETEL_NO_VERIFY=1` — and install a
 single `tetel` binary to `~/.local/bin`, or `%LOCALAPPDATA%\Programs\tetel` on Windows. The checksums
 come from the same release as the binary, so this catches a corrupted download, not a compromised
