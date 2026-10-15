@@ -1,0 +1,13 @@
+# pult module — run it without cloning:  pult x github.com/lonic-software/tetel install
+# A bare source resolves to the latest version tag, so this works from the
+# first release that carries this file.
+version: 1
+name: tetel
+description: Install tetel from the latest release (any OS).
+
+commands:
+  - id: install
+    title: Install tetel from the latest release
+    # One entry point; bin/install picks install.sh (macOS/Linux) or, on
+    # Windows, install.ps1 (persistent native user PATH). See bin/install.
+    run: "${module.dir}/bin/install"
