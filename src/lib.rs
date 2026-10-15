@@ -18,7 +18,8 @@
 //!   They read the document, its ledger and its snapshot, and return.
 //! - **`look`, `run`, `fact`, `claim`, `target`, `transplant`, `prose` write
 //!   only inside the workspace state directory** (`$TETEL_STATE_HOME` or
-//!   `~/.local/state/tetel`), never inside a repository — see
+//!   `~/.local/state/tetel`, `%LOCALAPPDATA%\tetel` on Windows), never
+//!   inside a repository — see
 //!   [`workspace`] for why that separation is load-bearing.
 //! - **`render --out` writes two things**: the named document, and the
 //!   snapshot directory beside it.
@@ -26,7 +27,8 @@
 //!   rewriting an existing one.
 //! - **`config <key> <value>` writes one settings file**: either the
 //!   per-user one under `$TETEL_CONFIG_HOME`/`$XDG_CONFIG_HOME/tetel`/
-//!   `~/.config/tetel`, or the selected workspace's own — never inside a
+//!   `~/.config/tetel` (`%APPDATA%\tetel` on Windows), or the selected
+//!   workspace's own — never inside a
 //!   repository, which is why [`config`] has no project scope. Reading
 //!   settings writes nothing.
 //! - **Any command may append to its workspace's `refusals.log`** when it

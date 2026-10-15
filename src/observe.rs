@@ -34,7 +34,32 @@ use crate::worldstate;
 /// directory); falling back keeps this infallible rather than losing
 /// the observation over it.
 fn resolve_key(path: &Path) -> String {
-    fs::canonicalize(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.display().to_string())
+    fs::canonicalize(path).map(|p| spelled(&p)).unwrap_or_else(|_| spelled(path))
+}
+
+/// A path written the way `git rev-parse --show-toplevel` writes a tree
+/// root, so the two can be compared as strings — every comparison in this
+/// module ([`at_or_under`], [`strictly_under`], the `key == world_root`
+/// tests) is a byte comparison on a `/` boundary.
+///
+/// On Unix that is `display()` unchanged. On Windows it is not: git
+/// prints `C:/repo`, while `fs::canonicalize` returns the verbatim form
+/// `\\?\C:\repo` and `current_dir` returns `C:\repo`. Left as they come,
+/// no observed path is ever "under" its own tree root there, so every
+/// label stays absolute and machine-specific. The verbatim prefix is
+/// dropped and separators become `/`; nothing else is touched, so a `..`
+/// stays where [`callers_spelling`] needs it.
+fn spelled(path: &Path) -> String {
+    let s = path.display().to_string();
+    if !cfg!(windows) {
+        return s;
+    }
+    let s = if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+    };
+    s.replace('\\', "/")
 }
 
 /// The key for a whole-search record: the resolved search root, spelled
@@ -139,10 +164,16 @@ fn strictly_under(candidate: &str, root: &str) -> bool {
 /// against.
 fn callers_spelling(caller_spelling: &str) -> Option<String> {
     if Path::new(caller_spelling).is_absolute() {
-        return Some(caller_spelling.to_string());
+        return Some(spelled(Path::new(caller_spelling)));
     }
     let cwd = std::env::current_dir().ok()?;
-    Some(format!("{}/{}", cwd.display(), caller_spelling))
+    // On Unix `current_dir` is already physical. On Windows it is the
+    // spelling the process was started with, which can carry 8.3 short
+    // names (`RUNNER~1`) that git's root never does; canonicalizing the
+    // directory alone resolves those and leaves the caller's own `..`
+    // untouched.
+    let cwd = if cfg!(windows) { fs::canonicalize(&cwd).unwrap_or(cwd) } else { cwd };
+    Some(spelled(Path::new(&format!("{}/{}", cwd.display(), caller_spelling))))
 }
 
 /// TET-42's three-condition rule for a single label: relativize
@@ -268,7 +299,9 @@ fn rendered_memos(root: &Path) -> Vec<String> {
             if let Some(stem) = name.strip_suffix(".tetel") {
                 let memo = path.with_file_name(stem);
                 if memo.is_file() {
-                    found.push(memo.display().to_string());
+                    let rel = memo.strip_prefix(root).unwrap_or(&memo);
+                    let rel: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+                    found.push(grep_spelling(root, &rel.join("/")));
                 }
                 // Nothing inside a snapshot is itself a memo.
                 continue;
@@ -278,6 +311,19 @@ fn rendered_memos(root: &Path) -> Vec<String> {
     }
     found.sort();
     found
+}
+
+/// `rel` under `root`, spelled the way grep prints it: `root` exactly as
+/// given, then `/`-separated components. On Unix that is `Path::join`. On
+/// Windows it is not — `join` inserts `\`, while grep (Git for Windows'
+/// MSYS build) prints `./gen/x.rs` for a root of `.`, so no exclusion
+/// built with `join` ever matched a line [`drop_excluded`] compared it to.
+fn grep_spelling(root: &Path, rel: &str) -> String {
+    if cfg!(windows) {
+        format!("{}/{}", root.display(), rel.replace('\\', "/"))
+    } else {
+        root.join(rel).display().to_string()
+    }
 }
 
 /// Everything `git` is told to ignore under `root`, spelled the way `root`
@@ -327,7 +373,7 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
         }
         let is_dir = line.ends_with('/');
         let rel = line.strip_suffix('/').unwrap_or(line);
-        found.push((is_dir, root.join(rel).display().to_string()));
+        found.push((is_dir, grep_spelling(root, rel)));
     }
     found.sort();
     found
@@ -344,6 +390,10 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
 /// because a reader judging a negative claim acts on them: `vendor/` or
 /// `node_modules/` among the skipped paths is a reason to object.
 const IGNORED_SHOWN: usize = 8;
+
+/// How many characters of exclusion flags a Windows grep command line may
+/// carry — half its 32,767 limit, leaving the rest for the pattern and root.
+const EXCLUDE_FLAGS_BUDGET: usize = 16_000;
 
 /// What exclusions a search was given, and — when it was given none — why,
 /// with every git-ignored path it skipped.
@@ -487,6 +537,53 @@ impl Exclusions {
     }
 }
 
+/// The arguments that hand grep `pattern`: `-e <pattern>` on Unix, and on
+/// Windows `-f <file>` with the pattern as the file's one line.
+///
+/// Windows has no argv, only a command line each program parses itself,
+/// and the grep tetel needs there is Git for Windows' MSYS build, whose
+/// runtime re-parses that line with its own quoting and glob rules:
+/// `cfg\(test\)` arrived as `cfg(test)` and searched for `cfgtest`. The
+/// line is also capped at 32,767 characters, which a long pattern
+/// exceeded outright. A file sidesteps both. One line is one pattern —
+/// newlines are refused before this runs — so the search is the same.
+/// The returned guard deletes the file when dropped.
+fn pattern_args(pattern: &str) -> Result<(Vec<std::ffi::OsString>, Option<PatternFile>), AuthoringError> {
+    if !cfg!(windows) {
+        return Ok((vec!["-e".into(), pattern.into()], None));
+    }
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "tetel-pattern-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&path, format!("{pattern}\n"))
+        .map_err(|e| AuthoringError::Io(format!("could not write the grep pattern file: {e}")))?;
+    Ok((vec!["-f".into(), path.clone().into()], Some(PatternFile(path))))
+}
+
+struct PatternFile(std::path::PathBuf);
+
+impl Drop for PatternFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// Splits one `grep -H -n` output line into its filename and the rest, at
+/// the first `:` — except a Windows drive prefix's own. An absolute root
+/// there makes grep print `C:\repo\x.rs:12:…`, and splitting at the first
+/// colon filed every match under a file named `C`. Windows filenames
+/// cannot contain `:`, so past the drive prefix the first one is grep's.
+fn split_grep_line(line: &str) -> Option<(&str, &str)> {
+    let b = line.as_bytes();
+    let skip = if cfg!(windows) && b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' { 2 } else { 0 };
+    let i = line[skip..].find(':')? + skip;
+    Some((&line[..i], &line[i + 1..]))
+}
+
 /// Drop the lines naming a path the search excluded.
 ///
 /// **This is what makes an exclusion true; the flags are only an
@@ -519,7 +616,7 @@ fn drop_excluded(stdout: &str, exclusions: &Exclusions) -> String {
         // The same split the per-file records are built from, so the
         // returned bytes and the captured ones can never disagree about
         // which files this search covered.
-        let file = line.split_once(':').map(|(f, _)| f).unwrap_or(line);
+        let file = split_grep_line(line).map(|(f, _)| f).unwrap_or(line);
         if exclusions.covers(file) {
             continue;
         }
@@ -893,8 +990,11 @@ fn grep_stderr_or_placeholder(output: &std::process::Output) -> String {
 /// when nothing was found).
 fn ere_precheck(workspace_dir: &Path, pattern: &str) -> Result<(), AuthoringError> {
     let probe = |p: &str| -> Result<std::process::Output, AuthoringError> {
+        let (pat, _file) = pattern_args(p)?;
         Command::new("grep")
-            .args(["-E", "-e", p, "/dev/null"])
+            .arg("-E")
+            .args(pat)
+            .arg("/dev/null")
             .output()
             .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))
     };
@@ -1073,17 +1173,25 @@ typed as",
         for (is_dir, path) in ignored {
             owned.push(if *is_dir { format!("--exclude-dir={path}") } else { format!("--exclude={path}") });
         }
+        // Windows caps a whole command line at 32,767 characters, and a
+        // tree with many ignored paths blew it: grep failed to start (os
+        // error 206) and the search was refused. Past the budget the
+        // per-path flags are dropped — they only let grep skip reading a
+        // tree; `drop_excluded` is what makes the exclusion hold.
+        if cfg!(windows) && owned.iter().map(|f| f.len() + 3).sum::<usize>() > EXCLUDE_FLAGS_BUDGET {
+            owned.truncate(2);
+        }
     }
     for flag in &owned {
         args.push(flag);
     }
 
-    args.push("-e");
-    args.push(pattern);
-    args.push(root);
+    let (pat, _pattern_file) = pattern_args(pattern)?;
 
     let output = Command::new("grep")
         .args(&args)
+        .args(pat)
+        .arg(root)
         .output()
         .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -1232,7 +1340,7 @@ matches this search never saw. grep says: {says}",
         };
         let mut by_file: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
         for line in stdout.lines() {
-            if let Some((file, rest)) = line.split_once(':') {
+            if let Some((file, rest)) = split_grep_line(line) {
                 by_file.entry(file.to_string()).or_default().push(rest.to_string());
             }
         }
@@ -1370,7 +1478,23 @@ fn stop_process_group(child: &mut std::process::Child) {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows has no process groups to signal, so the tree is walked by
+/// `taskkill /T` instead — without it only the direct child dies, and a
+/// `bash -c python …` leaves python holding both pipes, which is the
+/// runaway the Unix group kill exists for. `child.kill()` follows in case
+/// `taskkill` is missing or the child exited between the two calls.
+#[cfg(windows)]
+fn stop_process_group(child: &mut std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
+#[cfg(not(any(unix, windows)))]
 fn stop_process_group(child: &mut std::process::Child) {
     let _ = child.kill();
 }
@@ -1687,6 +1811,42 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_grep_line_splits_at_greps_colon() {
+        assert_eq!(split_grep_line("src/x.rs:12:fn a() {}"), Some(("src/x.rs", "12:fn a() {}")));
+        assert_eq!(split_grep_line("no colon"), None);
+    }
+
+    /// The drive letter's colon is not grep's separator — splitting there
+    /// filed every match of an absolute-rooted search under a file `C`.
+    #[cfg(windows)]
+    #[test]
+    fn a_grep_line_with_a_drive_prefix_splits_after_it() {
+        assert_eq!(split_grep_line(r"C:\repo\x.rs:12:a"), Some((r"C:\repo\x.rs", "12:a")));
+    }
+
+    /// Git spells a tree root `C:/repo`; `canonicalize` spells it
+    /// `\\?\C:\repo`. Unreconciled, no key is ever under its root.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_path_is_spelled_the_way_git_spells_a_root() {
+        assert_eq!(spelled(Path::new(r"\\?\C:\repo\src\x.rs")), "C:/repo/src/x.rs");
+        assert_eq!(spelled(Path::new(r"\\?\UNC\host\share\x")), "//host/share/x");
+        assert_eq!(spelled(Path::new(r"C:\repo\..\x")), "C:/repo/../x");
+    }
+
+    /// End to end, on whatever platform runs it: a file in this checkout is
+    /// keyed under the root git reports for it, so its label can be
+    /// relativized. On Windows this is what failed before [`spelled`].
+    #[test]
+    fn a_file_in_the_checkout_is_keyed_under_gits_own_root() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let root = worldstate::Session::new().for_path(&path).root;
+        assert!(root != worldstate::NO_GIT, "the suite runs from a git checkout");
+        let key = resolve_key(&path);
+        assert!(strictly_under(&key, &root), "{key} is not under {root}");
+    }
+
     /// The reconciliation in [`search_key`] exists because two tools spell
     /// the search root: `fs::canonicalize` here and `git rev-parse
     /// --show-toplevel` in `worldstate`. On the machines this has been run
@@ -1694,13 +1854,13 @@ mod tests {
     /// removing the reconciliation entirely leaves the CLI tests green.
     /// A symlinked directory forces the disagreement deterministically.
     #[test]
+    #[cfg(unix)]
     fn a_search_root_reached_through_a_symlink_is_keyed_the_way_its_marker_spells_it() {
         let base = std::env::temp_dir().join(format!("tetel-search-key-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let real = base.join("real");
         fs::create_dir_all(&real).unwrap();
         let link = base.join("link");
-        #[cfg(unix)]
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
         // The divergence that matters runs this way round. `resolve_key`

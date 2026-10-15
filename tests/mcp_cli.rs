@@ -136,6 +136,10 @@ fn replace_by_rename(exe: &std::path::Path, content: &[u8]) {
     std::fs::write(&staged, content).expect("failed to stage the replacement binary");
     let perms = std::fs::metadata(exe).unwrap().permissions();
     std::fs::set_permissions(&staged, perms).unwrap();
+    // Windows refuses to rename over a running executable but lets it be
+    // renamed away, which is what install.ps1 does with the old binary.
+    #[cfg(windows)]
+    std::fs::rename(exe, exe.with_extension("old")).expect("failed to move the running original aside");
     std::fs::rename(&staged, exe).expect("failed to rename the replacement over the original");
 }
 
@@ -2230,6 +2234,9 @@ async fn run_shapes_its_own_reply_and_the_backstop_never_fires() {
         .status()
         .unwrap();
     assert!(status.success());
+    // Windows caps a whole command line at 32,767 characters, so 50,000
+    // cannot be spawned there at all; 20,000 still dwarfs ENTRY_CAP.
+    let long = if cfg!(windows) { "x".repeat(20_000) } else { long };
     let r = run(vec!["sh".into(), "-c".into(), "sleep 5".into(), long]).await.expect("run");
     assert_eq!(r.is_error, Some(true), "premise: the command must time out");
     let t = text(&r);
@@ -2322,20 +2329,26 @@ async fn look_cuts_every_echoed_pattern_and_path() {
     let r = look(serde_json::json!({"workspace": "ws", "path": missing, "grep": "needle"})).await.expect("look");
     within_budget_uncut("no such path, grep", &r);
 
-    // A partial search: one file grep cannot read, one it can.
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": format!("needle|{long}")})).await.expect("look");
-    let text = within_budget_uncut("partial-search caveat", &r);
-    assert!(text.contains("PARTIAL SEARCH"), "premise: the search must be partial (not run as root):\n{}", &text[..text.len().min(300)]);
-    assert!(text.contains("hit.txt"), "a partial search must still show its match:\n{}", &text[..text.len().min(3000)]);
+    // A partial search: one file grep cannot read, one it can. Unix only:
+    // mode 0o000 has no Windows equivalent that grep honours.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": format!("needle|{long}")})).await.expect("look");
+        let text = within_budget_uncut("partial-search caveat", &r);
+        assert!(text.contains("PARTIAL SEARCH"), "premise: the search must be partial (not run as root):\n{}", &text[..text.len().min(300)]);
+        assert!(text.contains("hit.txt"), "a partial search must still show its match:\n{}", &text[..text.len().min(3000)]);
 
-    // Nothing readable at all: the search is refused rather than recorded.
-    let only_locked = locked.display().to_string();
-    let r = look(serde_json::json!({"workspace": "ws", "path": only_locked, "grep": format!("needle|{long}")})).await.expect("look");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let text = within_budget_uncut("unreadable-tree refusal", &r);
-    assert!(text.contains("grep could not read"), "premise: the unreadable refusal:\n{}", &text[..text.len().min(300)]);
+        // Nothing readable at all: the search is refused rather than recorded.
+        let only_locked = locked.display().to_string();
+        let r = look(serde_json::json!({"workspace": "ws", "path": only_locked, "grep": format!("needle|{long}")})).await.expect("look");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let text = within_budget_uncut("unreadable-tree refusal", &r);
+        assert!(text.contains("grep could not read"), "premise: the unreadable refusal:\n{}", &text[..text.len().min(300)]);
+    }
+    #[cfg(not(unix))]
+    let _ = locked;
 
     client.cancel().await.expect("clean shutdown");
 }
@@ -2659,9 +2672,12 @@ async fn attention_keeps_the_whole_budget_beside_any_verify() {
         let client = sb.connect().await;
         let ws = "ws";
         let pattern = format!("needle|{}", (0..400).map(|i| format!("q{i}")).collect::<Vec<_>>().join("|"));
+        // Relative, so the reply's size does not depend on the machine's temp
+        // path: the 10-finding case sits within a few hundred bytes of the
+        // budget, and Windows' longer, JSON-escaped temp path pushed it over.
         let r = client
             .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
-                "workspace": ws, "path": sb.dir.join("src").to_str().unwrap(), "grep": pattern,
+                "workspace": ws, "path": "src", "grep": pattern,
             }))))
             .await
             .expect("look");
