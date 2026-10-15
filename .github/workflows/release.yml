@@ -11,8 +11,9 @@ on:
     paths: ["install.sh", "install.ps1", ".github/workflows/release.yml"]
   workflow_dispatch:
 
+# Write only where it is used: the build job runs the PR's own code.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -89,7 +90,16 @@ jobs:
           $zip = "tetel-${{ matrix.target }}.zip"
           $h = (Get-FileHash (Join-Path $rel $zip) -Algorithm SHA256).Hash.ToLower()
           [IO.File]::WriteAllText((Join-Path $rel checksums.txt), "$h  $zip`n")
-          $srv = Start-Process python -ArgumentList '-m','http.server','8765','--bind','127.0.0.1','--directory',$rel -PassThru
+          # Every file as application/octet-stream, as GitHub serves release
+          # assets — a text/plain checksums.txt hides how IWR decodes it.
+          $srvpy = Join-Path $env:RUNNER_TEMP serve.py
+          Set-Content $srvpy @(
+            'import functools, http.server as h, sys'
+            'class H(h.SimpleHTTPRequestHandler):'
+            '    def guess_type(self, path): return "application/octet-stream"'
+            'h.ThreadingHTTPServer(("127.0.0.1", 8765), functools.partial(H, directory=sys.argv[1])).serve_forever()'
+          )
+          $srv = Start-Process python -ArgumentList $srvpy, $rel -PassThru
           Start-Sleep 3
           $env:TETEL_BASE_URL = "http://127.0.0.1:8765"
           $env:TETEL_INSTALL_DIR = Join-Path $env:RUNNER_TEMP bin
@@ -123,6 +133,8 @@ jobs:
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
