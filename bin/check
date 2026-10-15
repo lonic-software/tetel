@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Exactly what CI runs (.github/workflows/ci.yml) — green here means green there.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+echo "── cargo test"
+cargo test --all-targets
+echo "── cargo build --release"
+cargo build --release
+echo "check: all green"
