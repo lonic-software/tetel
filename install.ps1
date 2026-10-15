@@ -62,7 +62,7 @@ try {
         Write-Host "warning: no checksums.txt; installing UNVERIFIED (TETEL_NO_VERIFY=1)"
     }
     if ($Fetched) {
-        $line = Get-Content $SumsFile | Where-Object { $_ -match "\s$([regex]::Escape($Asset))\s*$" } | Select-Object -First 1
+        $line = Get-Content $SumsFile | Where-Object { $_ -match "\s\*?$([regex]::Escape($Asset))\s*$" } | Select-Object -First 1
         if (-not $line) { throw "$Asset missing from checksums.txt" }
         $expected = ($line -split '\s+')[0]
         $actual = (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower()

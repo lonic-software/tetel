@@ -81,7 +81,9 @@ if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1
 elif ! fetch "${base}/checksums.txt" "${tmp}/checksums.txt"; then
     unverified "could not fetch ${base}/checksums.txt"
 else
-    grep " ${asset}\$" "${tmp}/checksums.txt" > "${tmp}/asset.sum" \
+    # Either sha256sum line form: text (`hash  name`) or binary (`hash *name`).
+    asset_re=$(printf '%s' "$asset" | sed 's/\./\\./g')
+    grep " [ *]${asset_re}\$" "${tmp}/checksums.txt" > "${tmp}/asset.sum" \
         || err "${asset} missing from checksums.txt"
     (
         cd "$tmp"
