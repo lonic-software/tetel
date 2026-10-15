@@ -211,6 +211,9 @@ jobs:
           } finally {
             Stop-Process -Id $srv.Id -ErrorAction SilentlyContinue
           }
+          # Every check above passed. Actions ends a pwsh step with
+          # `exit $LASTEXITCODE`, which is still the expected refusal's 1.
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:
