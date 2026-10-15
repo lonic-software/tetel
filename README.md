@@ -243,9 +243,11 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/lonic-software/tetel/main/install.ps1 | iex
 ```
 
-Both download the latest release for your platform, verify it against the release's checksums, and
-install a single `tetel` binary — to `~/.local/bin`, or `%LOCALAPPDATA%\Programs\tetel` on Windows.
-Pin a version with `TETEL_VERSION=v0.1.0`; choose the destination with `TETEL_INSTALL_DIR`. tetel
+Both download the latest release for your platform, verify it against the release's
+`checksums.txt` — refusing to install if it cannot, unless `TETEL_NO_VERIFY=1` — and install a
+single `tetel` binary to `~/.local/bin`, or `%LOCALAPPDATA%\Programs\tetel` on Windows. The checksums
+come from the same release as the binary, so this catches a corrupted download, not a compromised
+release. Pin a version with `TETEL_VERSION=v0.1.0`; choose the destination with `TETEL_INSTALL_DIR`. tetel
 runs `git` and `grep` at runtime; on Windows, Git for Windows provides both.
 
 Releases are built for macOS arm64/x64, Linux x64/arm64 (static musl) and Windows x64 by pushing a

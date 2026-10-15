@@ -8,12 +8,19 @@
 #   TETEL_REPO         GitHub repo slug        (default: lonic-software/tetel)
 #   TETEL_BASE_URL     full base URL for the assets (mirrors / air-gapped setups);
 #                      overrides TETEL_REPO/TETEL_VERSION entirely
+#   TETEL_NO_VERIFY    set to 1 to install without a checksums.txt to verify against
 #
 # Note: tetel runs git to pin observations to a commit and grep for its
 # searches. Git for Windows provides both; its grep lives in usr\bin, which
 # Git Bash puts on PATH and a plain PowerShell does not.
 
+# In a script block so that `irm | iex`, which runs in the caller's scope,
+# leaves neither these variables nor the preferences behind in the session.
+& {
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"   # the progress bar slows IWR down badly on 5.1
+# Windows PowerShell 5.1 on older .NET defaults offers no TLS 1.2, which GitHub requires.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $Repo = if ($env:TETEL_REPO) { $env:TETEL_REPO } else { "lonic-software/tetel" }
 $Version = if ($env:TETEL_VERSION) { $env:TETEL_VERSION } else { "latest" }
@@ -39,18 +46,21 @@ try {
     Write-Host "downloading $Base/$Asset"
     Invoke-WebRequest "$Base/$Asset" -OutFile $Zip -UseBasicParsing
 
-    # Best effort: verify against checksums.txt. Only the fetch is in the
-    # catch - a missing file throws WebException on Windows PowerShell but
-    # HttpResponseException on pwsh 7, and either way we skip. A genuine
-    # mismatch throws below, outside the catch, so it still aborts.
-    $Sums = $null
+    # Saved to a file and read back as text: GitHub serves release assets as
+    # application/octet-stream, for which IWR's .Content is a byte array.
+    $SumsFile = Join-Path $Tmp "checksums.txt"
+    $Fetched = $true
     try {
-        $Sums = (Invoke-WebRequest "$Base/checksums.txt" -UseBasicParsing).Content -split "`n"
+        Invoke-WebRequest "$Base/checksums.txt" -OutFile $SumsFile -UseBasicParsing
     } catch {
-        Write-Host "warning: could not fetch checksums.txt; skipping verification"
+        $Fetched = $false
+        if ($env:TETEL_NO_VERIFY -ne "1") {
+            throw "could not fetch $Base/checksums.txt ($($_.Exception.Message)) - refusing to install unverified; set TETEL_NO_VERIFY=1 to override"
+        }
+        Write-Host "warning: no checksums.txt; installing UNVERIFIED (TETEL_NO_VERIFY=1)"
     }
-    if ($Sums) {
-        $line = $Sums | Where-Object { $_ -match "\s$([regex]::Escape($Asset))\s*$" } | Select-Object -First 1
+    if ($Fetched) {
+        $line = Get-Content $SumsFile | Where-Object { $_ -match "\s$([regex]::Escape($Asset))\s*$" } | Select-Object -First 1
         if (-not $line) { throw "$Asset missing from checksums.txt" }
         $expected = ($line -split '\s+')[0]
         $actual = (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower()
@@ -62,23 +72,52 @@ try {
     $New = Join-Path $Tmp "tetel.exe"
     if (-not (Test-Path $New)) { throw "archive did not contain tetel.exe" }
 
+    # Stage beside the destination, then rename into place. A running
+    # `tetel mcp` locks tetel.exe against overwrite but not against rename,
+    # so an existing one is renamed aside first, to a fresh name: an earlier
+    # aside may itself still be running. If the final rename fails, the
+    # aside goes back, so a failed upgrade never leaves no tetel.exe.
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
     $Dest = Join-Path $InstallDir "tetel.exe"
-    $Upgrading = Test-Path $Dest
-    # A running `tetel mcp` server locks tetel.exe against overwrite but not
-    # against rename, so move it aside first; the server keeps the old file.
-    if ($Upgrading) {
-        Remove-Item "$Dest.old" -Force -ErrorAction SilentlyContinue
-        Move-Item $Dest "$Dest.old" -Force
+    $Staged = Join-Path $InstallDir ".tetel.new.exe"
+    Copy-Item $New $Staged -Force
+    $Aside = $null
+    if (Test-Path $Dest) {
+        $Aside = "$Dest.old-$([DateTime]::UtcNow.Ticks)"
+        Move-Item $Dest $Aside
     }
-    Copy-Item $New $Dest -Force
+    try {
+        Move-Item $Staged $Dest
+    } catch {
+        if ($Aside) { Move-Item $Aside $Dest -ErrorAction SilentlyContinue }
+        Remove-Item $Staged -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    # Best effort: asides a server still runs from stay locked and are skipped.
+    Get-ChildItem $InstallDir -Filter "tetel.exe.old-*" |
+        Where-Object { $_.FullName -ne $Aside } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 
-    $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $Entries = if ($UserPath) { $UserPath -split ';' } else { @() }
-    if ($Entries -notcontains $InstallDir) {
-        $NewPath = if ($UserPath) { "$UserPath;$InstallDir" } else { $InstallDir }
-        [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
-        Write-Host "added $InstallDir to your user PATH (restart your terminal)"
+    # Edit the user PATH as stored, not as expanded: reading it through
+    # GetEnvironmentVariable and writing it back would flatten %VAR% entries
+    # and turn the value from REG_EXPAND_SZ into REG_SZ.
+    $Key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+    try {
+        $Raw = $Key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $Kind = if ($Raw) { $Key.GetValueKind("Path") } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+        $Entries = @($Raw -split ';' | Where-Object { $_ } |
+            ForEach-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') })
+        if ($Entries -notcontains $InstallDir.TrimEnd('\')) {
+            $NewPath = if ($Raw) { "$($Raw.TrimEnd(';'));$InstallDir" } else { $InstallDir }
+            $Key.SetValue("Path", $NewPath, $Kind)
+            # A registry write tells no one; this round-trip makes Windows
+            # broadcast the environment change so new terminals see it.
+            [Environment]::SetEnvironmentVariable("TETEL_INSTALL_NOTIFY", "1", "User")
+            [Environment]::SetEnvironmentVariable("TETEL_INSTALL_NOTIFY", $null, "User")
+            Write-Host "added $InstallDir to your user PATH (restart your terminal)"
+        }
+    } finally {
+        $Key.Close()
     }
 
     $Ver = try { & $Dest --version } catch { "tetel" }
@@ -95,7 +134,7 @@ try {
     }
 
     Write-Host ""
-    if ($Upgrading) {
+    if ($Aside) {
         Write-Host "Upgraded. A 'tetel mcp' server that was already running keeps the old build"
         Write-Host "and refuses tool calls until restarted - restart Claude Code to pick this one up."
     } else {
@@ -104,4 +143,5 @@ try {
     }
 } finally {
     Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
+}
 }

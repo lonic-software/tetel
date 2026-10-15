@@ -10,6 +10,8 @@
 #   TETEL_BASE_URL     full base URL for the assets (mirrors / air-gapped setups);
 #                      overrides TETEL_REPO/TETEL_VERSION entirely. Asset names
 #                      carry no version, so nothing else is needed.
+#   TETEL_NO_VERIFY    set to 1 to install without a checksums.txt (or a sha256
+#                      tool) to verify against
 set -eu
 
 REPO="${TETEL_REPO:-lonic-software/tetel}"
@@ -66,23 +68,30 @@ say "downloading ${base}/${asset}"
 fetch "${base}/${asset}" "${tmp}/${asset}" \
     || err "download failed — does a release exist for ${target}?"
 
-# ── verify (best effort: skip only if no sha tool is available) ─
-if command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; then
-    if fetch "${base}/checksums.txt" "${tmp}/checksums.txt"; then
-        grep " ${asset}\$" "${tmp}/checksums.txt" > "${tmp}/asset.sum" \
-            || err "${asset} missing from checksums.txt"
-        (
-            cd "$tmp"
-            if command -v sha256sum >/dev/null 2>&1; then
-                sha256sum -c asset.sum >/dev/null
-            else
-                shasum -a 256 -c asset.sum >/dev/null
-            fi
-        ) || err "checksum verification FAILED — refusing to install"
-        say "checksum ok"
-    else
-        say "warning: could not fetch checksums.txt; skipping verification"
-    fi
+# ── verify ──────────────────────────────────────────────────────
+# Refuse to install unverified unless asked to: every release this repo
+# publishes carries checksums.txt, so its absence means something is wrong.
+unverified() {
+    [ "${TETEL_NO_VERIFY:-}" = "1" ] \
+        || err "$1 — refusing to install unverified; set TETEL_NO_VERIFY=1 to override"
+    say "warning: $1; installing UNVERIFIED (TETEL_NO_VERIFY=1)"
+}
+if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    unverified "neither sha256sum nor shasum is available"
+elif ! fetch "${base}/checksums.txt" "${tmp}/checksums.txt"; then
+    unverified "could not fetch ${base}/checksums.txt"
+else
+    grep " ${asset}\$" "${tmp}/checksums.txt" > "${tmp}/asset.sum" \
+        || err "${asset} missing from checksums.txt"
+    (
+        cd "$tmp"
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c asset.sum >/dev/null
+        else
+            shasum -a 256 -c asset.sum >/dev/null
+        fi
+    ) || err "checksum verification FAILED — refusing to install"
+    say "checksum ok"
 fi
 
 # ── unpack + install ────────────────────────────────────────────
@@ -105,16 +114,29 @@ upgrading=""
 # may be running from $dest, and writing into a running executable fails on
 # Linux (ETXTBSY); a rename leaves the server on the old file and puts the
 # new one at the path. Windows refuses even the rename onto a running .exe
-# but allows renaming the running one away, so it goes aside first.
+# but allows renaming the running one away, so it goes aside first — to a
+# fresh name, since an earlier aside may itself still be running — and comes
+# back if the final rename fails.
 mkdir -p "$INSTALL_DIR"
 staged="${INSTALL_DIR}/.${bin}.new.$$"
 cp "${tmp}/${bin}" "$staged"
 chmod 755 "$staged"
+aside=""
 if [ "$ext" = "zip" ] && [ -e "$dest" ]; then
-    rm -f "${dest}.old" 2>/dev/null || true
-    mv -f "$dest" "${dest}.old" || { rm -f "$staged"; err "could not move ${dest} aside"; }
+    aside="${dest}.old-$(date +%s)-$$"
+    mv -f "$dest" "$aside" || { rm -f "$staged"; err "could not move ${dest} aside"; }
 fi
-mv -f "$staged" "$dest" || { rm -f "$staged"; err "could not replace ${dest}"; }
+if ! mv -f "$staged" "$dest"; then
+    [ -n "$aside" ] && { mv -f "$aside" "$dest" || true; }
+    rm -f "$staged"
+    err "could not replace ${dest}"
+fi
+if [ -n "$aside" ]; then
+    # Best effort: asides a server still runs from stay locked and are skipped.
+    for old in "${dest}".old-*; do
+        [ "$old" = "$aside" ] || rm -f "$old" 2>/dev/null || true
+    done
+fi
 
 say "installed ${dest} — $("$dest" --version 2>/dev/null || echo 'tetel')"
 

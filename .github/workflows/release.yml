@@ -47,6 +47,13 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      # A hand-pushed tag without the bin/release bump would publish
+      # binaries whose --version names another release.
+      - name: Tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: test "$(target/${{ matrix.target }}/release/tetel --version)" = "tetel ${GITHUB_REF_NAME#v}"
+
       # Assets are named WITHOUT the version so the installer can use the
       # stable /releases/latest/download/ URL (no API calls, no rate limits).
       - name: Package (unix)
@@ -77,9 +84,9 @@ jobs:
           TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$bin" $UNDER sh install.sh
           $UNDER "$bin/tetel" --version
 
-      # Twice: a fresh install under Windows PowerShell 5.1 (what a stock
-      # `irm | iex` gets), then an upgrade under pwsh 7 while a `tetel mcp`
-      # server holds the installed exe open — the move-aside path.
+      # A fresh install under Windows PowerShell 5.1 the way a stock
+      # `irm | iex` runs it; upgrades under pwsh 7 while `tetel mcp` servers
+      # hold the exe open; refusals on a bad or missing checksums.txt.
       - name: Installer smoke (install.ps1)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -89,7 +96,8 @@ jobs:
           Copy-Item dist/* $rel
           $zip = "tetel-${{ matrix.target }}.zip"
           $h = (Get-FileHash (Join-Path $rel $zip) -Algorithm SHA256).Hash.ToLower()
-          [IO.File]::WriteAllText((Join-Path $rel checksums.txt), "$h  $zip`n")
+          $sums = Join-Path $rel checksums.txt
+          [IO.File]::WriteAllText($sums, "$h  $zip`n")
           # Every file as application/octet-stream, as GitHub serves release
           # assets — a text/plain checksums.txt hides how IWR decodes it.
           $srvpy = Join-Path $env:RUNNER_TEMP serve.py
@@ -102,25 +110,61 @@ jobs:
           $srv = Start-Process python -ArgumentList $srvpy, $rel -PassThru
           Start-Sleep 3
           $env:TETEL_BASE_URL = "http://127.0.0.1:8765"
-          $env:TETEL_INSTALL_DIR = Join-Path $env:RUNNER_TEMP bin
-          $exe = Join-Path $env:TETEL_INSTALL_DIR tetel.exe
-          try {
-            powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
-            if ($LASTEXITCODE) { throw "install.ps1 failed under Windows PowerShell" }
+          $dir = Join-Path $env:RUNNER_TEMP bin
+          $env:TETEL_INSTALL_DIR = $dir
+          $exe = Join-Path $dir tetel.exe
 
+          # A user PATH holding an unexpanded entry, which must survive as one.
+          $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+          $key.SetValue("Path", "%USERPROFILE%\tetel-smoke", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+          $key.Close()
+
+          function Serve-Server {
             $psi = New-Object System.Diagnostics.ProcessStartInfo $exe, 'mcp'
             $psi.RedirectStandardInput = $true
             $psi.UseShellExecute = $false
-            $server = [System.Diagnostics.Process]::Start($psi)
+            $p = [System.Diagnostics.Process]::Start($psi)
             Start-Sleep 1
-            if ($server.HasExited) { throw "tetel mcp exited early; the upgrade would not be under load" }
+            if ($p.HasExited) { throw "tetel mcp exited early; the upgrade would not be under load" }
+            $p
+          }
+          try {
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Content -Raw install.ps1 | iex; if (`$ErrorActionPreference -ne 'Continue' -or `$Repo) { exit 3 }"
+            if ($LASTEXITCODE) { throw "fresh install under Windows PowerShell failed or leaked scope ($LASTEXITCODE)" }
 
+            # Upgrade twice without restarting: the second runs while a
+            # server is still running from the first upgrade's aside.
+            $first = Serve-Server
             pwsh -NoProfile -File install.ps1
             if ($LASTEXITCODE) { throw "install.ps1 upgrade failed under pwsh" }
-            if ($server.HasExited) { throw "the upgrade killed the running server" }
+            $second = Serve-Server
+            pwsh -NoProfile -File install.ps1
+            if ($LASTEXITCODE) { throw "second upgrade, with the first aside still running, failed" }
+            if ($first.HasExited -or $second.HasExited) { throw "an upgrade killed a running server" }
             & $exe --version
             if ($LASTEXITCODE) { throw "installed tetel.exe does not run" }
-            $server.Kill()
+            $first.Kill(); $second.Kill()
+
+            $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment")
+            $raw = $key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $kind = $key.GetValueKind("Path")
+            $key.Close()
+            Write-Host "user PATH ($kind): $raw"
+            if ($kind -ne "ExpandString") { throw "user PATH was rewritten as $kind" }
+            if (-not $raw.StartsWith("%USERPROFILE%\tetel-smoke;")) { throw "user PATH lost its unexpanded entry" }
+            if (@($raw -split ';' | Where-Object { $_ -eq $dir }).Count -ne 1) { throw "install dir is not on user PATH exactly once" }
+
+            # Refusals: a wrong checksum, then none at all. Neither may install.
+            $env:TETEL_INSTALL_DIR = Join-Path $env:RUNNER_TEMP refused
+            [IO.File]::WriteAllText($sums, "$('0' * 64)  $zip`n")
+            $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
+            Write-Host $out
+            if ($LASTEXITCODE -eq 0 -or $out -notmatch 'checksum verification FAILED') { throw "the mismatch case was not refused for its own reason" }
+            Remove-Item $sums
+            $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
+            Write-Host $out
+            if ($LASTEXITCODE -eq 0 -or $out -notmatch 'refusing to install unverified') { throw "the missing case was not refused for its own reason" }
+            if (Test-Path (Join-Path $env:TETEL_INSTALL_DIR tetel.exe)) { throw "a refused install left tetel.exe behind" }
           } finally {
             Stop-Process -Id $srv.Id -ErrorAction SilentlyContinue
           }
