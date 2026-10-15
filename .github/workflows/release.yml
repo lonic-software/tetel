@@ -102,9 +102,9 @@ jobs:
           test -x "$RUNNER_TEMP/optout/tetel"
 
       # install.sh's Windows path: a fresh install, then two upgrades, each
-      # with a `tetel mcp` server running from the file being replaced; then,
-      # with the first server gone, a third upgrade must clear its aside but
-      # keep the one the second server still runs from.
+      # with a `tetel mcp` server running from the file being replaced. MSYS
+      # rm deletes even a running exe, so each upgrade leaves only its own
+      # aside, and the servers outlive theirs.
       - name: Installer smoke (install.sh, Git Bash)
         if: runner.os == 'Windows'
         shell: bash
@@ -119,20 +119,15 @@ jobs:
           sleep 600 | "$bin/tetel.exe" mcp & first=$!
           sleep 2; kill -0 "$first"
           sh install.sh
-          first_aside=$(ls "$bin"/tetel.exe.old-*)
           sleep 600 | "$bin/tetel.exe" mcp & second=$!
           sleep 2; kill -0 "$second"
           sh install.sh
           ls -la "$bin"
           kill -0 "$first" && kill -0 "$second"
-          for a in "$bin"/tetel.exe.old-*; do [ "$a" = "$first_aside" ] || second_aside=$a; done
+          set -- "$bin"/tetel.exe.old-*
+          test "$#" -eq 1
           "$bin/tetel.exe" --version
-          kill "$first"; wait "$first" || true; sleep 2
-          sh install.sh
-          ls -la "$bin"
-          test ! -e "$first_aside"
-          test -e "$second_aside"
-          kill "$second" || true
+          kill "$first" "$second" || true
 
       # A fresh install under Windows PowerShell 5.1 the way a stock
       # `irm | iex` runs it; upgrades under pwsh 7 while `tetel mcp` servers
