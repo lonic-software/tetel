@@ -1,0 +1,252 @@
+name: release
+
+# A v* tag builds every target and publishes the release. A pull request
+# touching the installers or this file, or a manual run, builds, packages and
+# installs the same matrix and stops there — so a broken target or installer
+# shows up before a tag depends on it.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["install.sh", "install.ps1", ".github/workflows/release.yml"]
+  workflow_dispatch:
+
+# Write only where it is used: the build job runs the PR's own code.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # musl-gcc compiles ring's C and assembly (ureq's TLS) for the static
+      # Linux targets.
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # The binary reports Cargo.toml's version — and on a tag, the tag's: a
+      # hand-pushed tag without the bin/release bump would publish binaries
+      # whose --version names another release.
+      - name: Version matches
+        shell: bash
+        run: |
+          got=$(target/${{ matrix.target }}/release/tetel --version)
+          want="tetel $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          echo "binary: $got; Cargo.toml: $want; ref: $GITHUB_REF"
+          test "$got" = "$want"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then test "$got" = "tetel ${GITHUB_REF_NAME#v}"; fi
+
+      # Assets are named WITHOUT the version so the installer can use the
+      # stable /releases/latest/download/ URL (no API calls, no rate limits).
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -C target/${{ matrix.target }}/release -czf dist/tetel-${{ matrix.target }}.tar.gz tetel
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path target/${{ matrix.target }}/release/tetel.exe -DestinationPath dist/tetel-${{ matrix.target }}.zip
+
+      # Each installer, run against the archive just built, on the platform
+      # it serves. `under` makes uname report the target's arch: macos-14 is
+      # arm64 and runs the x86_64 build through Rosetta.
+      - name: Installer smoke (install.sh)
+        if: runner.os != 'Windows'
+        env:
+          UNDER: ${{ contains(matrix.target, 'x86_64-apple') && 'arch -x86_64' || '' }}
+        run: |
+          rel="$RUNNER_TEMP/rel"; bin="$RUNNER_TEMP/bin"
+          mkdir -p "$rel" && cp dist/* "$rel"/
+          if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
+          (cd "$rel" && $sum -- * > checksums.txt)
+          TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$bin" $UNDER sh install.sh
+          $UNDER "$bin/tetel" --version
+
+          # No checksums.txt: refused for that reason, nothing installed;
+          # then the explicit opt-out installs.
+          rm "$rel/checksums.txt"
+          if TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$RUNNER_TEMP/refused" $UNDER sh install.sh 2> err.txt; then
+            echo "installed with no checksums.txt"; exit 1
+          fi
+          cat err.txt
+          grep -q 'refusing to install unverified' err.txt
+          test ! -e "$RUNNER_TEMP/refused/tetel"
+          TETEL_NO_VERIFY=1 TETEL_BASE_URL="file://$rel" TETEL_INSTALL_DIR="$RUNNER_TEMP/optout" $UNDER sh install.sh
+          test -x "$RUNNER_TEMP/optout/tetel"
+
+      # install.sh's Windows path: a fresh install, then two upgrades, each
+      # with a `tetel mcp` server running from the file being replaced. MSYS
+      # rm deletes even a running exe, so each upgrade leaves only its own
+      # aside, and the servers outlive theirs.
+      - name: Installer smoke (install.sh, Git Bash)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          tmp=$(cygpath -u "$RUNNER_TEMP")
+          rel="$tmp/relsh"; bin="$tmp/binsh"
+          mkdir -p "$rel" && cp dist/* "$rel"/
+          (cd "$rel" && sha256sum -- * > checksums.txt)
+          TETEL_BASE_URL="file:///$(cygpath -m "$rel")"
+          export TETEL_BASE_URL TETEL_INSTALL_DIR="$bin"
+          sh install.sh
+          sleep 600 | "$bin/tetel.exe" mcp & first=$!
+          sleep 2; kill -0 "$first"
+          sh install.sh
+          sleep 600 | "$bin/tetel.exe" mcp & second=$!
+          sleep 2; kill -0 "$second"
+          sh install.sh
+          ls -la "$bin"
+          kill -0 "$first" && kill -0 "$second"
+          set -- "$bin"/tetel.exe.old-*
+          test "$#" -eq 1
+          "$bin/tetel.exe" --version
+          kill "$first" "$second" || true
+
+      # A fresh install under Windows PowerShell 5.1 the way a stock
+      # `irm | iex` runs it; upgrades under pwsh 7 while `tetel mcp` servers
+      # hold the exe open; refusals on a bad or missing checksums.txt.
+      - name: Installer smoke (install.ps1)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $rel = Join-Path $env:RUNNER_TEMP rel
+          New-Item -ItemType Directory -Force $rel | Out-Null
+          Copy-Item dist/* $rel
+          $zip = "tetel-${{ matrix.target }}.zip"
+          $h = (Get-FileHash (Join-Path $rel $zip) -Algorithm SHA256).Hash.ToLower()
+          $sums = Join-Path $rel checksums.txt
+          [IO.File]::WriteAllText($sums, "$h  $zip`n")
+          # Every file as application/octet-stream, as GitHub serves release
+          # assets — a text/plain checksums.txt hides how IWR decodes it.
+          $srvpy = Join-Path $env:RUNNER_TEMP serve.py
+          Set-Content $srvpy @(
+            'import functools, http.server as h, sys'
+            'class H(h.SimpleHTTPRequestHandler):'
+            '    def guess_type(self, path): return "application/octet-stream"'
+            'h.ThreadingHTTPServer(("127.0.0.1", 8765), functools.partial(H, directory=sys.argv[1])).serve_forever()'
+          )
+          $srv = Start-Process python -ArgumentList $srvpy, $rel -PassThru
+          Start-Sleep 3
+          $env:TETEL_BASE_URL = "http://127.0.0.1:8765"
+          $dir = Join-Path $env:RUNNER_TEMP bin
+          $env:TETEL_INSTALL_DIR = $dir
+          $exe = Join-Path $dir tetel.exe
+
+          # A user PATH holding an unexpanded entry, which must survive as one.
+          $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+          $key.SetValue("Path", "%USERPROFILE%\tetel-smoke", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+          $key.Close()
+
+          function Serve-Server {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo $exe, 'mcp'
+            $psi.RedirectStandardInput = $true
+            $psi.UseShellExecute = $false
+            $p = [System.Diagnostics.Process]::Start($psi)
+            Start-Sleep 1
+            if ($p.HasExited) { throw "tetel mcp exited early; the upgrade would not be under load" }
+            $p
+          }
+          try {
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Content -Raw install.ps1 | iex; if (`$ErrorActionPreference -ne 'Continue' -or `$Repo) { exit 3 }"
+            if ($LASTEXITCODE) { throw "fresh install under Windows PowerShell failed or leaked scope ($LASTEXITCODE)" }
+
+            # Upgrade twice without restarting: the second runs while a
+            # server is still running from the first upgrade's aside.
+            $first = Serve-Server
+            pwsh -NoProfile -File install.ps1
+            if ($LASTEXITCODE) { throw "install.ps1 upgrade failed under pwsh" }
+            $second = Serve-Server
+            pwsh -NoProfile -File install.ps1
+            if ($LASTEXITCODE) { throw "second upgrade, with the first aside still running, failed" }
+            if ($first.HasExited -or $second.HasExited) { throw "an upgrade killed a running server" }
+            & $exe --version
+            if ($LASTEXITCODE) { throw "installed tetel.exe does not run" }
+            $first.Kill(); $second.Kill()
+            $first.WaitForExit(); $second.WaitForExit()
+
+            # With no server left, a further upgrade clears every earlier aside.
+            pwsh -NoProfile -File install.ps1
+            if ($LASTEXITCODE) { throw "upgrade after the servers stopped failed" }
+            $asides = @(Get-ChildItem $dir -Filter "tetel.exe.old-*")
+            if ($asides.Count -ne 1) { throw "expected only the newest aside, found: $($asides.Name -join ', ')" }
+
+            $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment")
+            $raw = $key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $kind = $key.GetValueKind("Path")
+            $key.Close()
+            Write-Host "user PATH ($kind): $raw"
+            if ($kind -ne "ExpandString") { throw "user PATH was rewritten as $kind" }
+            if (-not $raw.StartsWith("%USERPROFILE%\tetel-smoke;")) { throw "user PATH lost its unexpanded entry" }
+            if (@($raw -split ';' | Where-Object { $_ -eq $dir }).Count -ne 1) { throw "install dir is not on user PATH exactly once" }
+
+            # Refusals: a wrong checksum, then none at all. Neither may install.
+            $env:TETEL_INSTALL_DIR = Join-Path $env:RUNNER_TEMP refused
+            [IO.File]::WriteAllText($sums, "$('0' * 64)  $zip`n")
+            $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
+            Write-Host $out
+            $out = $out -replace '[\s|]+', ' '   # pwsh wraps error text across '|' lines
+            if ($LASTEXITCODE -eq 0 -or $out -notmatch 'checksum verification FAILED') { throw "the mismatch case was not refused for its own reason" }
+            Remove-Item $sums
+            $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
+            Write-Host $out
+            $out = $out -replace '[\s|]+', ' '   # pwsh wraps error text across '|' lines
+            if ($LASTEXITCODE -eq 0 -or $out -notmatch 'refusing to install unverified') { throw "the missing case was not refused for its own reason" }
+            if (Test-Path (Join-Path $env:TETEL_INSTALL_DIR tetel.exe)) { throw "a refused install left tetel.exe behind" }
+          } finally {
+            Stop-Process -Id $srv.Id -ErrorAction SilentlyContinue
+          }
+          # Every check above passed. Actions ends a pwsh step with
+          # `exit $LASTEXITCODE`, which is still the expected refusal's 1.
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: cd dist && sha256sum -- * > checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

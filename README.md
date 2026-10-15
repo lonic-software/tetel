@@ -229,7 +229,32 @@ Hungarian *tétel*: a **line item in a ledger**, and a **proposition** in logic.
 ledger entries that are propositions, so the word already names the central object rather than
 describing it by analogy. Short, unambiguous to pronounce, and free of prior meaning in English.
 
-## Building and installing
+## Installing
+
+macOS / Linux / Git Bash:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lonic-software/tetel/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/lonic-software/tetel/main/install.ps1 | iex
+```
+
+Both download the latest release for your platform, verify it against the release's
+`checksums.txt` — refusing to install if it cannot, unless `TETEL_NO_VERIFY=1` — and install a
+single `tetel` binary to `~/.local/bin`, or `%LOCALAPPDATA%\Programs\tetel` on Windows. The checksums
+come from the same release as the binary, so this catches a corrupted download, not a compromised
+release. Pin a version with `TETEL_VERSION=v0.1.0`; choose the destination with `TETEL_INSTALL_DIR`. tetel
+runs `git` and `grep` at runtime; on Windows, Git for Windows provides both.
+
+Releases are built for macOS arm64/x64, Linux x64/arm64 (static musl) and Windows x64 by pushing a
+`vX.Y.Z` tag — `bin/release` does the bump, tag and push; `.github/workflows/release.yml` builds and
+publishes.
+
+### From source
 
 Requires a [Rust toolchain](https://rustup.rs). From a clone of this repository:
 
@@ -237,7 +262,9 @@ Requires a [Rust toolchain](https://rustup.rs). From a clone of this repository:
 cargo install --path .
 ```
 
-That puts a `tetel` binary in `~/.cargo/bin`, which needs to be on your `PATH`.
+That puts a `tetel` binary in `~/.cargo/bin`, which needs to be on your `PATH`. Don't keep both
+this and an installer copy: whichever comes first on your `PATH` wins, and the other goes stale
+silently.
 
 ### Using it from Claude Code
 
@@ -255,7 +282,7 @@ argument, but it is the form that keeps working once a command takes flags of it
 `--scope user` makes it available in every project; drop it to register only in the current one.
 Confirm with `claude mcp get tetel`, which should report `Status: ✔ Connected`.
 
-> **Rebuilding requires restarting Claude Code.** `cargo install` replaces the binary by rename, so
+> **Reinstalling requires restarting Claude Code.** Both `cargo install` and the installers replace the binary by rename, so
 > a server process already running keeps the file it opened — reinstalling does not reach it, and
 > neither does reloading plugins. Since a stale server would otherwise answer with an old build
 > rather than erroring, one that finds its binary replaced underneath it now **refuses every tool
