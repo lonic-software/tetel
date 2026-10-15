@@ -1,0 +1,25 @@
+#!/bin/sh
+# tetel installer entry point for pult (`pult x github.com/lonic-software/tetel install`).
+#
+# pult runs this through a POSIX shell. On macOS and Linux install.sh is the
+# whole story. On Windows, install.ps1 does what install.sh cannot from inside
+# Git Bash: it persists the native user PATH through the registry, so tetel is
+# found from PowerShell, cmd and Claude Code alike. So Windows goes there.
+#
+# Honors the same TETEL_* environment overrides as the two installers.
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+case "${OS:-}$(uname -s 2>/dev/null || true)" in
+    *Windows_NT* | *MINGW* | *MSYS* | *CYGWIN*)
+        # Prefer PowerShell 7; fall back to Windows PowerShell.
+        ps=pwsh
+        command -v pwsh >/dev/null 2>&1 || ps=powershell
+        script="$root/install.ps1"
+        command -v cygpath >/dev/null 2>&1 && script=$(cygpath -w "$script")
+        exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$script"
+        ;;
+esac
+
+exec "$root/install.sh"

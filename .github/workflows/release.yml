@@ -8,7 +8,7 @@ on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: ["install.sh", "install.ps1", ".github/workflows/release.yml"]
+    paths: ["install.sh", "install.ps1", "bin/install", "pult.module.yaml", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 # Write only where it is used: the build job runs the PR's own code.
@@ -196,6 +196,14 @@ jobs:
             if ($LASTEXITCODE) { throw "upgrade after the servers stopped failed" }
             $asides = @(Get-ChildItem $dir -Filter "tetel.exe.old-*")
             if ($asides.Count -ne 1) { throw "expected only the newest aside, found: $($asides.Name -join ', ')" }
+
+            # The pult module's entry point (`pult x ... install`), run by
+            # Git Bash as pult would, must hand Windows to install.ps1: its
+            # "installed <path> - <version>" line names a backslashed path.
+            $out = & "$env:ProgramFiles\Git\bin\bash.exe" bin/install 2>&1 | Out-String
+            Write-Host $out
+            if ($LASTEXITCODE) { throw "bin/install failed" }
+            if ($out -notmatch 'installed [A-Z]:\\\S+\\tetel\.exe - tetel ') { throw "bin/install did not route to install.ps1" }
 
             $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment")
             $raw = $key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
