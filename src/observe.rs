@@ -167,6 +167,12 @@ fn callers_spelling(caller_spelling: &str) -> Option<String> {
         return Some(spelled(Path::new(caller_spelling)));
     }
     let cwd = std::env::current_dir().ok()?;
+    // On Unix `current_dir` is already physical. On Windows it is the
+    // spelling the process was started with, which can carry 8.3 short
+    // names (`RUNNER~1`) that git's root never does; canonicalizing the
+    // directory alone resolves those and leaves the caller's own `..`
+    // untouched.
+    let cwd = if cfg!(windows) { fs::canonicalize(&cwd).unwrap_or(cwd) } else { cwd };
     Some(spelled(Path::new(&format!("{}/{}", cwd.display(), caller_spelling))))
 }
 
@@ -293,7 +299,9 @@ fn rendered_memos(root: &Path) -> Vec<String> {
             if let Some(stem) = name.strip_suffix(".tetel") {
                 let memo = path.with_file_name(stem);
                 if memo.is_file() {
-                    found.push(memo.display().to_string());
+                    let rel = memo.strip_prefix(root).unwrap_or(&memo);
+                    let rel: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+                    found.push(grep_spelling(root, &rel.join("/")));
                 }
                 // Nothing inside a snapshot is itself a memo.
                 continue;
@@ -303,6 +311,19 @@ fn rendered_memos(root: &Path) -> Vec<String> {
     }
     found.sort();
     found
+}
+
+/// `rel` under `root`, spelled the way grep prints it: `root` exactly as
+/// given, then `/`-separated components. On Unix that is `Path::join`. On
+/// Windows it is not — `join` inserts `\`, while grep (Git for Windows'
+/// MSYS build) prints `./gen/x.rs` for a root of `.`, so no exclusion
+/// built with `join` ever matched a line [`drop_excluded`] compared it to.
+fn grep_spelling(root: &Path, rel: &str) -> String {
+    if cfg!(windows) {
+        format!("{}/{}", root.display(), rel.replace('\\', "/"))
+    } else {
+        root.join(rel).display().to_string()
+    }
 }
 
 /// Everything `git` is told to ignore under `root`, spelled the way `root`
@@ -352,7 +373,7 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
         }
         let is_dir = line.ends_with('/');
         let rel = line.strip_suffix('/').unwrap_or(line);
-        found.push((is_dir, root.join(rel).display().to_string()));
+        found.push((is_dir, grep_spelling(root, rel)));
     }
     found.sort();
     found
@@ -369,6 +390,10 @@ fn ignored_paths(root: &Path) -> Vec<(bool, String)> {
 /// because a reader judging a negative claim acts on them: `vendor/` or
 /// `node_modules/` among the skipped paths is a reason to object.
 const IGNORED_SHOWN: usize = 8;
+
+/// How many characters of exclusion flags a Windows grep command line may
+/// carry — half its 32,767 limit, leaving the rest for the pattern and root.
+const EXCLUDE_FLAGS_BUDGET: usize = 16_000;
 
 /// What exclusions a search was given, and — when it was given none — why,
 /// with every git-ignored path it skipped.
@@ -510,6 +535,26 @@ impl Exclusions {
         memos.iter().any(|m| m == file)
             || ignored.iter().any(|(is_dir, p)| if *is_dir { under(p) } else { p == file })
     }
+}
+
+/// Makes `cmd`'s arguments arrive as passed, which on Unix they already
+/// do. On Windows the `grep` tetel needs is Git for Windows' MSYS build,
+/// and an MSYS program glob-expands its own command line, treating `\` as
+/// the glob escape: `cfg\(test\)` arrived as `cfg(test)` and searched for
+/// `cfgtest`, and a `[`/`*`/`?` pattern could expand against filenames.
+/// `MSYS=noglob` turns that off, appended so other MSYS options survive.
+fn verbatim_args(cmd: &mut Command) -> &mut Command {
+    if cfg!(windows) {
+        let mut v = std::env::var("MSYS").unwrap_or_default();
+        if !v.split_whitespace().any(|o| o == "noglob") {
+            if !v.is_empty() {
+                v.push(' ');
+            }
+            v.push_str("noglob");
+        }
+        cmd.env("MSYS", v);
+    }
+    cmd
 }
 
 /// Splits one `grep -H -n` output line into its filename and the rest, at
@@ -930,7 +975,7 @@ fn grep_stderr_or_placeholder(output: &std::process::Output) -> String {
 /// when nothing was found).
 fn ere_precheck(workspace_dir: &Path, pattern: &str) -> Result<(), AuthoringError> {
     let probe = |p: &str| -> Result<std::process::Output, AuthoringError> {
-        Command::new("grep")
+        verbatim_args(&mut Command::new("grep"))
             .args(["-E", "-e", p, "/dev/null"])
             .output()
             .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))
@@ -1110,6 +1155,14 @@ typed as",
         for (is_dir, path) in ignored {
             owned.push(if *is_dir { format!("--exclude-dir={path}") } else { format!("--exclude={path}") });
         }
+        // Windows caps a whole command line at 32,767 characters, and a
+        // tree with many ignored paths blew it: grep failed to start (os
+        // error 206) and the search was refused. Past the budget the
+        // per-path flags are dropped — they only let grep skip reading a
+        // tree; `drop_excluded` is what makes the exclusion hold.
+        if cfg!(windows) && owned.iter().map(|f| f.len() + 3).sum::<usize>() > EXCLUDE_FLAGS_BUDGET {
+            owned.truncate(2);
+        }
     }
     for flag in &owned {
         args.push(flag);
@@ -1119,7 +1172,7 @@ typed as",
     args.push(pattern);
     args.push(root);
 
-    let output = Command::new("grep")
+    let output = verbatim_args(&mut Command::new("grep"))
         .args(&args)
         .output()
         .map_err(|e| AuthoringError::Io(format!("could not run grep: {e}")))?;
@@ -1530,6 +1583,7 @@ pub fn run_command(workspace_dir: &Path, argv: &[String]) -> Result<RunOutcome, 
     let started = Instant::now();
 
     let mut cmd = Command::new(&argv[0]);
+    verbatim_args(&mut cmd);
     cmd.args(&argv[1..])
         // Null, never inherited. `run` passes `argv` and nothing else — there
         // is no way for an author to supply input — so a child reading stdin

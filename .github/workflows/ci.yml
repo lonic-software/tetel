@@ -48,7 +48,7 @@ jobs:
       # it out from under a running server. Neither had ever run off a
       # macOS developer machine before this workflow existed.
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --all-targets --no-fail-fast
 
       - name: Release build
         run: cargo build --release
