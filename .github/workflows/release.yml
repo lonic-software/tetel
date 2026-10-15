@@ -159,10 +159,12 @@ jobs:
             [IO.File]::WriteAllText($sums, "$('0' * 64)  $zip`n")
             $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
             Write-Host $out
+            $out = $out -replace '[\s|]+', ' '   # pwsh wraps error text across '|' lines
             if ($LASTEXITCODE -eq 0 -or $out -notmatch 'checksum verification FAILED') { throw "the mismatch case was not refused for its own reason" }
             Remove-Item $sums
             $out = pwsh -NoProfile -File install.ps1 2>&1 | Out-String
             Write-Host $out
+            $out = $out -replace '[\s|]+', ' '   # pwsh wraps error text across '|' lines
             if ($LASTEXITCODE -eq 0 -or $out -notmatch 'refusing to install unverified') { throw "the missing case was not refused for its own reason" }
             if (Test-Path (Join-Path $env:TETEL_INSTALL_DIR tetel.exe)) { throw "a refused install left tetel.exe behind" }
           } finally {
