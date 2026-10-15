@@ -110,7 +110,7 @@ esac
 
 mkdir -p "$INSTALL_DIR"
 # Absolute: the PATH note and the shadowing check compare against it.
-INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd)
+INSTALL_DIR=$(CDPATH='' cd -- "$INSTALL_DIR" && pwd) || err "cannot use ${INSTALL_DIR}"
 dest="${INSTALL_DIR}/${bin}"
 upgrading=""
 [ -e "$dest" ] && upgrading=1

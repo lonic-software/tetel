@@ -25,8 +25,11 @@ $ProgressPreference = "SilentlyContinue"   # the progress bar slows IWR down bad
 $Repo = if ($env:TETEL_REPO) { $env:TETEL_REPO } else { "lonic-software/tetel" }
 $Version = if ($env:TETEL_VERSION) { $env:TETEL_VERSION } else { "latest" }
 $InstallDir = if ($env:TETEL_INSTALL_DIR) { $env:TETEL_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\tetel" }
-# Absolute and in Windows form: it is written into the persistent user PATH.
-$InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+# Absolute, against the PowerShell location (not the process directory),
+# since it is written into the persistent user PATH. A drive root keeps its
+# backslash: `C:` alone means the current directory on C.
+$InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
+if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
 
 if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") {
     throw "no Windows ARM build yet - build from source: cargo install --path ."

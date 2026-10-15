@@ -5,7 +5,8 @@ commands:
   - id: release
     title: Cut a release (bump → tag → push; CI builds and publishes)
     params:
-      # next patch / minor / major from the latest v* tag; patch is the default
+      # next patch / minor / major from the latest vX.Y.Z tag, patch the default;
+      # before the first tag, Cargo.toml's own version comes first
       version: { pick: { from: "./bin/release-candidates" } }
     run: "./bin/release {version}"
 
