@@ -281,7 +281,7 @@ That is the minimum. Everything else has a default. Check what is in force with:
 tetel config                       # every setting, its value, and which file supplied it
 ```
 
-Settings live in `~/.config/tetel/config.toml` (or `$TETEL_CONFIG_HOME` / `$XDG_CONFIG_HOME/tetel`),
+Settings live in `~/.config/tetel/config.toml` — `%APPDATA%\tetel\config.toml` on Windows — (or `$TETEL_CONFIG_HOME` / `$XDG_CONFIG_HOME/tetel`),
 and a workspace can override any of them in its own state directory with `--workspace-scope`.
 
 ---

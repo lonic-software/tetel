@@ -40,7 +40,10 @@
 //!
 //!   1. `$TETEL_CONFIG_HOME`, if set.
 //!   2. `$XDG_CONFIG_HOME/tetel`, if `XDG_CONFIG_HOME` is set.
-//!   3. `$HOME/.config/tetel`.
+//!   3. `~/.config/tetel` — or `%APPDATA%\tetel` on Windows, roaming
+//!      rather than local because configuration is hand-written and
+//!      follows the user, unlike the state home. See
+//!      [`crate::workspace::user_dir`].
 //!
 //! This deviates from the sibling tool the layout was modelled on, which
 //! keeps a single dotfile in the home directory. The deviation is
@@ -461,8 +464,7 @@ pub fn global_dir() -> PathBuf {
             return PathBuf::from(p).join("tetel");
         }
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".config").join("tetel")
+    crate::workspace::user_dir("APPDATA", &[".config"]).join("tetel")
 }
 
 /// The global file's path. May not exist; absence is not an error.

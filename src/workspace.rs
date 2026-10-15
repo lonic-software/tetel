@@ -58,9 +58,11 @@
 //!      suite points every run at a private temporary directory rather
 //!      than a real user's state.
 //!   2. `$XDG_STATE_HOME/tetel`, if `XDG_STATE_HOME` is set.
-//!   3. `$HOME/.local/state/tetel` — the XDG default location, applied
+//!   3. `~/.local/state/tetel` — the XDG default location, applied
 //!      by hand rather than pulling in a platform-directories dependency
-//!      for one path.
+//!      for one path. On Windows, `%LOCALAPPDATA%\tetel` instead: Windows
+//!      sets no `$HOME`, and local (not roaming) app data is where
+//!      machine-owned, regenerable state belongs there. See [`user_dir`].
 //!
 //! Under that root, one directory per named workspace — `workspaces/<name>`,
 //! `<name>` defaulting to `default` and overridable with the CLI's
@@ -86,8 +88,30 @@ pub fn state_home() -> PathBuf {
     if let Ok(p) = env::var("XDG_STATE_HOME") {
         return PathBuf::from(p).join("tetel");
     }
-    let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".local").join("state").join("tetel")
+    user_dir("LOCALAPPDATA", &[".local", "state"]).join("tetel")
+}
+
+/// The per-user directory a default location is built under once no
+/// override has named one: on Windows the folder the environment variable
+/// `windows_var` names (`LOCALAPPDATA` or `APPDATA`), everywhere else the
+/// home directory joined with `unix_rel`.
+///
+/// `$HOME` is not read directly. Windows does not set it — a plain
+/// PowerShell has none, and Git Bash's is an MSYS spelling — so reading
+/// it there silently put every workspace under `.`, the current
+/// directory, which is the one place [`state_home`] exists to keep
+/// tetel's state out of. `env::home_dir` reads `$HOME` on Unix and
+/// asks the OS when it is unset; on Windows it is the fallback when the
+/// known-folder variable is missing. `.` remains only for a platform
+/// that can name no home directory at all.
+pub(crate) fn user_dir(windows_var: &str, unix_rel: &[&str]) -> PathBuf {
+    if cfg!(windows) {
+        if let Some(p) = env::var_os(windows_var).filter(|p| !p.is_empty()) {
+            return PathBuf::from(p);
+        }
+    }
+    let home = env::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    unix_rel.iter().fold(home, |dir, part| dir.join(part))
 }
 
 /// The directory one named workspace's state lives in.

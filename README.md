@@ -92,7 +92,7 @@ arrive as JSON with no shell in the path, so text that a shell would corrupt sur
 | `design.md.evidence.jsonl` | the grounding ledger: append-only [in-toto](https://in-toto.io) statements, one per claim per pass, each carrying a digest of the exact proposition text it graded |
 | `design.md.tetel/` | the snapshot — the workspace state that produced the document, shipped beside it so a citation resolves in a repository that never had the workspace |
 | `design.md.tetel/render.json` | the render record — digests of the document and of each snapshot file, and the build that rendered them, so drift can say which of the three moved |
-| `~/.local/state/tetel/workspaces/<name>/` | live authoring state: facts, claims, prose, refusals, identity |
+| `~/.local/state/tetel/workspaces/<name>/` | live authoring state: facts, claims, prose, refusals, identity (`%LOCALAPPDATA%\tetel\workspaces\<name>\` on Windows) |
 
 Markdown is what `render` emits, not what tetel is about. **The render target is the most replaceable
 piece here**; the evidence and the claims resting on it are not.

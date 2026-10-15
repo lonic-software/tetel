@@ -3,7 +3,7 @@
 # authoritative for the repository — including for a contributor who has
 # never heard of that hook.
 #
-# Two platforms on purpose, not for portability theatre. `buildid.rs` and
+# Several platforms on purpose, not for portability theatre. `buildid.rs` and
 # `worldstate.rs` both document behaviour that differs between macOS and
 # Linux — `current_exe()` resolving through /proc/self/exe, and what a
 # rename-replace does to a running binary. Those claims were reasoned about
@@ -21,10 +21,17 @@ permissions:
 jobs:
   test:
     strategy:
-      fail-fast: false # a failure on one platform must not hide the other's result
+      fail-fast: false # a failure on one platform must not hide the others' results
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Windows is a release target (install.ps1 ships its build) but had
+        # never run the suite. Its steps run under Git Bash, which puts the
+        # `git` and `grep` tetel shells out to on PATH — the setup README
+        # tells Windows users to have.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 

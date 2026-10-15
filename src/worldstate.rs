@@ -314,6 +314,7 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
                 )
                 && !entry.label.is_empty()
                 && !entry.label.starts_with('/')
+                && !Path::new(&entry.label).is_absolute()
             {
                 // One row per fact, not per entry — see this field's
                 // own doc comment for why an unaggregated list is unsound
