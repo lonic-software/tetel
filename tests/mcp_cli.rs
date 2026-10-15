@@ -2234,6 +2234,9 @@ async fn run_shapes_its_own_reply_and_the_backstop_never_fires() {
         .status()
         .unwrap();
     assert!(status.success());
+    // Windows caps a whole command line at 32,767 characters, so 50,000
+    // cannot be spawned there at all; 20,000 still dwarfs ENTRY_CAP.
+    let long = if cfg!(windows) { "x".repeat(20_000) } else { long };
     let r = run(vec!["sh".into(), "-c".into(), "sleep 5".into(), long]).await.expect("run");
     assert_eq!(r.is_error, Some(true), "premise: the command must time out");
     let t = text(&r);
@@ -2669,9 +2672,12 @@ async fn attention_keeps_the_whole_budget_beside_any_verify() {
         let client = sb.connect().await;
         let ws = "ws";
         let pattern = format!("needle|{}", (0..400).map(|i| format!("q{i}")).collect::<Vec<_>>().join("|"));
+        // Relative, so the reply's size does not depend on the machine's temp
+        // path: the 10-finding case sits within a few hundred bytes of the
+        // budget, and Windows' longer, JSON-escaped temp path pushed it over.
         let r = client
             .call_tool(CallToolRequestParams::new("look").with_arguments(args(serde_json::json!({
-                "workspace": ws, "path": sb.dir.join("src").to_str().unwrap(), "grep": pattern,
+                "workspace": ws, "path": "src", "grep": pattern,
             }))))
             .await
             .expect("look");
