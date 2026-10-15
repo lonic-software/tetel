@@ -1,6 +1,6 @@
 [package]
 name = "tetel"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Prevention at authoring time, not review afterwards — designs whose factual claims cannot be written without the executable evidence that holds them up"
 license = "MIT"
