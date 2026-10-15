@@ -1783,13 +1783,13 @@ mod tests {
     /// removing the reconciliation entirely leaves the CLI tests green.
     /// A symlinked directory forces the disagreement deterministically.
     #[test]
+    #[cfg(unix)]
     fn a_search_root_reached_through_a_symlink_is_keyed_the_way_its_marker_spells_it() {
         let base = std::env::temp_dir().join(format!("tetel-search-key-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let real = base.join("real");
         fs::create_dir_all(&real).unwrap();
         let link = base.join("link");
-        #[cfg(unix)]
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
         // The divergence that matters runs this way round. `resolve_key`

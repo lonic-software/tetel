@@ -2322,20 +2322,26 @@ async fn look_cuts_every_echoed_pattern_and_path() {
     let r = look(serde_json::json!({"workspace": "ws", "path": missing, "grep": "needle"})).await.expect("look");
     within_budget_uncut("no such path, grep", &r);
 
-    // A partial search: one file grep cannot read, one it can.
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": format!("needle|{long}")})).await.expect("look");
-    let text = within_budget_uncut("partial-search caveat", &r);
-    assert!(text.contains("PARTIAL SEARCH"), "premise: the search must be partial (not run as root):\n{}", &text[..text.len().min(300)]);
-    assert!(text.contains("hit.txt"), "a partial search must still show its match:\n{}", &text[..text.len().min(3000)]);
+    // A partial search: one file grep cannot read, one it can. Unix only:
+    // mode 0o000 has no Windows equivalent that grep honours.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let r = look(serde_json::json!({"workspace": "ws", "path": tree, "grep": format!("needle|{long}")})).await.expect("look");
+        let text = within_budget_uncut("partial-search caveat", &r);
+        assert!(text.contains("PARTIAL SEARCH"), "premise: the search must be partial (not run as root):\n{}", &text[..text.len().min(300)]);
+        assert!(text.contains("hit.txt"), "a partial search must still show its match:\n{}", &text[..text.len().min(3000)]);
 
-    // Nothing readable at all: the search is refused rather than recorded.
-    let only_locked = locked.display().to_string();
-    let r = look(serde_json::json!({"workspace": "ws", "path": only_locked, "grep": format!("needle|{long}")})).await.expect("look");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let text = within_budget_uncut("unreadable-tree refusal", &r);
-    assert!(text.contains("grep could not read"), "premise: the unreadable refusal:\n{}", &text[..text.len().min(300)]);
+        // Nothing readable at all: the search is refused rather than recorded.
+        let only_locked = locked.display().to_string();
+        let r = look(serde_json::json!({"workspace": "ws", "path": only_locked, "grep": format!("needle|{long}")})).await.expect("look");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let text = within_budget_uncut("unreadable-tree refusal", &r);
+        assert!(text.contains("grep could not read"), "premise: the unreadable refusal:\n{}", &text[..text.len().min(300)]);
+    }
+    #[cfg(not(unix))]
+    let _ = locked;
 
     client.cancel().await.expect("clean shutdown");
 }

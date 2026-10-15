@@ -4414,6 +4414,7 @@ fn tet42_leaves_a_path_outside_any_repository_absolute_and_unmarked() {
 }
 
 #[test]
+#[cfg(unix)] // builds its witness from a symlink
 fn tet42_a_symlink_escape_spelled_in_the_path_does_not_relativize() {
     // The forgery this ticket's third condition exists to close: the key
     // sits under the *escaped-to* repository's own root (condition two
@@ -4427,7 +4428,6 @@ fn tet42_a_symlink_escape_spelled_in_the_path_does_not_relativize() {
     init_repo(&outer);
     init_repo(&otherrepo);
     std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
 
     let escape = outer.join("link/x.txt");
@@ -4460,6 +4460,7 @@ fn tet42_a_dotdot_escape_to_a_different_repository_is_left_relative_and_unmarked
 }
 
 #[test]
+#[cfg(unix)] // builds its witness from a symlink
 fn tet42_a_dotdot_that_returns_into_the_same_repo_via_symlink_still_relativizes() {
     // What the concatenating rule buys over collapsing: `<repo>/c` is a
     // symlink back *inside* the same repository, so `../c/f.txt` from
@@ -4472,7 +4473,6 @@ fn tet42_a_dotdot_that_returns_into_the_same_repo_via_symlink_still_relativizes(
     init_repo(&repo);
     std::fs::create_dir_all(repo.join("outer")).unwrap();
     std::fs::write(repo.join("f.txt"), "reentry\n").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(&repo, repo.join("c")).unwrap();
 
     let outer_dir = repo.join("outer");
@@ -4508,6 +4508,7 @@ fn tet42_a_nested_repo_reached_by_a_dot_prefixed_spelling_does_not_relativize() 
 }
 
 #[test]
+#[cfg(unix)] // builds its witness from a symlink
 fn tet42_a_working_directory_reached_through_a_symlink_mints_a_bare_label_anchored_elsewhere() {
     // The one shape this design does not close at capture, stated as such
     // rather than silently passing: `cd`-ing through a symlink into
@@ -4523,7 +4524,6 @@ fn tet42_a_working_directory_reached_through_a_symlink_mints_a_bare_label_anchor
     init_repo(&outer);
     init_repo(&otherrepo);
     std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
 
     let link_dir = outer.join("link");
@@ -4577,6 +4577,7 @@ fn tet42_a_proc_label_never_relativizes() {
 }
 
 #[test]
+#[cfg(unix)] // builds its witness from a symlink
 fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels() {
     // End-to-end: two facts whose labels relativize against two different
     // repositories (one via the open cwd-symlink gap) must show up in
@@ -4590,7 +4591,6 @@ fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels()
     std::fs::create_dir_all(outer.join("sub")).unwrap();
     std::fs::write(outer.join("sub/f.txt"), "OUTER x\n").unwrap();
     std::fs::write(otherrepo.join("x.txt"), "OTHER FILE\n").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(&otherrepo, outer.join("link")).unwrap();
 
     run_in(&sb, &outer, &["look", "sub/f.txt"]);
