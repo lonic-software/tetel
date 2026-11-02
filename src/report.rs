@@ -66,6 +66,7 @@ pub const HUMAN_OWED_CATEGORIES: &[&str] = &[
     "every READING/OBSERVED/ATTESTED row",
     "every row whose domain or extent contains a proc:/external designator",
     "the working-tree states this memo's facts were taken against",
+    "facts whose captured extent differs from the tree today",
     "the RUN command\u{2194}proposition correspondence",
     "cited-but-undefined and defined-but-uncited ids",
     "ungrounded ledger claims",
@@ -100,6 +101,14 @@ pub fn join_categories(categories: &[&str]) -> String {
 }
 
 const NON_COVERAGE: &[&str] = &[
+    "whether a search would still answer the same: a stale extent compares the files a fact \
+read and the hits it captured, so a new hit, or a new match for a search that once found none, \
+goes unreported",
+    "a line range whose text is too plain to tell apart: a range matches wherever its lines \
+still sit together, so a lone `}` or a blank line stands while the file holds another, \
+and a captured blank line stands once the file is empty",
+    "a stale extent on a file whose own name reads like a line range, such as `x lines 1-2`: \
+the capture is read back off its label, so that file compares as the range its name spells",
     "dependents that never declared themselves",
     "deleted premises",
     "one word used in two senses",
@@ -857,6 +866,22 @@ once rendered, and not resolvable against any root this document declares):\n",
                 labels.join(", ")
             ));
         }
+    }
+    if !findings.stale_extents.is_empty() {
+        out.lead("stale extent",
+            "  - facts whose captured extent differs from the tree today. Not a defect — a memo \
+describes the tree it was captured against — but a claim citing one rests on text that has since \
+moved, and nothing else here says so. Re-read these before trusting what cites them:\n",
+        );
+        for s in &findings.stale_extents {
+            out.row("stale extent", format!("      {}: {}\n", s.fact_id, s.subjects.join("; ")));
+        }
+    }
+    for (reason, ids) in &findings.unknown_extents {
+        out.row("stale extent unknown", format!(
+            "  - [{}]: could not be compared with the tree today, which says nothing either way: {reason}\n",
+            ids.join(", ")
+        ));
     }
     for o in &findings.notes_outside_extent {
         out.row("note outside extent", format!(
