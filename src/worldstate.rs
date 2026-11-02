@@ -364,8 +364,8 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
 /// from — one row per fact, the aggregation `unmarked_relative_labels` uses.
 pub struct StaleExtent {
     pub fact_id: String,
-    /// One line per subject: its label, what happened to it, and the two
-    /// tree states it is compared across.
+    /// One line per subject: its label, what happened to it, and the tree
+    /// state it was captured at.
     pub subjects: Vec<String>,
 }
 
@@ -389,7 +389,8 @@ enum PathCapture {
     Range,
     /// One over-long line, cut to its first bytes.
     Cut,
-    NothingInRange,
+    /// A range starting past the end of the file, at this line.
+    NothingInRange(usize),
 }
 
 fn path_capture(label: &str) -> PathCapture {
@@ -405,7 +406,9 @@ fn path_capture(label: &str) -> PathCapture {
     match &after_dash[second..] {
         "" => PathCapture::Range,
         tail if tail.starts_with(", cut to its first ") => PathCapture::Cut,
-        tail if tail.starts_with(" (file has ") => PathCapture::NothingInRange,
+        tail if tail.starts_with(" (file has ") => {
+            rest[..first].parse().map_or(PathCapture::Whole, PathCapture::NothingInRange)
+        }
         _ => PathCapture::Whole,
     }
 }
@@ -418,16 +421,24 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
     use crate::pending::ObservationKind::GrepMatch;
     if kind == GrepMatch {
         // `split_grep_line` left each hit as `<line number>:<text>`. Every
-        // hit must survive; a new hit in this file is the search's question.
+        // hit must survive, duplicates counted: `dup` captured twice needs two
+        // lines still. A new hit in this file is the search's question.
+        let mut left: Vec<&str> = current.lines().collect();
         return captured.lines().all(|hit| {
             let text = hit.split_once(':').map_or(hit, |(_, text)| text);
-            current.lines().any(|line| line == text)
+            match left.iter().position(|line| *line == text) {
+                Some(at) => {
+                    left.swap_remove(at);
+                    true
+                }
+                None => false,
+            }
         });
     }
     match path_capture(label) {
         PathCapture::Whole => current == captured,
         PathCapture::Cut => current.contains(captured),
-        PathCapture::NothingInRange => true,
+        PathCapture::NothingInRange(first) => current.lines().count() < first,
         PathCapture::Range => {
             let want: Vec<&str> = captured.lines().collect();
             let have: Vec<&str> = current.lines().collect();
@@ -438,6 +449,14 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
 
 fn short(state: &str) -> &str {
     state.get(..16).unwrap_or(state)
+}
+
+/// Whether `root` is still the top of a git worktree. Only the root, never
+/// [`compute`]: a dirty non-UTF-8 diff makes the state unresolvable on a tree
+/// that is plainly here, and `git diff` runs what a repository's config names,
+/// at a path `check` was handed by a memo it may have just received.
+fn root_is_here(root: &str) -> bool {
+    run_git(Path::new(root), &["rev-parse", "--show-toplevel"]).is_some_and(|top| top.trim() == root)
 }
 
 /// Which facts' captured extents differ from the same path in their
@@ -454,7 +473,7 @@ fn short(state: &str) -> &str {
 pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
     use crate::pending::ObservationKind::{GrepMatch, Path as PathKind};
     let mut drift = ExtentDrift::default();
-    let mut session = Session::new();
+    let mut roots: HashMap<String, bool> = HashMap::new();
     let mut unknown = |reason: String, id: &str| match drift.unknown.iter_mut().find(|(r, _)| *r == reason) {
         Some((_, ids)) => {
             if !ids.iter().any(|i| i == id) {
@@ -498,8 +517,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 unknown("observed outside any git worktree".to_string(), &fact.id);
                 continue;
             }
-            let now = session.for_path(Path::new(&entry.world_root));
-            if now.root != entry.world_root {
+            if !*roots.entry(entry.world_root.clone()).or_insert_with(|| root_is_here(&entry.world_root)) {
                 unknown(format!("{} is not available here", entry.world_root), &fact.id);
                 continue;
             }
@@ -508,6 +526,12 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 continue;
             };
             let path = Path::new(&entry.key);
+            // A grep line naming a file with `:` in it keys on a fragment,
+            // which would be resolved against wherever `check` was started.
+            if !path.is_absolute() {
+                unknown(format!("{} does not name a path", entry.key), &fact.id);
+                continue;
+            }
             // Asked before the read: a FIFO put where a file was would block
             // `read_to_string` forever (TET-79).
             // `Err` is "could not tell"; `Ok(None)` is "still stands".
@@ -516,18 +540,25 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Ok(Some("no longer exists")),
                 Err(_) => Err(()),
                 Ok(meta) if !meta.is_file() => Ok(Some("is no longer a regular file")),
-                Ok(_) => match std::fs::read_to_string(path) {
-                    Ok(current) => Ok((!still_matches(kind, &entry.label, captured, &current)).then_some("differs")),
-                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(Some("differs")),
+                Ok(_) => match std::fs::read(path) {
                     Err(_) => Err(()),
+                    Ok(bytes) => {
+                        // `look` refuses a non-UTF-8 file, but a grep hit is
+                        // captured lossily, so it compares the same way.
+                        let current = match (kind, String::from_utf8_lossy(&bytes)) {
+                            (PathKind, std::borrow::Cow::Owned(_)) => None,
+                            (_, text) => Some(text),
+                        };
+                        let stands = current.is_some_and(|c| still_matches(kind, &entry.label, captured, &c));
+                        Ok((!stands).then_some("differs"))
+                    }
                 },
             };
             match verdict {
                 Ok(Some(what)) => subjects.push(format!(
-                    "{} {what}: captured at {}, tree now at {}",
+                    "{} {what} since capture at {}",
                     entry.label,
-                    short(&entry.world_state),
-                    short(&now.state)
+                    short(&entry.world_state)
                 )),
                 Ok(None) => {}
                 Err(()) => unknown(format!("{} could not be read here", entry.key), &fact.id),
@@ -544,6 +575,17 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_capture_reads_every_label_look_path_writes() {
+        assert_eq!(path_capture("a.rs"), PathCapture::Whole);
+        assert_eq!(path_capture("a.rs lines 2-3"), PathCapture::Range);
+        assert_eq!(path_capture("a.rs lines 2-2, cut to its first 9 of 90 bytes"), PathCapture::Cut);
+        assert_eq!(
+            path_capture("a.rs lines 5-9 (file has 3 line(s); nothing in range)"),
+            PathCapture::NothingInRange(5)
+        );
+    }
 
     fn fact(id: &str, extent: &[(&str, &str)]) -> crate::facts::Fact {
         crate::facts::Fact {

@@ -104,6 +104,8 @@ const NON_COVERAGE: &[&str] = &[
     "whether a search would still answer the same: a stale extent compares the files a fact \
 read and the hits it captured, so a new hit, or a new match for a search that once found none, \
 goes unreported",
+    "a line range whose text is too plain to tell apart: a range matches wherever its lines \
+still sit together, so a lone `}` or a blank line stands while the file holds another",
     "dependents that never declared themselves",
     "deleted premises",
     "one word used in two senses",
