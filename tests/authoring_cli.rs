@@ -4880,14 +4880,30 @@ fn a_captured_blank_line_goes_stale_once_the_file_has_none() {
 }
 
 #[test]
-fn a_subject_grown_past_the_cap_is_unknown_and_not_read() {
+fn a_subject_past_the_cap_is_stale_if_whole_and_unknown_if_a_range() {
     let sb = Sandbox::new("tet90-cap");
     let (repo, memo) = one_fact_memo(&sb, &[("a.txt", b"alpha\n")], &["look", "a.txt"]);
     let f = std::fs::OpenOptions::new().write(true).open(repo.join("a.txt")).unwrap();
     f.set_len(65 * 1024 * 1024).unwrap();
     let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_some(), "{report}");
+    assert!(!report.contains("MiB compared"), "{report}");
+
+    let sb = Sandbox::new("tet90-cap-range");
+    let (repo, memo) = one_fact_memo(&sb, &[("a.txt", b"alpha\nbeta\n")], &["look", "a.txt", "--lines", "1:1"]);
+    let f = std::fs::OpenOptions::new().write(true).open(repo.join("a.txt")).unwrap();
+    f.set_len(65 * 1024 * 1024).unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
     assert!(stale_row(&report, "F1").is_none(), "{report}");
-    assert!(report.contains("too large to compare"), "{report}");
+    assert!(report.contains("larger than the 64 MiB compared"), "{report}");
+}
+
+#[test]
+fn an_empty_file_named_like_a_range_is_not_stale_untouched() {
+    let sb = Sandbox::new("tet90-forged");
+    let (repo, memo) = one_fact_memo(&sb, &[("x lines 1-2", b"")], &["look", "x lines 1-2"]);
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_none(), "{report}");
 }
 
 // --- TET-93: `look` shapes its own reply to the reply budget -------------

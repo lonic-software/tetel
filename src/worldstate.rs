@@ -445,8 +445,13 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
         PathCapture::Cut => current.contains(captured),
         PathCapture::NothingInRange(first) => current.lines().count() < first,
         PathCapture::Range => {
-            // An empty capture in range can only be one blank line: a range
-            // past the end has its own label.
+            // An empty capture in range is one blank line, a range past the end
+            // having its own label, or an empty file whose own name reads as
+            // a range. An empty file today stands for both: the second must
+            // not read as changed when nothing touched it.
+            if captured.is_empty() && current.is_empty() {
+                return true;
+            }
             let want: Vec<&str> = if captured.is_empty() { vec![""] } else { captured.lines().collect() };
             let have: Vec<&str> = current.lines().collect();
             have.windows(want.len()).any(|w| w == want.as_slice())
@@ -454,9 +459,22 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
     }
 }
 
-/// Larger than any file worth comparing. A memo chooses the paths `check`
-/// reads, and may have just been received.
+/// A memo chooses the paths `check` reads, and may have just been received, so
+/// the read is bounded. Far above what a whole-file capture can hold, since
+/// `look` pages or cuts past its reply budget. A special file that reports as
+/// regular and never ends can still block the read.
 const MAX_COMPARED_BYTES: u64 = 64 * 1024 * 1024;
+
+fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(MAX_COMPARED_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn too_large(key: &str) -> String {
+    format!("{key} is larger than the {} MiB compared", MAX_COMPARED_BYTES / (1024 * 1024))
+}
 
 /// Whether a `GrepMatch` capture reads as `grep -n` hits. A file name holding
 /// a `:` splits early, leaving `b.txt:1:text` and a key naming some other path.
@@ -545,21 +563,35 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 continue;
             };
             let path = Path::new(&entry.key);
-            if !path.is_absolute() || (kind == GrepMatch && !hits_are_well_formed(captured)) {
-                unknown(format!("{} (from a file name with a `:` in it) does not name the subject", entry.key), &fact.id);
+            if !path.is_absolute() {
+                unknown(format!("{} does not name the subject: it is not an absolute path", entry.key), &fact.id);
+                continue;
+            }
+            if kind == GrepMatch && !hits_are_well_formed(captured) {
+                unknown(
+                    format!("{} does not name the subject: a hit has no line number, as a file name holding a `:` would leave it", entry.key),
+                    &fact.id,
+                );
                 continue;
             }
             // Asked before the read: a FIFO put where a file was would block
             // `read_to_string` forever (TET-79).
-            // `Err` is "could not tell"; `Ok(None)` is "still stands".
-            let verdict: Result<Option<&str>, ()> = match std::fs::metadata(path) {
+            // `Err` is why it could not tell; `Ok(None)` is "still stands".
+            let verdict: Result<Option<&str>, String> = match std::fs::metadata(path) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some("no longer exists")),
                 Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Ok(Some("no longer exists")),
-                Err(_) => Err(()),
+                Err(_) => Err(format!("{} could not be read here", entry.key)),
                 Ok(meta) if !meta.is_file() => Ok(Some("is no longer a regular file")),
-                Ok(meta) if meta.len() > MAX_COMPARED_BYTES => Err(()),
-                Ok(_) => match std::fs::read(path) {
-                    Err(_) => Err(()),
+                Ok(meta) if meta.len() > MAX_COMPARED_BYTES => {
+                    if kind == PathKind && path_capture(&entry.label) == PathCapture::Whole {
+                        Ok(Some("differs"))
+                    } else {
+                        Err(too_large(&entry.key))
+                    }
+                }
+                Ok(_) => match read_bounded(path) {
+                    Err(_) => Err(format!("{} could not be read here", entry.key)),
+                    Ok(bytes) if bytes.len() as u64 > MAX_COMPARED_BYTES => Err(too_large(&entry.key)),
                     Ok(bytes) => {
                         // `look` refuses a non-UTF-8 file, but a grep hit is
                         // captured lossily, so it compares the same way.
@@ -579,7 +611,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                     short(&entry.world_state)
                 )),
                 Ok(None) => {}
-                Err(()) => unknown(format!("{} could not be read here, or is too large to compare", entry.key), &fact.id),
+                Err(reason) => unknown(reason, &fact.id),
             }
         }
         if !subjects.is_empty() {
