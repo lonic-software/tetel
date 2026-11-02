@@ -4877,6 +4877,9 @@ fn a_captured_blank_line_goes_stale_once_the_file_has_none() {
     std::fs::write(repo.join("b.txt"), "x\ny\n").unwrap();
     let (report, _) = check_in(&sb, &repo, &memo);
     assert!(stale_row(&report, "F1").is_some(), "{report}");
+    std::fs::write(repo.join("b.txt"), "").unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_none(), "the stated trade: {report}");
 }
 
 #[test]

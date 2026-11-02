@@ -460,10 +460,15 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
 }
 
 /// A memo chooses the paths `check` reads, and may have just been received, so
-/// the read is bounded. Far above what a whole-file capture can hold, since
-/// `look` pages or cuts past its reply budget. A special file that reports as
-/// regular and never ends can still block the read.
+/// the read is bounded. A special file that reports as regular and never ends
+/// can still block it.
 const MAX_COMPARED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// A whole capture equals the file byte for byte, so a length that differs
+/// settles it without a read.
+fn whole_capture_cannot_match(kind: crate::pending::ObservationKind, label: &str, captured: &str, len: u64) -> bool {
+    kind == crate::pending::ObservationKind::Path && path_capture(label) == PathCapture::Whole && len != captured.len() as u64
+}
 
 fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
@@ -575,7 +580,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 continue;
             }
             // Asked before the read: a FIFO put where a file was would block
-            // `read_to_string` forever (TET-79).
+            // the read forever (TET-79).
             // `Err` is why it could not tell; `Ok(None)` is "still stands".
             let verdict: Result<Option<&str>, String> = match std::fs::metadata(path) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some("no longer exists")),
@@ -583,7 +588,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 Err(_) => Err(format!("{} could not be read here", entry.key)),
                 Ok(meta) if !meta.is_file() => Ok(Some("is no longer a regular file")),
                 Ok(meta) if meta.len() > MAX_COMPARED_BYTES => {
-                    if kind == PathKind && path_capture(&entry.label) == PathCapture::Whole {
+                    if whole_capture_cannot_match(kind, &entry.label, captured, meta.len()) {
                         Ok(Some("differs"))
                     } else {
                         Err(too_large(&entry.key))
@@ -635,6 +640,15 @@ mod tests {
             path_capture("a.rs lines 5-9 (file has 3 line(s); nothing in range)"),
             PathCapture::NothingInRange(5)
         );
+    }
+
+    #[test]
+    fn only_a_whole_capture_of_another_length_is_settled_without_a_read() {
+        use crate::pending::ObservationKind::{GrepMatch, Path};
+        assert!(whole_capture_cannot_match(Path, "a.rs", "ab", 3));
+        assert!(!whole_capture_cannot_match(Path, "a.rs", "ab", 2));
+        assert!(!whole_capture_cannot_match(Path, "a.rs lines 1-1", "ab", 3));
+        assert!(!whole_capture_cannot_match(GrepMatch, "a.rs", "ab", 3));
     }
 
     fn fact(id: &str, extent: &[(&str, &str)]) -> crate::facts::Fact {

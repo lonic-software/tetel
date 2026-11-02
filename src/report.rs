@@ -105,7 +105,8 @@ const NON_COVERAGE: &[&str] = &[
 read and the hits it captured, so a new hit, or a new match for a search that once found none, \
 goes unreported",
     "a line range whose text is too plain to tell apart: a range matches wherever its lines \
-still sit together, so a lone `}` or a blank line stands while the file holds another, and a captured blank line stands once the file is empty",
+still sit together, so a lone `}` or a blank line stands while the file holds another, \
+and a captured blank line stands once the file is empty",
     "a stale extent on a file whose own name reads like a line range, such as `x lines 1-2`: \
 the capture is read back off its label, so that file compares as the range its name spells",
     "dependents that never declared themselves",
