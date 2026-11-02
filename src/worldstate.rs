@@ -381,8 +381,10 @@ pub struct ExtentDrift {
 }
 
 /// What a `Path` observation captured, read back off its label. The label is
-/// the only record of it; a file really named `x lines 1-2` reads as a range,
-/// which only makes its comparison the more lenient one.
+/// the only record of it, so a file really named `x lines 1-2` is misread; the
+/// report's standing non-coverage says so. A field recording the shape would
+/// still need this parser for every fact already minted, and two paths are not
+/// worth it for a file name that rare.
 #[derive(Debug, PartialEq)]
 enum PathCapture {
     Whole,
@@ -423,15 +425,18 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
         // `split_grep_line` left each hit as `<line number>:<text>`. Every
         // hit must survive, duplicates counted: `dup` captured twice needs two
         // lines still. A new hit in this file is the search's question.
-        let mut left: Vec<&str> = current.lines().collect();
+        let mut left: HashMap<&str, usize> = HashMap::new();
+        for line in current.lines() {
+            *left.entry(line).or_default() += 1;
+        }
         return captured.lines().all(|hit| {
             let text = hit.split_once(':').map_or(hit, |(_, text)| text);
-            match left.iter().position(|line| *line == text) {
-                Some(at) => {
-                    left.swap_remove(at);
+            match left.get_mut(text) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
                     true
                 }
-                None => false,
+                _ => false,
             }
         });
     }
@@ -440,11 +445,25 @@ fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &
         PathCapture::Cut => current.contains(captured),
         PathCapture::NothingInRange(first) => current.lines().count() < first,
         PathCapture::Range => {
-            let want: Vec<&str> = captured.lines().collect();
+            // An empty capture in range can only be one blank line: a range
+            // past the end has its own label.
+            let want: Vec<&str> = if captured.is_empty() { vec![""] } else { captured.lines().collect() };
             let have: Vec<&str> = current.lines().collect();
-            want.is_empty() || have.windows(want.len()).any(|w| w == want.as_slice())
+            have.windows(want.len()).any(|w| w == want.as_slice())
         }
     }
+}
+
+/// Larger than any file worth comparing. A memo chooses the paths `check`
+/// reads, and may have just been received.
+const MAX_COMPARED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Whether a `GrepMatch` capture reads as `grep -n` hits. A file name holding
+/// a `:` splits early, leaving `b.txt:1:text` and a key naming some other path.
+fn hits_are_well_formed(captured: &str) -> bool {
+    captured.lines().all(|hit| {
+        hit.split_once(':').is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    })
 }
 
 fn short(state: &str) -> &str {
@@ -518,7 +537,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 continue;
             }
             if !*roots.entry(entry.world_root.clone()).or_insert_with(|| root_is_here(&entry.world_root)) {
-                unknown(format!("{} is not available here", entry.world_root), &fact.id);
+                unknown(format!("{} could not be confirmed as a git worktree here", entry.world_root), &fact.id);
                 continue;
             }
             let Some(captured) = captured else {
@@ -526,10 +545,8 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 continue;
             };
             let path = Path::new(&entry.key);
-            // A grep line naming a file with `:` in it keys on a fragment,
-            // which would be resolved against wherever `check` was started.
-            if !path.is_absolute() {
-                unknown(format!("{} does not name a path", entry.key), &fact.id);
+            if !path.is_absolute() || (kind == GrepMatch && !hits_are_well_formed(captured)) {
+                unknown(format!("{} (from a file name with a `:` in it) does not name the subject", entry.key), &fact.id);
                 continue;
             }
             // Asked before the read: a FIFO put where a file was would block
@@ -540,6 +557,7 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
                 Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Ok(Some("no longer exists")),
                 Err(_) => Err(()),
                 Ok(meta) if !meta.is_file() => Ok(Some("is no longer a regular file")),
+                Ok(meta) if meta.len() > MAX_COMPARED_BYTES => Err(()),
                 Ok(_) => match std::fs::read(path) {
                     Err(_) => Err(()),
                     Ok(bytes) => {
@@ -556,12 +574,12 @@ pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
             };
             match verdict {
                 Ok(Some(what)) => subjects.push(format!(
-                    "{} {what} since capture at {}",
+                    "{} {what} (captured at {})",
                     entry.label,
                     short(&entry.world_state)
                 )),
                 Ok(None) => {}
-                Err(()) => unknown(format!("{} could not be read here", entry.key), &fact.id),
+                Err(()) => unknown(format!("{} could not be read here, or is too large to compare", entry.key), &fact.id),
             }
         }
         if !subjects.is_empty() {

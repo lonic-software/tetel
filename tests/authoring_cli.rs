@@ -4682,7 +4682,7 @@ fn check_names_each_fact_whose_subject_changed_and_never_fails_for_it() {
     std::fs::write(repo.join("c.txt"), "other\n").unwrap();
     let (report, code) = check_in(&sb, &repo, &memo);
     assert_eq!(code, clean_code, "a stale extent is human-owed, never a failure: {report}");
-    assert!(stale_row(&report, "F1").is_some_and(|r| r.contains("a.txt differs since capture at git:")), "{report}");
+    assert!(stale_row(&report, "F1").is_some_and(|r| r.contains("a.txt differs (captured at git:")), "{report}");
     assert!(stale_row(&report, "F2").is_some_and(|r| r.contains("b.txt lines 2-3 differs")), "{report}");
     assert!(stale_row(&report, "F3").is_some_and(|r| r.contains("c.txt (grep (ERE): needle) differs")), "{report}");
     assert!(stale_row(&report, "F4").is_none(), "a command names no subject: {report}");
@@ -4732,7 +4732,7 @@ fn a_root_that_is_not_here_reports_unknown_rather_than_stale() {
     let (report, _) = check_in(&sb, &elsewhere, &moved.join("memo.md"));
     assert!(stale_row(&report, "F1").is_none(), "{report}");
     let row = report.lines().find(|l| l.contains("could not be compared")).expect(&report);
-    assert!(row.contains("[F1, F2, F3]") && row.contains("is not available here"), "{report}");
+    assert!(row.contains("[F1, F2, F3]") && row.contains("could not be confirmed as a git worktree here"), "{report}");
 }
 
 /// A one-fact memo over whatever `observe` looks at, in a fresh repo.
@@ -4786,7 +4786,7 @@ fn a_dirty_non_utf8_diff_does_not_hide_the_tree() {
     std::fs::write(repo.join("a.txt"), "changed\n").unwrap();
     let (report, _) = check_in(&sb, &repo, &memo);
     assert!(stale_row(&report, "F1").is_some(), "{report}");
-    assert!(!report.contains("is not available here"), "{report}");
+    assert!(!report.contains("could not be confirmed as a git worktree here"), "{report}");
 }
 
 #[test]
@@ -4813,7 +4813,7 @@ fn paged_and_cut_captures_compare_as_ranges() {
 }
 
 #[test]
-#[cfg(unix)] // a colon in a file name, and a locale grep honours
+#[cfg(unix)] // a locale grep honours
 fn a_grep_hit_in_a_non_utf8_file_stays_fresh_until_it_changes() {
     let sb = Sandbox::new("tet90-lossy");
     let repo = sb.dir.join("repo");
@@ -4842,14 +4842,52 @@ fn a_grep_hit_in_a_non_utf8_file_stays_fresh_until_it_changes() {
 
 #[test]
 #[cfg(unix)] // a colon in a file name
-fn a_grep_key_that_is_not_a_path_is_unknown_and_never_read_from_the_cwd() {
-    let sb = Sandbox::new("tet90-colon");
-    let (repo, memo) = one_fact_memo(&sb, &[("a:b.txt", b"needle\n")], &["look", "--grep", "needle", "a:b.txt"]);
-    // `a` is what the mis-split key would open, relative to `check`'s cwd.
-    std::fs::write(repo.join("a"), "not the subject\n").unwrap();
+fn a_grep_key_from_a_colon_file_name_is_unknown_however_it_was_spelled() {
+    for (name, spelling, existing) in [
+        ("relative", "a:b.txt".to_string(), false),
+        ("existing", "a:b.txt".to_string(), true),
+        ("absolute", String::new(), false),
+    ] {
+        let sb = Sandbox::new(&format!("tet90-colon-{name}"));
+        let repo = sb.dir.join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a:b.txt"), "needle\n").unwrap();
+        if existing {
+            std::fs::write(repo.join("a"), "not the subject\n").unwrap();
+        }
+        let spelled = if spelling.is_empty() { repo.join("a:b.txt").display().to_string() } else { spelling };
+        run_in(&sb, &repo, &["look", "--grep", "needle", &spelled]);
+        run_in(&sb, &repo, &["fact", "--note", "the subject"]);
+        run_in(&sb, &repo, &["claim", "--cites", "F1", "--proposition", "fixture"]);
+        run_in(&sb, &repo, &["prose", "--text", "Fixture.", "--cites", "C1"]);
+        let memo = repo.join("memo.md");
+        run_in(&sb, &repo, &["render", "--out", memo.to_str().unwrap()]);
+        let (report, _) = check_in(&sb, &repo, &memo);
+        assert!(stale_row(&report, "F1").is_none(), "{name}: {report}");
+        assert!(report.contains("does not name the subject"), "{name}: {report}");
+    }
+}
+
+#[test]
+fn a_captured_blank_line_goes_stale_once_the_file_has_none() {
+    let sb = Sandbox::new("tet90-blank");
+    let (repo, memo) = one_fact_memo(&sb, &[("b.txt", b"\nx\n")], &["look", "b.txt", "--lines", "1:1"]);
     let (report, _) = check_in(&sb, &repo, &memo);
     assert!(stale_row(&report, "F1").is_none(), "{report}");
-    assert!(report.contains("does not name a path"), "{report}");
+    std::fs::write(repo.join("b.txt"), "x\ny\n").unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_some(), "{report}");
+}
+
+#[test]
+fn a_subject_grown_past_the_cap_is_unknown_and_not_read() {
+    let sb = Sandbox::new("tet90-cap");
+    let (repo, memo) = one_fact_memo(&sb, &[("a.txt", b"alpha\n")], &["look", "a.txt"]);
+    let f = std::fs::OpenOptions::new().write(true).open(repo.join("a.txt")).unwrap();
+    f.set_len(65 * 1024 * 1024).unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_none(), "{report}");
+    assert!(report.contains("too large to compare"), "{report}");
 }
 
 // --- TET-93: `look` shapes its own reply to the reply budget -------------
