@@ -360,6 +360,187 @@ pub fn tree_report(facts: &[crate::facts::Fact]) -> TreeReport {
     TreeReport { divergent, ungradable_facts: ungradable, relative_label_roots, unmarked_relative_labels }
 }
 
+/// One fact whose captured extent no longer matches the tree it was read
+/// from — one row per fact, the aggregation `unmarked_relative_labels` uses.
+pub struct StaleExtent {
+    pub fact_id: String,
+    /// One line per subject: its label, what happened to it, and the two
+    /// tree states it is compared across.
+    pub subjects: Vec<String>,
+}
+
+/// What [`extent_drift`] found. A fact can appear in both lists: its extent
+/// is judged per observation.
+#[derive(Default)]
+pub struct ExtentDrift {
+    pub stale: Vec<StaleExtent>,
+    /// `(why it could not be compared, fact ids)`, in first-seen order.
+    /// Unknown is never stale: a memo read on a machine without the tree
+    /// it describes has every fact here, and that says nothing about them.
+    pub unknown: Vec<(String, Vec<String>)>,
+}
+
+/// What a `Path` observation captured, read back off its label. The label is
+/// the only record of it; a file really named `x lines 1-2` reads as a range,
+/// which only makes its comparison the more lenient one.
+#[derive(Debug, PartialEq)]
+enum PathCapture {
+    Whole,
+    Range,
+    /// One over-long line, cut to its first bytes.
+    Cut,
+    NothingInRange,
+}
+
+fn path_capture(label: &str) -> PathCapture {
+    let Some(at) = label.rfind(" lines ") else { return PathCapture::Whole };
+    let rest = &label[at + " lines ".len()..];
+    let digits = |s: &str| s.len() - s.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let first = digits(rest);
+    let Some(after_dash) = rest[first..].strip_prefix('-') else { return PathCapture::Whole };
+    let second = digits(after_dash);
+    if first == 0 || second == 0 {
+        return PathCapture::Whole;
+    }
+    match &after_dash[second..] {
+        "" => PathCapture::Range,
+        tail if tail.starts_with(", cut to its first ") => PathCapture::Cut,
+        tail if tail.starts_with(" (file has ") => PathCapture::NothingInRange,
+        _ => PathCapture::Whole,
+    }
+}
+
+/// Whether what `entry` captured still stands in `current`, the file's text
+/// now. A range matches wherever its lines still sit together: an insertion
+/// above it moves the subject without changing it, and reporting that would
+/// bury the real rows under every edit to the file.
+fn still_matches(kind: crate::pending::ObservationKind, label: &str, captured: &str, current: &str) -> bool {
+    use crate::pending::ObservationKind::GrepMatch;
+    if kind == GrepMatch {
+        // `split_grep_line` left each hit as `<line number>:<text>`. Every
+        // hit must survive; a new hit in this file is the search's question.
+        return captured.lines().all(|hit| {
+            let text = hit.split_once(':').map_or(hit, |(_, text)| text);
+            current.lines().any(|line| line == text)
+        });
+    }
+    match path_capture(label) {
+        PathCapture::Whole => current == captured,
+        PathCapture::Cut => current.contains(captured),
+        PathCapture::NothingInRange => true,
+        PathCapture::Range => {
+            let want: Vec<&str> = captured.lines().collect();
+            let have: Vec<&str> = current.lines().collect();
+            want.is_empty() || have.windows(want.len()).any(|w| w == want.as_slice())
+        }
+    }
+}
+
+fn short(state: &str) -> &str {
+    state.get(..16).unwrap_or(state)
+}
+
+/// Which facts' captured extents differ from the same path in their
+/// `world_root` today.
+///
+/// [`tree_report`] compares facts to each other; this compares each one to
+/// the tree. It reads the file named by each `Path` and `GrepMatch` entry and
+/// nothing else: a `Proc` entry names a command, not a subject, and a
+/// `Search`/`NoMatch` entry would need its search run again, which the
+/// report's standing non-coverage says.
+///
+/// It compares content rather than tree states, because a state hash moves
+/// on any edit anywhere in the tree and would call every fact stale.
+pub fn extent_drift(facts: &[crate::facts::Fact]) -> ExtentDrift {
+    use crate::pending::ObservationKind::{GrepMatch, Path as PathKind};
+    let mut drift = ExtentDrift::default();
+    let mut session = Session::new();
+    let mut unknown = |reason: String, id: &str| match drift.unknown.iter_mut().find(|(r, _)| *r == reason) {
+        Some((_, ids)) => {
+            if !ids.iter().any(|i| i == id) {
+                ids.push(id.to_string());
+            }
+        }
+        None => drift.unknown.push((reason, vec![id.to_string()])),
+    };
+    let mut stale = Vec::new();
+
+    for fact in facts {
+        let outputs = fact.observation_outputs();
+        let mut next_output = 0usize;
+        let mut subjects = Vec::new();
+        for entry in &fact.extent {
+            // Keeps `next_output` aligned: `observation_outputs` skips the
+            // empty captures, so only a non-empty one consumes a slot.
+            let captured = match (&outputs, entry.out_len) {
+                (Some(_), Some(0)) => Some(""),
+                (Some(all), Some(_)) => {
+                    next_output += 1;
+                    all.get(next_output - 1).copied()
+                }
+                _ => None,
+            };
+            let kind = match entry.kind {
+                Some(kind @ (PathKind | GrepMatch)) => kind,
+                // A command or a whole search names no file to compare.
+                Some(_) => continue,
+                None if entry.label.starts_with("proc: ") => continue,
+                None => {
+                    unknown("minted before an observation recorded its kind".to_string(), &fact.id);
+                    continue;
+                }
+            };
+            if entry.world_root.is_empty() {
+                unknown("minted before an observation's tree marker named its tree".to_string(), &fact.id);
+                continue;
+            }
+            if entry.world_root == NO_GIT {
+                unknown("observed outside any git worktree".to_string(), &fact.id);
+                continue;
+            }
+            let now = session.for_path(Path::new(&entry.world_root));
+            if now.root != entry.world_root {
+                unknown(format!("{} is not available here", entry.world_root), &fact.id);
+                continue;
+            }
+            let Some(captured) = captured else {
+                unknown("minted before an extent recorded each observation's length".to_string(), &fact.id);
+                continue;
+            };
+            let path = Path::new(&entry.key);
+            // Asked before the read: a FIFO put where a file was would block
+            // `read_to_string` forever (TET-79).
+            // `Err` is "could not tell"; `Ok(None)` is "still stands".
+            let verdict: Result<Option<&str>, ()> = match std::fs::metadata(path) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some("no longer exists")),
+                Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Ok(Some("no longer exists")),
+                Err(_) => Err(()),
+                Ok(meta) if !meta.is_file() => Ok(Some("is no longer a regular file")),
+                Ok(_) => match std::fs::read_to_string(path) {
+                    Ok(current) => Ok((!still_matches(kind, &entry.label, captured, &current)).then_some("differs")),
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(Some("differs")),
+                    Err(_) => Err(()),
+                },
+            };
+            match verdict {
+                Ok(Some(what)) => subjects.push(format!(
+                    "{} {what}: captured at {}, tree now at {}",
+                    entry.label,
+                    short(&entry.world_state),
+                    short(&now.state)
+                )),
+                Ok(None) => {}
+                Err(()) => unknown(format!("{} could not be read here", entry.key), &fact.id),
+            }
+        }
+        if !subjects.is_empty() {
+            stale.push(StaleExtent { fact_id: fact.id.clone(), subjects });
+        }
+    }
+    drift.stale = stale;
+    drift
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

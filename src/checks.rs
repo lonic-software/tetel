@@ -155,6 +155,13 @@ pub struct Findings {
     /// caller's own relative spelling, so the residue is surfaced rather
     /// than repaired. Same snapshot dependency as `tree_states`.
     pub unmarked_relative_labels: Vec<(String, Vec<String>)>,
+    /// Facts whose captured extent differs from the same path in its
+    /// `world_root` today — see [`crate::worldstate::extent_drift`].
+    /// Human-owed, never a failure: a memo is supposed to describe the tree
+    /// it was captured against. Same snapshot dependency as `tree_states`.
+    pub stale_extents: Vec<crate::worldstate::StaleExtent>,
+    /// `(reason, fact ids)` for extents that comparison could not reach.
+    pub unknown_extents: Vec<(String, Vec<String>)>,
     /// Declared modification targets whose cited fact does not census
     /// them, re-verified against the shipped snapshot — a **machine
     /// failure**.
@@ -1069,6 +1076,8 @@ pub fn analyze(doc: &Document, ledger_claims: &[Claim]) -> Findings {
         tree_ungradable: Vec::new(),
         relative_label_roots: Vec::new(),
         unmarked_relative_labels: Vec::new(),
+        stale_extents: Vec::new(),
+        unknown_extents: Vec::new(),
         uncensused_targets: Vec::new(),
         unverifiable_targets: Vec::new(),
         unquoted_premises: Vec::new(),

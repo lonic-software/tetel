@@ -4614,6 +4614,127 @@ fn tet42_check_reports_the_distinct_anchoring_roots_of_a_memos_relative_labels()
     assert!(no_provenance_row(&report), "TET-42 must not reach render: {report}");
 }
 
+// --- TET-90: a fact's subject moved after it was captured -----------------
+
+/// `check`'s stdout and exit code for `memo`, from `cwd`.
+fn check_in(sb: &Sandbox, cwd: &std::path::Path, memo: &std::path::Path) -> (String, Option<i32>) {
+    let out = Command::new(env!("CARGO_BIN_EXE_tetel"))
+        .args(["check", memo.to_str().unwrap()])
+        .current_dir(cwd)
+        .env("TETEL_STATE_HOME", sb.state_home())
+        .env("TETEL_CONFIG_HOME", sb.config_home())
+        .output()
+        .unwrap();
+    (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code())
+}
+
+/// One rendered memo over F1 (a.txt whole), F2 (b.txt lines 2-3), F3 (a grep
+/// hit in c.txt), F4 (a command) and F5 (a no-match search).
+fn stale_extent_memo(sb: &Sandbox) -> (std::path::PathBuf, std::path::PathBuf) {
+    let repo = sb.dir.join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("a.txt"), "alpha\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    std::fs::write(repo.join("c.txt"), "keep needle here\nother\n").unwrap();
+    run_in(sb, &repo, &["look", "a.txt"]);
+    run_in(sb, &repo, &["fact", "--note", "whole file"]);
+    run_in(sb, &repo, &["look", "b.txt", "--lines", "2:3"]);
+    run_in(sb, &repo, &["fact", "--note", "a range"]);
+    run_in(sb, &repo, &["look", "--grep", "needle", "c.txt"]);
+    run_in(sb, &repo, &["fact", "--note", "a grep hit"]);
+    run_in(sb, &repo, &["run", "--", "echo", "hi"]);
+    run_in(sb, &repo, &["fact", "--note", "a command"]);
+    run_in(sb, &repo, &["look", "--grep", "absent-word", "a.txt"]);
+    run_in(sb, &repo, &["fact", "--note", "a bounded negative"]);
+    run_in(sb, &repo, &["claim", "--cites", "F1,F2,F3,F4,F5", "--proposition", "stale extent fixture"]);
+    run_in(sb, &repo, &["prose", "--text", "Fixture.", "--cites", "C1"]);
+    let memo = repo.join("memo.md");
+    run_in(sb, &repo, &["render", "--out", memo.to_str().unwrap()]);
+    (repo, memo)
+}
+
+fn stale_row<'a>(report: &'a str, fact: &str) -> Option<&'a str> {
+    let prefix = format!("      {fact}: ");
+    report.lines().find(|l| l.starts_with(&prefix))
+}
+
+#[test]
+fn check_is_silent_about_extents_while_every_subject_still_stands() {
+    let sb = Sandbox::new("tet90-fresh");
+    let (repo, memo) = stale_extent_memo(&sb);
+    // An edit elsewhere moves the tree state, and an insertion above b.txt's
+    // range moves its line numbers. Neither touches a captured subject.
+    std::fs::write(repo.join("unrelated.txt"), "x\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "zero\none\ntwo\nthree\nfour\n").unwrap();
+    std::fs::write(repo.join("c.txt"), "new first line\nkeep needle here\nother\n").unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(!report.contains("Re-read these before trusting"), "{report}");
+    assert!(!report.contains("could not be compared"), "{report}");
+}
+
+#[test]
+fn check_names_each_fact_whose_subject_changed_and_never_fails_for_it() {
+    let sb = Sandbox::new("tet90-stale");
+    let (repo, memo) = stale_extent_memo(&sb);
+    let (_, clean_code) = check_in(&sb, &repo, &memo);
+    std::fs::write(repo.join("a.txt"), "alpha\nmore\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "one\ntwo\nTHREE\nfour\n").unwrap();
+    std::fs::write(repo.join("c.txt"), "other\n").unwrap();
+    let (report, code) = check_in(&sb, &repo, &memo);
+    assert_eq!(code, clean_code, "a stale extent is human-owed, never a failure: {report}");
+    assert!(stale_row(&report, "F1").is_some_and(|r| r.contains("a.txt differs: captured at git:")), "{report}");
+    assert!(stale_row(&report, "F2").is_some_and(|r| r.contains("b.txt lines 2-3 differs")), "{report}");
+    assert!(stale_row(&report, "F3").is_some_and(|r| r.contains("c.txt (grep (ERE): needle) differs")), "{report}");
+    assert!(stale_row(&report, "F4").is_none(), "a command names no subject: {report}");
+    assert!(stale_row(&report, "F5").is_none(), "a search is not re-run: {report}");
+}
+
+#[test]
+fn a_whole_file_capture_goes_stale_on_an_append_a_range_would_tolerate() {
+    let sb = Sandbox::new("tet90-append");
+    let (repo, memo) = stale_extent_memo(&sb);
+    std::fs::write(repo.join("a.txt"), "alpha\nappended\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "one\ntwo\nthree\nfour\nappended\n").unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_some(), "{report}");
+    assert!(stale_row(&report, "F2").is_none(), "{report}");
+}
+
+#[test]
+fn a_deleted_subject_is_stale_and_says_it_is_gone() {
+    let sb = Sandbox::new("tet90-gone");
+    let (repo, memo) = stale_extent_memo(&sb);
+    std::fs::remove_file(repo.join("a.txt")).unwrap();
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_some_and(|r| r.contains("a.txt no longer exists")), "{report}");
+}
+
+#[test]
+#[cfg(unix)] // mkfifo
+fn a_fifo_put_where_a_subject_was_is_stale_and_does_not_hang_check() {
+    let sb = Sandbox::new("tet90-fifo");
+    let (repo, memo) = stale_extent_memo(&sb);
+    std::fs::remove_file(repo.join("a.txt")).unwrap();
+    assert!(Command::new("mkfifo").arg(repo.join("a.txt")).status().unwrap().success());
+    let (report, _) = check_in(&sb, &repo, &memo);
+    assert!(stale_row(&report, "F1").is_some_and(|r| r.contains("no longer a regular file")), "{report}");
+}
+
+#[test]
+fn a_root_that_is_not_here_reports_unknown_rather_than_stale() {
+    let sb = Sandbox::new("tet90-unknown");
+    let (repo, _) = stale_extent_memo(&sb);
+    // The memo and its snapshot travel; the tree they describe does not.
+    let elsewhere = sb.dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let moved = sb.dir.join("moved-repo");
+    std::fs::rename(&repo, &moved).unwrap();
+    let (report, _) = check_in(&sb, &elsewhere, &moved.join("memo.md"));
+    assert!(stale_row(&report, "F1").is_none(), "{report}");
+    let row = report.lines().find(|l| l.contains("could not be compared")).expect(&report);
+    assert!(row.contains("[F1, F2, F3]") && row.contains("is not available here"), "{report}");
+}
+
 // --- TET-93: `look` shapes its own reply to the reply budget -------------
 
 /// Every entry in a workspace's pending buffer, as `(label, output)`.

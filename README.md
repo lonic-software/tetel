@@ -135,7 +135,8 @@ Two labelled partitions, each stating its own scope, and **never a single docume
   uncensused modification targets, transplant premises that are not the donor's words or that
   nothing answers, an unreadable acknowledgement log, and provenance drift. These fail the run.
 - **human-owed** — every READING/OBSERVED/ATTESTED row, every row whose domain or extent contains a
-  proc:/external designator, the working-tree states this memo's facts were taken against, the RUN
+  proc:/external designator, the working-tree states this memo's facts were taken against, facts
+  whose captured extent differs from the tree today, the RUN
   command↔proposition correspondence, cited-but-undefined and defined-but-uncited ids, ungrounded
   ledger claims, claims grounded only by attested (ingested) evidence, evidence sources that do not
   resolve, ledger claims with no declared scope at all, qualified verdicts, superseded evidence,
