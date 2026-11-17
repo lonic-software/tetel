@@ -289,7 +289,82 @@ argument, but it is the form that keeps working once a command takes flags of it
 `--scope user` makes it available in every project; drop it to register only in the current one.
 Confirm with `claude mcp get tetel`, which should report `Status: ✔ Connected`.
 
-> **Reinstalling requires restarting Claude Code.** Both `cargo install` and the installers replace the binary by rename, so
+### Using it from Codex
+
+The compatibility examples and client behavior in this section were recorded with
+**Codex CLI 0.167.0** on Linux (including WSL2) and native Windows. They are versioned
+observations, not a compatibility guarantee for other releases or execution paths.
+The same `tetel mcp` server was used in those examples.
+Install tetel using the instructions above. Make sure `codex`, `tetel`, `git`, and `grep`
+are available to the process that starts Codex. In WSL2, install and run the Linux binaries
+inside the distribution.
+
+On Linux, check the commands with:
+
+```sh
+command -v codex tetel git grep
+```
+
+On native Windows, check them in PowerShell:
+
+```powershell
+Get-Command codex, tetel, git, grep
+```
+
+Git for Windows includes `grep`, but its `usr\bin` directory may not be on `PATH`.
+For the default Git installation, this adds it to the current PowerShell session:
+
+```powershell
+$env:PATH = "$env:ProgramFiles\Git\usr\bin;$env:PATH"
+```
+
+Adjust the path if Git is installed elsewhere. Start Codex from that session so its tetel
+process inherits the same `PATH`. Restart an already running terminal or Codex app after
+an installer changes the user `PATH`.
+
+For Codex CLI 0.167.0, choose one registration scope:
+
+- **User-wide:** run `codex mcp add tetel -- tetel mcp`. This adds tetel to your Codex user
+  configuration and makes it available across projects.
+- **One project:** add the following to that project's `.codex/config.toml`. Merge it with
+  any existing configuration; do not replace the file or define `tetel` twice.
+
+```toml
+[mcp_servers.tetel]
+command = "tetel"
+args = ["mcp"]
+```
+
+In Codex CLI 0.167.0, project configuration is loaded only for trusted projects. Open Codex in the intended
+project and review its trust prompt. Do not put an unrelated project inside another
+repository merely to share its Codex configuration. See the official
+[Codex configuration guide](https://learn.chatgpt.com/docs/config-file/config-basic) and
+[MCP guide](https://learn.chatgpt.com/docs/extend/mcp) for configuration and trust behavior.
+
+From the project directory, inspect the configuration with `codex mcp get tetel`.
+Then start a new Codex session and ask it to call the tetel `workspaces` tool. The configuration
+read alone does not prove that the server starts or that a model can call it. The observed
+model-visible names with Codex 0.167.0 are `mcp__tetel__workspaces`, `mcp__tetel__look`, and
+the corresponding `mcp__tetel__*` names for the other tools.
+
+Tetel has no `init` command. Authoring operations take a workspace name; the CLI defaults
+to `default`. Use a distinct name for each project and design, such as `example-api-cache`,
+to avoid mixing observations from separate designs. This is a naming convention, not an
+access-control boundary. Live state and rendered evidence are described in
+[Where things live](#where-things-live).
+
+Connecting tetel does not install the separate lonic agent-skills package. Codex versions
+of those workflows require their own installation and compatibility checks.
+
+Tetel keeps its existing 32 KiB reply budget. In a Codex 0.167.0 test on Linux and Windows,
+a synthetic MCP tool's `output_token_limit = 256` setting did not produce that limit on the
+tested Code Mode path: the model received about 10,000 tokens. This is a client-path
+observation, not a reason to remove tetel's server-side bound or a guarantee that every
+Codex execution path behaves the same way.
+
+### After reinstalling
+
+> **Restart the MCP client, such as Codex or Claude Code, after reinstalling tetel.** Both `cargo install` and the installers replace the binary by rename, so
 > a server process already running keeps the file it opened — reinstalling does not reach it, and
 > neither does reloading plugins. Since a stale server would otherwise answer with an old build
 > rather than erroring, one that finds its binary replaced underneath it now **refuses every tool
